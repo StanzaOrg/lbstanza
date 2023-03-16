@@ -190,10 +190,11 @@ defn compile (e:EDefClosure, dtable:IntTable<Tuple<Int>>,
 
 defn compile (e:EDefGlobal, global-table:GlobalTable, iotable:IOTable, progbuffer:ProgBuffer) :
   ;Compile the VMGlobal definition.
-  val size = size(global-table, type(e))
-  val offsets = offsets(global-table, type(e))
-  val vmtypes = vmtypes(global-table, type(e))
-  val roots = roots(global-table, type(e))
+  val type = type(e)
+  val size = size(global-table, type)
+  val offsets = offsets(global-table, type)
+  val vmtypes = vmtypes(global-table, type)
+  val roots = roots(global-table, type)
   add(progbuffer, VMGlobal(n(e), size, roots))
 
   ;Compile the VMDebugName entry.
@@ -202,9 +203,9 @@ defn compile (e:EDefGlobal, global-table:GlobalTable, iotable:IOTable, progbuffe
     if key?(iotable,n) :
       val rec = iotable[n]
       to-string(name(id(rec)))
-  match(name?(n(e))) :
-    (str:String) : add(progbuffer, VMDebugName(n(e), str))
-    (f:False) : false
+  match(name?(n(e)), type) :
+    (str:String, t:HiEType) : add(progbuffer, VMDebugName(n(e), str))
+    (a,b) : false
 
 defn parent-ids (t:EType|False) :
   val ids = Vector<Int>()
