@@ -149,6 +149,9 @@ typedef const struct {
 static inline void SafepointEntry_write(SafepointEntry* entry, const uint8_t inst) {
   AddressList_write(entry->address_list, inst);
 }
+static SafepointAddress* SafepointEntry_find(SafepointEntry* entry, const void* pc) {
+  return AddressList_find(entry->address_list, pc);
+}
 
 typedef const struct {
   const uint64_t num_entries;
@@ -204,7 +207,7 @@ static void print_safepoint(const void* pc) {
     for (uint64_t i = 0, num_files = app_safepoint_table->num_files; i < num_files; i++) {
       FileSafepoints* file = safepoints->files[i];
       for (SafepointEntry *entry = file->entries, *lim = entry + file->num_entries; entry < lim; entry++) {
-        if (AddressList_find(entry->address_list, pc)) {
+        if (SafepointEntry_find(entry, pc)) {
           log_printf("!!! Safepoint pc: %p file: %s line: %" PRIu64 "\n", pc, file->filename, entry->line);
           return;
         }
@@ -277,7 +280,7 @@ static inline void ActiveFileSafepoints_restore(void) {
 static inline SafepointEntry* ActiveFileSafepoints_find_entry(const void* pc) {
   for (const ActiveFileSafepoints* p = active_file_safepoints; p; p = p->next)
     for (SafepointEntry* const* entry = p->data; *entry; entry++)
-      if (AddressList_find((*entry)->address_list, pc))
+      if (SafepointEntry_find(*entry, pc))
         return *entry;
   return NULL;
 }
@@ -1773,7 +1776,7 @@ static inline uint64_t current_stack_depth(RawCoroutine* current_coroutine) {
   return sp;
 }
 
-static SafepointEntry* current_safepoint_position(void) {
+static inline SafepointEntry* current_safepoint_position(void) {
   const uint64_t pc = get_signal_handler_ip();
   if (pc) {
     // This implementation is O(number-of-safepoints) and so would not scale for large apps.
@@ -1784,11 +1787,15 @@ static SafepointEntry* current_safepoint_position(void) {
       for (uint64_t i = 0, num_files = app_safepoint_table->num_files; i < num_files; i++) {
         FileSafepoints* file = safepoints->files[i];
         for (SafepointEntry *entry = file->entries, *lim = entry + file->num_entries; entry < lim; entry++)
-          if (AddressList_find(entry->address_list, (const void*)pc)) return entry;
+          if (SafepointEntry_find(entry, (const void*)pc)) return entry;
       }
     }
   }
-  return NULL;
+  // Construct a dummy safepoint entry for a rare case of missing safepoint when stopped at entry.
+  // This is only necessary to avoid null check prior to SafepointEntry_find.
+  static AddressList dummy_address_list = {0};
+  static SafepointEntry dummy_safepoint_entry = {0, &dummy_address_list};
+  return &dummy_safepoint_entry;
 }
 
 enum { false_ref = 2 };
@@ -1839,11 +1846,10 @@ void notify_stopped_at_safepoint(const void* pc) {
       if (stepping_coroutine_ref != *current_coroutine_ref_ptr) return;
 
       uint64_t stack_depth = current_stack_depth(stepping_coroutine);
-      if (run_mode == RUN_MODE_STEP_OUT) {
-        if (stack_depth >= stepping_stack_depth) return;
-      } else { // RUN_MODE_STEP_OVER
+      if (stack_depth >= stepping_stack_depth) {
         if (stack_depth > stepping_stack_depth) return;
-        if (stack_depth == stepping_stack_depth && stepping_position == current_safepoint_position()) return;
+        if (run_mode == RUN_MODE_STEP_OUT) return;
+        if (SafepointEntry_find(stepping_position, pc)) return;
       }
     }
   }
