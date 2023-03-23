@@ -140,3 +140,12 @@ defn main () :
   y as Array<String|Double>
   z as Tuple<Int>
   z as Tuple<String>
+
+deftype A
+deftype B
+
+defmulti f (x:Seqable<B>) -> False
+defmulti f (x:Tuple<A>) -> False
+defmulti conv (x:Int) -> A
+
+f(seq(conv, [0 1 2]))
