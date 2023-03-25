@@ -212,7 +212,9 @@ public defn arg-pattern (arities:FnArities, expected:Tuple<FArg>, num-given:Int)
           else : PositionalArg<MissingArg>(true, MissingArg())
         else : PositionalArg<GivenArg>(false, GivenArg(next(arg-counter)))
       (a:KeywordArg) :
-        fatal("Function with keyword arguments cannot be used by only positional values.")
+        if not optional?(a) :
+          fatal("Function with required keyword arguments cannot be used in expression position.")
+        KeywordArg<MissingArg>(name(a), true, MissingArg())
       (a:VarArg) :
         VarArg<GivenArgs>(name(a), GivenArgs(to-tuple(arg-counter)))
       (a:RestArg) :
