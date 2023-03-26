@@ -42,7 +42,7 @@ public defn supported-platform? (p:Symbol) :
 
 public defn ensure-supported-platform (p:Symbol) :
   if not supported-platform?(p) :
-    throw $ Exception("%_ is not a supported platform." % [p])
+    throw $ Exception("'%_' is not a supported platform." % [p])
 
 public defn platform-flag (platform:Symbol) -> Symbol :
   switch(platform) :
@@ -56,7 +56,7 @@ public defn supported-link-type? (l:Symbol) :
 
 public defn ensure-supported-link-types (l:Symbol) :
   if not supported-link-type?(l) :
-    throw $ Exception("%_ is not a supported link-type." % [l])
+    throw $ Exception("'%_' is not a supported link-type." % [l])
 
 public defn link-flag (link-type:Symbol) -> Symbol :
   switch(link-type) :
