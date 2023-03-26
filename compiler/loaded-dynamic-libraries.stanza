@@ -9,7 +9,7 @@ system. Used to look up addresses of extern definitions.
 
   Package to library table:
 
-    mypackage => "mylib"
+    mypackage => ["mylib", "mylib2", ...]
     ...
 
   List of all loaded libraries:
@@ -62,7 +62,7 @@ public deftype LoadedDynamicLibraries
 public defmulti set-library-folders (libs:LoadedDynamicLibraries, folders:Tuple<String>) -> False
 
 ;Load the given dynamic library. Throws exception if unsuccessful.
-public defmulti load-library (libs:LoadedDynamicLibraries, package:Symbol, name:String) -> False
+public defmulti load-libraries (libs:LoadedDynamicLibraries, package:Symbol, names:Tuple<String>) -> False
 
 ;Load the given symbols. Throws exception if unsuccessful.
 public defmulti load-symbols (libs:LoadedDynamicLibraries, symbols:Tuple<ExternSymbol>) -> False
@@ -73,11 +73,9 @@ public defmulti id (libs:LoadedDynamicLibraries, package:Symbol, symbol:Symbol) 
 ;Retrieve the address of an extern.
 public defmulti extern-address (libs:LoadedDynamicLibraries, id:Int) -> Long
 
-;Represents an extern symbol from some library.
-;- library: The name of the library. If false, then
-;  load from static extern table.
+;Represents an extern symbol in some Stanza package.
 public defstruct ExternSymbol <: Hashable & Equalable :
-  library: String|False
+  package: Symbol
   symbol: Symbol
 with:
   hashable => true
@@ -90,7 +88,7 @@ with:
 public defn LoadedDynamicLibraries () :
 
   ;Table holding the libraries that each package requires.
-  val package-library-table = HashTable<Symbol,String>()
+  val package-libraries-table = HashTable<Symbol,Tuple<String>>()
 
   ;Table holding all the loaded libraries.
   val libraries = HashTable<String,DynamicLibrary>()
@@ -118,34 +116,59 @@ public defn LoadedDynamicLibraries () :
     defmethod set-library-folders (this, fs:Tuple<String>) :
       search-folders = fs
 
-    defmethod load-library (this, package:Symbol, name:String) :
-      package-library-table[package] = name
-      if not key?(libraries, name) :
-        val lib =
-          try : dynamic-library-open(search-folders, name)
-          catch (e) : throw(LoadLibraryError(package, name, search-folders))
-        libraries[name] = lib
+    defmethod load-libraries (this, package:Symbol, names:Tuple<String>) :
+      package-libraries-table[package] = names
+      for name in names do :
+        if not key?(libraries, name) :
+          val lib =
+            try : dynamic-library-open(search-folders, name)
+            catch (e) : throw(LoadLibraryError(package, name, search-folders))
+          libraries[name] = lib
 
     defmethod load-symbols (this, symbols:Tuple<ExternSymbol>) :
-      val missing = Vector<ExternSymbol>()
+
+      ;Hold any symbols that weren't able to be loaded
+      ;to generate an error message at the end.
+      val missing = Vector<MissingExternSymbol>()
+
+      ;Loop through the symbols and load any that aren't already
+      ;in the extern-symbol-table.
       for sym in symbols do :
         if not key?(extern-symbol-table, sym) :
-          match(library(sym)) :
-            (lib:String) :
-              try :
-                val dysym = dynamic-library-symbol(libraries[lib], to-string(symbol(sym)))
-                add-symbol(sym, properties(dysym))
-              catch (e) :
-                add(missing, sym)
-            (f:False) :
-              match(get?(static-extern-table, symbol(sym))) :
-                (index:Int) : add-symbol(sym, static-symbol-properties(index))
-                (f:False) : add(missing, sym)
+
+          ;Determine whether the given package uses the static extern table
+          ;for its symbols or whether its dynamically loaded from a lib.
+          ;Case: Static extern table if no libraries associated with it.
+          val libs = get?(package-libraries-table, package(sym), [])
+          val load-from-static-lib? = empty?(libs)
+
+          ;Case: Load from static extern table.
+          if load-from-static-lib? :
+            match(get?(static-extern-table, symbol(sym))) :
+              (index:Int) : add-symbol(sym, static-symbol-properties(index))
+              (f:False) : add(missing, MissingExternSymbol(sym, libs))
+              
+          ;Case: Load from dynamic lib.          
+          else :
+            ;Loop through libs and find the first library that it can be
+            ;loaded from. If none of the libraries contain the symbol, then add
+            ;the symbol to the 'missing' list.
+            label break :
+              for lib in libs any? :
+                try :
+                  val dysym = dynamic-library-symbol(libraries[lib], to-string(symbol(sym)))
+                  add-symbol(sym, properties(dysym))
+                  break()
+                catch (e) :
+                  false
+              add(missing, MissingExternSymbol(sym, libs))
+
+      ;Issue an error for any missing symbols.
       if not empty?(missing) :
         throw(LoadSymbolsError(to-tuple(missing)))
 
     defmethod id (this, package:Symbol, sym:Symbol) :
-      val extsym = ExternSymbol(get?(package-library-table,package), sym)
+      val extsym = ExternSymbol(package, sym)
       if not key?(extern-symbol-table,extsym) :
         fatal("Extern symbol %_ not yet loaded." % [extsym])
       extern-symbol-table[extsym]
@@ -188,6 +211,9 @@ defn force-slash (path:String) -> String :
 ;============================================================
 
 ;Holds the properties of a dynamically loaded or static extern symbol.
+;- address: The memory address of the symbol. Can either be a
+;  dynamically loaded address (for DynamicSymbol) or a static
+;  program address (for statically-compiled symbols).
 lostanza deftype SymbolProperty :
   address:ptr<?>
 
@@ -225,29 +251,36 @@ defmethod print (o:OutputStream, e:LoadLibraryError) :
 
 ;Occurs when symbols could not be loaded from libraries.
 public defstruct LoadSymbolsError <: DynamicLibrariesError :
-  symbols:Tuple<ExternSymbol>
+  symbols:Tuple<MissingExternSymbol>
+
+;Represents an extern symbol that could not be loaded, and where
+;we attempted to load it from.
+public defstruct MissingExternSymbol :
+  exsymbol:ExternSymbol
+  libraries:Tuple<String>
 
 defmethod print (o:OutputStream, e:LoadSymbolsError) :
   ;Accumulate all messages here.
   val messages = Vector<?>()
 
-  ;Group symbols by the library they're from.
-  val groups = group-by(library, symbols(e))
+  ;Group symbols by the libraries they're from.
+  val groups = group-by(libraries, symbols(e))
 
   ;Helper for collecting names of symbols.
-  defn symbol-names (ss:Seqable<ExternSymbol>) :
-    Indented("%n" % [seq(symbol, ss)])
+  defn symbol-names (ss:Seqable<MissingExternSymbol>) :
+    val names = for s in ss seq : symbol(exsymbol(s))
+    Indented("%n" % [names])
 
   ;Generate messages for all symbols from libraries.
-  val string-groups = filter({key(_) is String}, groups)
-  for entry in string-groups do :
-    add(messages, "The following extern symbols could not be loaded from dynamic library %~:\n%_" % [
-      key(entry), symbol-names(value(entry))])
+  val lib-groups = for g in groups filter : not empty?(key(g))
+  for entry in lib-groups do :
+    add(messages, "The following extern symbols could not be loaded from dynamic libraries %,:\n%_" % [
+      seq(written,key(entry)), symbol-names(value(entry))])
 
   ;Generate message for all symbols expecting to be statically included.
-  if key?(groups, false) :
+  if key?(groups, []) :
     val msg = "The following extern symbols were expected to be statically-included in the current compiler, \
-               but were not found:\n%_" % [symbol-names(groups[false])]
+               but were not found:\n%_" % [symbol-names(groups[[]])]
     add(messages, msg)
 
   ;Print the final message.
