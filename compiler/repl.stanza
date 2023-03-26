@@ -549,34 +549,34 @@ public defn REPL (macro-plugins:Tuple<String>) :
 ;============================================================
 
 ;Retrieve all the extern symbols defined in the given packages.
-defn extern-symbols (libraries:Tuple<KeyValue<Symbol,String>>,
-                     vmps:Tuple<VMPackage>) -> Tuple<ExternSymbol> :
-  ;Create table for looking up library for a given package.
-  val libtable = to-hashtable<Symbol,String>(libraries)
-
+defn extern-symbols (vmps:Tuple<VMPackage>) -> Tuple<ExternSymbol> :
   ;Create ExternSymbol.
-  to-tuple $ to-hashset<ExternSymbol> $
+  to-tuple $ 
     for package in vmps seq-cat :
-      val lib = get?(libtable, name(package))
       for e in externs(package) seq :
-        ExternSymbol(lib, name(e))
+        ExternSymbol(name(package), name(e))
 
 ;Load the libraries and symbols for the externs in the given
 ;dynamic libraries.
 defn load-dynamic-libraries (dylibs:LoadedDynamicLibraries,
                              proj-manager:ProjManager,
                              vmps:Tuple<VMPackage>) -> False :
-  ;Retrieve the libraries to load.
+  ;Ask the .proj system which libraries are associated with
+  ;which Stanza packages.
   val libs = dynamic-libraries(proj-manager, map(name,vmps))
 
-  ;Load the necessary libraries.
+  ;Register the given search folders with the
+  ;dylib loader.
   set-library-folders(dylibs, folders(libs))
+
+  ;Load the dynamic libraries associated with each Stanza
+  ;package.
   for entry in packages(libs) do :
-    val libname = value(entry)
-    load-library(dylibs, key(entry), libname)
+    val libnames = value(entry)
+    load-libraries(dylibs, key(entry), libnames)
 
   ;Load the symbols from the libraries.
-  load-symbols(dylibs, extern-symbols(packages(libs), vmps))
+  load-symbols(dylibs, extern-symbols(vmps))
 
 ;============================================================
 ;=================== File Environment =======================

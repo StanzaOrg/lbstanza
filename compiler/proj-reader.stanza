@@ -175,7 +175,7 @@ defsyntax stanza-projfile :
   ;----------------- Require Statement Entries --------------
   ;----------------------------------------------------------
   defproduction require! : KeyValue<Symbol,?>
-  defrule require! = (dynamic-library #:! ?v:#projvalue!) : `dylib => v
+  defrule require! = (dynamic-libraries #:! ?v:#projvalue!) : `dylib => v
   defrule require! = (ccfiles #:! ?v:#projvalue!) : `ccfiles => v
   defrule require! = (ccflags #:! ?v:#projvalue!) : `ccflags => v
   defrule require! = (?fps:#foreign-packages) : `foreign-packages => fps
