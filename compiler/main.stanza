@@ -255,6 +255,10 @@ defn ensure-supported-platform! (cmd-args:CommandArgs) :
   if flag?(cmd-args, "platform") :
     ensure-supported-platform(to-symbol(cmd-args["platform"]))
 
+defn ensure-supported-link! (cmd-args:CommandArgs) :
+  if flag?(cmd-args, "link") :
+    ensure-supported-link-types(to-symbol(cmd-args["link"]))
+
 ;============================================================
 ;================== Compilation =============================
 ;============================================================
@@ -274,6 +278,7 @@ defn compile-command () :
 
     ;Launch!
     ensure-supported-platform!(cmd-args)
+    ensure-supported-link!(cmd-args)
     ensure-output-flag!()
     ensure-output-for-dependencies!()
 
@@ -323,6 +328,10 @@ defn compile-command () :
 ;==================== Build Command =========================
 ;============================================================
 defn build-command () :
+  ;Verify wellformed arguments.
+  defn verify-args (cmd-args:CommandArgs) :        
+    ensure-supported-link!(cmd-args)
+
   ;Main action for command
   val build-msg = "Build one of the targets defined in the .proj file."
   defn build (cmd-args:CommandArgs) :
@@ -362,7 +371,7 @@ defn build-command () :
   Command("build",
           ZeroOrOneArg, "the name of the build target. If not supplied, the default build target is 'main'.",
           common-stanza-flags(["s" "o" "external-dependencies" "pkg" "flags" "optimize" "verbose" "ccflags" "macros" "link" "timing-log"]),
-          build-msg, intercept-no-match-exceptions(build))
+          build-msg, false, verify-args, intercept-no-match-exceptions(build))
 
 ;============================================================
 ;==================== Clean Command =========================
@@ -450,6 +459,7 @@ defn compile-test-command () :
 
     ;Launch!
     ensure-supported-platform!(cmd-args)
+    ensure-supported-link!(cmd-args)
     ensure-output-flag!()
     ensure-output-for-dependencies!()
 
