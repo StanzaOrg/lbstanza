@@ -557,7 +557,7 @@ public defn name! (e:IExp) -> Symbol :
          ISet|ICap|ILSField|ILSTagof|ILSLabeledBlock|
          ILSGoto|ILSDef|ILSDefVar|ILSDefType|ILSDefField|
          ILSExtern|ILSDefn|ILSExternFn) : name!(name(e))
-      (e) : fatal("No name field: %_" % [e])   
+      (e) : fatal("No name field: %_" % [e])
 
 public defn subexps (e:IExp) -> Collection<IExp> & Lengthable :
    val es = Vector<IExp>(4)

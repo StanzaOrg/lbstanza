@@ -314,7 +314,7 @@ defn Compiler (struct-table:StructTable, namemap:NameMap, p:TPackage) :
         EVar(tmp,info(e))
       (e:TFn|TMulti) :
         val tmp = fresh-id()
-        emit(ELocalFn(tmp, compile-function(e, struct-table, namemap, p)))
+        emit(ELocalFn(tmp, compile-function(e, struct-table, namemap, p), false))
         emit(EInitClosures([EVarLoc(tmp)], info(e)))
         EVar(tmp,info(e))
       (e:TNew) :
@@ -432,7 +432,7 @@ defn Compiler (struct-table:StructTable, namemap:NameMap, p:TPackage) :
         kont(body(e))
       (e:TLetRec) :
         for d in defns(e) do :
-          emit(ELocalFn(n(d), compile-function(d, struct-table, namemap, p)))
+          emit(ELocalFn(n(d), compile-function(d, struct-table, namemap, p), debug-name?(namemap, n(d))))
         val closures = to-tuple(seq(EVarLoc{n(_)}, defns(e)))
         emit(EInitClosures(closures, info(e)))
         if (not-system-package) :

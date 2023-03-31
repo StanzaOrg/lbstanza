@@ -41,14 +41,14 @@ public defmulti get (a:EBodyAnnotations, x:EImm) -> EType
 
 ;Create the annotations.
 ;- body: the EBody to analyze.
-;- vt: the local VarTable. 
+;- vt: the local VarTable.
 public defn EBodyAnnotations (body:EBody,
                               vt:VarTable,
                               trust-declared-types?:True|False) :
   ;Each entry, v => type, indicates that the inferred variable
-  ;v has the type 'type'. 
+  ;v has the type 'type'.
   val state = IntTable<EType>()
-  
+
   ;Retrieve the trusted declared type of a variable.
   ;Assumes that the variable is a reftype variable.
   defn var-type (v:Int) :
@@ -64,7 +64,7 @@ public defn EBodyAnnotations (body:EBody,
   ;Retrieve the type of the given immediate.
   defn imm-type (x:EImm) :
     match(x:EVar) : var-type(n(x))
-    else : type(vt, x)  
+    else : type(vt, x)
 
   ;Return annotations
   new EBodyAnnotations :
@@ -137,13 +137,13 @@ defn map-with-var-table (f:(ETExp, VarTable) -> ETExp,
 
 ;Return true if the given variable refers to a
 ;variable that is handled by the inference engine.
-;Variables must be local, and have a reftype. 
+;Variables must be local, and have a reftype.
 defn inferred-var? (vt:VarTable, n:Int) -> True|False :
   val record = vt[n]
   if not global?(record) :
     match(entry(record)) :
       ;Local functions are always simple closures.
-      (e:FnEntry) : true 
+      (e:FnEntry) : true
       (e:VarEntry) : reftype?(type(e) as EType)
 
 ;Return true if the given immediate refers to a
@@ -172,7 +172,7 @@ defn trusted-global-type (vt:VarTable, n:Int) -> EType :
     val t = type(vt,n) as EFnT
     fatal("Cannot be a closure.") when r(t) is-not False
     fatal("Cannot be a closure.") when not all?(reftype?,a(t))
-    fatal("Cannot be a closure.") when not reftype?(b(t))    
+    fatal("Cannot be a closure.") when not reftype?(b(t))
     ;Global functions just have type Fn
     EOf(/n(iotable(vt), CORE-FN-ID))
   else :
@@ -194,7 +194,7 @@ defn analyze-top-level-let (e:EInit,
                             vt:VarTable,
                             trust-declared-types?:True|False) -> Code :
   analyze-code(to-seq(0 to false), -1, [], body(e),
-               lostanza?(e), Free([], []), vt, defobjects, trust-declared-types?)  
+               lostanza?(e), Free([], []), vt, defobjects, trust-declared-types?)
 
 ;Analyze the given top-level function construct.
 ;Free variable analysis must already have been performed.
@@ -220,7 +220,7 @@ defn analyze-top-level-func (e:EDefn|EDefClosure|EDefmethod|EExternFn,
       (f:EFn) :
         val code = analyze-code(to-seq(0 to false), n, args(f), body(f),
                                 lostanza?, free(f), vt, defobjects, trust-declared-types?)
-        add(codes, code)                        
+        add(codes, code)
   ;Return codes
   to-tuple(codes)
 
@@ -230,7 +230,7 @@ defn analyze-top-level-func (e:EDefn|EDefClosure|EDefmethod|EExternFn,
 
 ;Analyze the given code block.
 ;- n: the identifier of the code block. We use a generated
-;  id for this. 
+;  id for this.
 ;- family: the family of this code block. We use this
 ;  to store the actual identifier of the function/object.
 ;- args: the arguments to this body.
@@ -253,7 +253,7 @@ defn analyze-code (id-counter:Seq<Int>,
                    trust-declared-types?:True|False) -> Code :
   ;Get id to use for code
   val code-id = next(id-counter)
-  
+
   ;Compute locals
   val locals = Vector<Local>()
   for a in args do :
@@ -280,7 +280,7 @@ defn analyze-code (id-counter:Seq<Int>,
       val func = func(m)
       val code = analyze-code(id-counter, n(m), /args(func), /body(func), false
                               /free(func), vt, defobject-table, trust-declared-types?)
-      add(nested,code)                        
+      add(nested,code)
 
   ;Compute object method table
   val object-table = to-inttable<ELocalObj> $
@@ -293,23 +293,23 @@ defn analyze-code (id-counter:Seq<Int>,
     for (block in bbtable, i in 0 to false) seq :
       ;Hold all the inference commands for this block.
       val instructions = Vector<Ins>()
-      
+
       ;For the first block, add the guards on the arguments.
       if i == 0 :
         ;Trust the coming argument types if it's a HiStanza function
         ;(where arguments are checked by caller), or if we're requesting
-        ;deliberately to trust the declared types. 
+        ;deliberately to trust the declared types.
         val trust-argument-types? = (not lostanza?) or trust-declared-types?
         for arg in args do :
           if inferred-var?(vt,n(arg)) :
             val t* = type(arg) when trust-argument-types? else ETop()
             add(instructions, Def(n(arg),t*))
 
-      ;Generate inference commands to the instructions buffer.                        
+      ;Generate inference commands to the instructions buffer.
       within ins = analyze-single-block(block, vt, object-table,
                                         defobject-table trust-declared-types?) :
         add(instructions, ins)
-        
+
       ;Return the analyzed block.
       Block(lbl(block), to-tuple(instructions), predecessors(block))
 
@@ -389,13 +389,13 @@ defn analyze-single-block (emit:Ins -> ?,
     emit(Wrapped<EIns>(ins))
     if inferred-var?(vt,y(ins)) :
       val v = n(y(ins) as EVar)
-      emit(Cast(v, type(ins)))    
+      emit(Cast(v, type(ins)))
 
   ;Generate the commands for a match command.
   ;Structure:
   ;  Use ...       - All referenced variables
   ;  Wrapped<Ins>  - The original wrapped instruction
-  ;  Match         - The match command 
+  ;  Match         - The match command
   defn gen-match-commands (ins:EMatch|EDispatch|EIf|ETypeof) :
     gen-uses(ins)
     emit(Wrapped<EIns>(ins))
@@ -439,7 +439,7 @@ defn analyze-single-block (emit:Ins -> ?,
     defn emit-def (t:EType) :
       for v in varlocs(ins) do :
         if inferred-var?(vt,v) :
-          emit(Def(n(v), t))         
+          emit(Def(n(v), t))
 
     ;Helper: If the given primitive operation returns a guaranteed reftype
     ;then return it.
@@ -449,11 +449,11 @@ defn analyze-single-block (emit:Ins -> ?,
             IntAndOp|IntOrOp|IntXorOp|IntNotOp|IntShlOp|
             IntShrOp|IntAshrOp|IntNegOp) :
           core-type(vt, CORE-INT-ID)
-        (op:IntLtOp|IntGtOp|IntLeOp|IntGeOp) : 
+        (op:IntLtOp|IntGtOp|IntLeOp|IntGeOp) :
           EOr(core-type(vt, CORE-FALSE-ID),
               core-type(vt, CORE-TRUE-ID))
         (op) : false
- 
+
     ;Helper: Return true if the return type of the given function
     ;is trusted.
     defn return-type-trusted? (f:Int, arity:Int) -> True|False :
@@ -464,7 +464,7 @@ defn analyze-single-block (emit:Ins -> ?,
 
     ;Overall algorithm
     gen-uses(ins)
-    emit(Wrapped<EIns>(ins))          
+    emit(Wrapped<EIns>(ins))
     match(ins) :
       (ins:ETuple|EVoidTuple) : emit-def(core-type(vt, CORE-TUPLE-ID))
       (ins:EArray) : emit-def(EOf(n(ins)))
@@ -511,7 +511,7 @@ defn analyze-single-block (emit:Ins -> ?,
         else : emit(Def(x,trusted-global-type(vt,n(y))))
       else :
         emit(Def(x,type(vt,y)))
-    
+
     match(ins) :
       (ins:EDef) :
         if inferred-var?(vt,x(ins)) :
@@ -559,7 +559,7 @@ defn analyze-single-block (emit:Ins -> ?,
         fatal("Unexpected inferred variable %_ in instruction %_." % [x, ins])
 
   ;Launch!
-  do(gen-commands, instructions(block))    
+  do(gen-commands, instructions(block))
 
 ;============================================================
 ;==================== Utilities =============================
@@ -604,7 +604,7 @@ defn migrate-annotations (body:EBody, code:Code) -> EBody :
     val fn-ids = for f in localfns(body) seq-cat : families(n(f), func(f))
     val obj-ids = for obj in localobjs(body) seq-cat : seq(n, methods(obj))
   fatal("Mismatched structure") when nested-families != map(family, nested(code))
-    
+
   ;Migrate each of the nested definitions
   val nested-codes = to-seq(nested(code))
   defn migrate-nested (e:ELocalFn|ELocalObj) -> Maybe<ELocalFn|ELocalObj> :
@@ -649,7 +649,7 @@ defn nested-bodies (e:ELBigItem) -> Tuple<EBody> :
   let loop (e:ELBigItem = e) :
     match(e:EBody) : add(bodies,e)
     else : do*(loop, e)
-  to-tuple(bodies)  
+  to-tuple(bodies)
 
 ;Substitute all immediately nested bodies.
 defn sub-nested-bodies (e:ELBigItem, bodies:Tuple<EBody>) -> ELBigItem :
@@ -666,4 +666,3 @@ defn all-equal? (input-xs:Seqable<Equalable>) -> True|False :
   else :
     val x0 = next(xs)
     all?({x0 == _}, xs)
-  

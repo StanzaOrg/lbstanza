@@ -157,16 +157,26 @@ defstruct FunctionContext <: StackTraceContext:
   n:Int
   package:Symbol with: (as-method => true)
 
+;Represents that we are within a local named function with the given identifier.
+defstruct LocalFunctionContext <: StackTraceContext:
+  debug-name:String
+  package:Symbol with: (as-method => true)
+  parent:StackTraceContext
+
 ;Fill all TraceInfo objects with context information.
 defn fill-stack-trace-entries (epackage:EPackage) -> EPackage :
   ;Build the IOTable to build signatures of functions.
   val iotable = IOTable(packageio(epackage))
   defn signature? (c:StackTraceContext) -> String|False :
-    match(c:FunctionContext) :
-      if key?(iotable, n(c)) :
-        val rec-id = id(iotable[n(c)])
-        match(rec-id:FnId) :
-          to-string(name(rec-id))
+    match(c) :
+      (c:FunctionContext) :
+        if key?(iotable, n(c)) :
+          val rec-id = id(iotable[n(c)])
+          match(rec-id:FnId) :
+            to-string(name(rec-id))
+      (c:LocalFunctionContext) :
+        string-join $ [signature?(parent(c)) as String, "/", debug-name(c)]
+      (c) : false
 
   ;Recursively compute stack trace contexts for all items.
   defn fill-entry (item:ELItem, context:StackTraceContext) -> ELItem :
@@ -188,11 +198,15 @@ defn fill-stack-trace-entries (epackage:EPackage) -> EPackage :
       (context:TopLevel, item:EDefn) : FunctionContext(n(item), package(context))
       (context:TopLevel, item:EDefmethod) : FunctionContext(multi(item), package(context))
       (context:TopLevel, item:EExternFn) : FunctionContext(n(item), package(context))
+      (context:StackTraceContext, item:ELocalFn) :
+        match(debug-name(item)) :
+          (name:String) : LocalFunctionContext(name, package(context), context)
+          (name:False)  : context
       (context, item) : context
 
   ;Compute the new trace info after adding the context.
   defn add-context (context:StackTraceContext, info:TraceInfo) -> TraceInfo :
-    match(signature?(context), info) :      
+    match(signature?(context), info) :
       (sig:False, info:False) : false
       (sig:String|False, info:AbsoluteFileInfo|False) : StackTraceInfo(package(context), sig, info)
 
@@ -339,7 +353,7 @@ defn inverse-solve (input-xs:Tuple<Int>, targs:Tuple<EType>) -> [Tuple<Int>, Tup
 ;  The new type arguments: T'
 ;  The expression that the old type arguments take on wrt. T'.: V
 ;Return:
-;  The new function f<T'> (args) -> R' : 
+;  The new function f<T'> (args) -> R' :
 
 defn reexpress-targs (f:EFn, new-tvars:Tuple<Int>, old-tvar-types:Tuple<EType>) -> EFn :
   ;Compute whether the existing targs are fine.
@@ -581,14 +595,14 @@ defn create-closures (epackage:EPackage, gvt:VarTable) -> EPackage :
             ;If at use-site, then init here, otherwise lift to trampoline table
             if allocate-at-use-site? :
               val v = uniqueid()
-              emit(buffer, ELocalFn(v, trampoline-fn(x, vt)))
+              emit(buffer, ELocalFn(v, trampoline-fn(x, vt), false))
               emit(buffer, EInitClosures([EVarLoc(v)], first-info(x)))
               EVar(v)
             else :
               val x = x as EVar|ECurry
               if not key?(trampoline-table, x) :
                 val v = uniqueid()
-                add(trampolines, var-id(x), ELocalFn(v, trampoline-fn(x, vt)))
+                add(trampolines, var-id(x), ELocalFn(v, trampoline-fn(x, vt), false))
                 trampoline-table[x] = v
               EVar(trampoline-table[x])
 
@@ -951,7 +965,7 @@ defn insert-guards (epackage:EPackage, gvt:VarTable) :
       val arity = length(args(f))
       val [a1, a2] = fn-types(gvt, multi, arity, map(ETVar{n(_)}, targs(f)))
       a2
-  
+
     val buffer = BodyBuffer(body(f))
     for f in localfns(body(f)) do :
       emit(buffer, guard-localfn(f,vt,uninitialized-vars))
@@ -961,7 +975,7 @@ defn insert-guards (epackage:EPackage, gvt:VarTable) :
       for arg in args(f) do :
         if has-tvar?(type(arg)) :
           emit(buffer, ECheck(EVar(n(arg)), type(arg), ArgContext(), info(f)))
-    val ret-type = EAnd(ret-type-of-multi(), ret(f))    
+    val ret-type = EAnd(ret-type-of-multi(), ret(f))
     guard-body(body(f), buffer, vt, lostanza-context?, ret-type, info(f), uninitialized-vars)
     val body* = to-body(buffer, true, false, false)
     val args* = for a in args(f) map :
@@ -975,7 +989,7 @@ defn insert-guards (epackage:EPackage, gvt:VarTable) :
     result as T&ELBigItem
 
   defn guard-localfn (f:ELocalFn, vt:VarTable, uninitialized-vars:IntSet) :
-    ELocalFn(n(f), map-fns(guard-fn{_, vt, false, uninitialized-vars}, func(f)))
+    ELocalFn(n(f), map-fns(guard-fn{_, vt, false, uninitialized-vars}, func(f)), debug-name(f))
 
   defn guard-localobj (o:ELocalObj, vt:VarTable, uninitialized-vars:IntSet) :
     val methods* = for m in methods(o) map :
@@ -1398,7 +1412,7 @@ defn inlining-order (return:ELocalFn -> ?, e:ELBigItem) :
         for f in ordered-fns do :
           val func = func(fn-recs[f])
           loop(func)
-          return(ELocalFn(f, func))
+          return(ELocalFn(f, func, false))
         ;Recurse on non-inlined items
         for f in localfns(e) do :
           loop(f) when not inlined?[n(f)]
@@ -1753,7 +1767,7 @@ defn higher-order-function? (e:EFn) -> True|False :
       match(i:EVar) : n(i) == a
 
     ;Compute whether a is only used in call position.
-    val only-appears-in-call-position? = 
+    val only-appears-in-call-position? =
       for i in ins(body(e)) all? :
         match(i) :
           (i:ECall|ETCall) :

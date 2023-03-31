@@ -516,7 +516,7 @@ defserializer (out:FileOutputStream, in:FileInputStream) :
     ELocalType: (n:int)
 
   defunion elocalfn (ELocalFn) :
-    ELocalFn: (n:int, func:efunction)
+    ELocalFn: (n:int, func:efunction, debug-name:opt<String>(string))
 
   defunion elocalobj (ELocalObj) :
     ELocalObj: (n:int, type:etype, methods:tuple(emethod))
