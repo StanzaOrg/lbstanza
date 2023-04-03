@@ -262,6 +262,10 @@ public defmessages TypeError :
     comm:TLDefmethod|TLDefn
     arg:Int
 
+  defmessage BadCapture :
+    exp:TMix|LSMix
+    n:Int
+
 ;============================================================
 ;====================== Utilities ===========================
 ;============================================================

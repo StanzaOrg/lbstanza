@@ -395,8 +395,16 @@ public defn capture-search (cv:Int, side:CapSide, x:Type, y:Type, hier:TypeHiera
     (x:TTuple, y:TTuple|TOf) : search-ttuple(cap, x, y, hier)
     (x:TArrow, y:TArrow) : search-tarrow(cap, cap-inv, x, y)
     ;Unsolved types.    
-    (x:TUVar, y) : search-tuvar(cap, x, y)
-    (x, y:TUVar) : search-tuvar(cap, x, y)
+    (x:TUVar, y) :
+      ;Note: SFail for catching this case:
+      ; capture(?T) from T|Int <: Comparable<?T>
+      if n(x) == cv : SFail()
+      else : search-tuvar(cap, x, y)
+    (x, y:TUVar) :
+      ;Note: SFail for catching this case:
+      ; capture(?T) from T|Int <: Comparable<?T>
+      if n(y) == cv : SFail()
+      else : search-tuvar(cap, x, y)
     ;Gradual Type.
     (x:TGradual, y) : search-tgradual(cap, x, y)
     (x, y:TGradual) : search-tgradual(cap, x, y)
