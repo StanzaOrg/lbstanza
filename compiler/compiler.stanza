@@ -51,7 +51,8 @@ defn compute-build-settings (projenv:StandardProjEnv,
   match(inputs(settings)) :
     (inputs:BuildTarget) :
       val proj-files = default-proj-files()
-      val proj = read-proj-files(proj-files, platform, default-link-type(link-type(settings)), projenv)
+      val link-type* = default-link-type(link-type(settings))
+      val proj = read-proj-files(proj-files, platform, link-type*, projenv)
       ;Retrieve build target statement
       val s = build-target!(proj, target(inputs))
       ;Compute build flags
@@ -102,7 +103,7 @@ defn compute-build-settings (projenv:StandardProjEnv,
         build-ccflags,
         to-tuple(build-flags),
         macro-plugins(settings),
-        link-type(settings))
+        link-type*)
 
       ;Return new settings.
       [proj, settings*]
@@ -110,7 +111,8 @@ defn compute-build-settings (projenv:StandardProjEnv,
     (inputs:BuildPackages) :
       val proj-files = default-proj-files()
       add-all(proj-files, /proj-files(names(inputs)))
-      val proj = read-proj-files(proj-files, platform, default-link-type(link-type(settings)), projenv)
+      val link-type* = default-link-type(link-type(settings))
+      val proj = read-proj-files(proj-files, platform, link-type*, projenv)
       val inputs* = BuildPackages $ to-tuple $ non-files-to-symbols $ non-proj-files $ names $ inputs
       val vm-packages* = to-tuple $ non-files-to-symbols $ vm-packages $ settings
       val build-out = add-exe-suffix?(output(settings), platform)
@@ -118,6 +120,7 @@ defn compute-build-settings (projenv:StandardProjEnv,
                       sub-vm-packages{_, vm-packages*} $
                       sub-platform{_, platform} $
                       sub-output{_, build-out} $
+                      sub-link-type{_, link-type*} $
                       settings
 
       ;Return new settings.

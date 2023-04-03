@@ -495,6 +495,11 @@ public defn TypeErrorFormatter (namemap:NameMap, hier:TypeHierarchy) :
           val this-type = type(a1(comm(e))[index]) as Type
           "%_The 'this' argument has invalid type '%_'. The object has type '%_'." % [
           info-str(comm(e)), type-description(this-type), type-description(new-type(e))]
+          
+        (e:BadCapture) :
+          val ctxt = ctxt(exp(e))
+          "%_Could not capture type variables for function '%_'%_." % [
+          info-str(exp(e)), def-name(n(e)), ctxt-description(ctxt as Context)]
 
 ;Helper: Add single-quotes around x.
 defn quotes (x) :
@@ -631,6 +636,7 @@ defn dependent-items (e:TypeError) -> Tuple<ErrorItem|Tuple<ErrorItem>> :
     (e:BadSubmethod) : [multi(comm(e))]
     (e:BadThisType) : [multi(comm(e))]
     (e:InvalidOptionalArg) : []
+    (e:BadCapture) : [Preferred(ctxt(exp(e)))]
 
 ;Classify an error item as resolved or not.
 defn resolved-item? (item:ErrorItem|Type|LSType) -> ResolvedStatus :

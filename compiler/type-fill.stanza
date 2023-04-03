@@ -406,8 +406,7 @@ defn fill-exp (e:TExp, soln:SolverState, scope:List<Int>) -> TExp :
       ;Compute whether the func is of a type that
       ;can be called with the given arity.
       val check-args = check-args(ctxt(new-func) as CallCtxt)
-      val good-call? = all?(resolved?, check-args)
-      if good-call? :
+      if good-call?(type(new-func) as Type, check-args) :
         check-against-arg-types(BadArgTypes{result, _}, new-args, check-args)
 
       ;ERROR: Value cannot be called as function.
@@ -450,6 +449,12 @@ defn fill-exp (e:TExp, soln:SolverState, scope:List<Int>) -> TExp :
         add-type-error(NoMix(result))
       ;ERROR: Multiple appropriate functions.
       else :
+
+        ;ERROR: Could not capture type variables.
+        for func in funcs(pruned-inst as InstFns) do :
+          if not all?(resolved?, capvars(func)) :
+            add-type-error(BadCapture(result, n(func)))
+
         val funcs = funcs(pruned-inst as InstFns)
         val arrows = map(type, funcs)
         val not-disjoint? = match(ctxt(e)) :
@@ -724,8 +729,7 @@ defn fill-ls-exp (e:LSExp, soln:SolverState, scope:List<Int>) -> LSExp :
       ;Compute whether the function is of a type that
       ;can be called with the given arity.
       val check-args = check-args(ctxt(new-func) as LSCallCtxt)
-      val good-call? = all?(resolved?, check-args)
-      if good-call? :
+      if good-call?(type(new-func) as LSType, check-args) :
         check-against-arg-types(BadArgTypes{result, _}, new-args, check-args)
       ;ERROR: Value cannot be called as function.
       else if new-func is-not LSMix :
@@ -741,8 +745,7 @@ defn fill-ls-exp (e:LSExp, soln:SolverState, scope:List<Int>) -> LSExp :
       ;Compute whether the function is of a type that
       ;can be called with the given arity.
       val check-args = check-args(ctxt(new-func) as LSCallCtxt)
-      val good-call? = all?(resolved?, check-args)
-      if good-call? :
+      if good-call?(type(new-func) as LSType, check-args) :
         check-against-arg-types(BadArgTypes{result, _}, new-args, check-args)
       ;ERROR: Value cannot be called as function.
       else if new-func is-not LSMix :
@@ -843,6 +846,12 @@ defn fill-ls-exp (e:LSExp, soln:SolverState, scope:List<Int>) -> LSExp :
           match(ctxt(e)) :
             ;Check function mixing if in LSCallCtxt.
             (ctxt:LSCallCtxt) :
+
+              ;ERROR: Could not capture type variables.
+              for func in funcs(pruned-insts) do :
+                if not all?(resolved?, capvars(func)) :
+                  add-type-error(BadCapture(result, n(func)))
+
               ;If solver could not successfully merge the functions.
               if type(e) is UVarT :
                 add-type-error(AmbMix(result))
@@ -1128,7 +1137,7 @@ defn empty? (i:Instantiation) -> True|False :
   empty?(funcs(i as InstFns))
 
 ;Return the set of TRef that is actually instantiated.
-;If instantiation is unsolved, then return false.
+;If instantiation is unsolved, then return refs unchanged.
 defn instantiated (rs:Tuple<TRef>, i:Instantiation) -> Tuple<TRef> :
   match(i:InstFns) :
     if empty?(funcs(i)) :
@@ -1281,6 +1290,13 @@ defn fill-methods (ms:Tuple<TDefmethod>, thist:Maybe<Type>,
 ;============================================================
 ;============= Resolved Predicates for Checking =============
 ;============================================================
+
+;Return true we're making a good call to the given function type. I.e.
+;the number of arguments is good and expected types are known.
+defn good-call? (func-type:Type|LSType, check-args:Tuple<Type|LSType>) -> True|False :
+  if resolved?(func-type) :
+    if empty?(check-args) : callable-without-arguments?(func-type) is True
+    else : all?(resolved?, check-args)
 
 ;Returns true if the given expression is a proper LValue.
 ;Must be called with a syntactically-valid lvalue.
