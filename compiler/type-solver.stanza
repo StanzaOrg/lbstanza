@@ -112,6 +112,14 @@ defn eval-capture-result (sresult:SearchResult, variance:Variance) -> CaptureRes
     (r:NoSoln) : false  
     (r:Solved) : solve-constraint(constraint(r), variance)
 
+;Return true if the given type is allowed to be called as a
+;function with zero arguments.
+public defn callable-without-arguments? (t:Type) -> PredResult :
+  eval-pred-result(callable-without-arguments-search?(t))
+  
+public defn callable-without-arguments? (t:LSType) -> PredResult :
+  eval-pred-result(callable-without-arguments-search?(t))
+
 ;============================================================
 ;====================== Infer API ===========================
 ;============================================================
@@ -544,6 +552,41 @@ public defn capture-search (x:InferLoc|Type, y:InferLoc|Type, hier:TypeHierarchy
 public defn collapse-tuple (t:TupleLoc, hier:TypeHierarchy) -> TOf :
   val n = special-type(hier, CoreTuple)
   TOf(n, [TCap(0,false)])
+
+;============================================================
+;============== Callable with No Arguments ==================
+;============================================================
+;Calling a type with zero arguments is a special case.
+;When there is at least one argument, then we compute the
+;expected type for that one argument using the ArgLoc system
+;and detect whether this can be done.
+
+public defn callable-without-arguments-search? (t:Type) -> SearchResult :
+  defn call? (t:Type) : callable-without-arguments-search?(t)
+  match(t) :
+    ;Bottom type.
+    (t:TBot) : SSatisfied()
+    ;Combinatory type.
+    (x:TOr) : SAnd(call?(a(x)), call?(b(x)))
+    (x:TAnd) : SOr(call?(a(x)), call?(b(x)))
+    ;Unitary types
+    (x:TArrow) :
+      if length(a1(x)) == 0 : SSatisfied()
+      else : SFail()
+    ;Unsolved types
+    (x:TUVar): SBlocked(n(x))
+    ;Gradual type
+    (x:TGradual) : SSatisfied()
+    ;Fall through
+    (t) : SFail()
+
+public defn callable-without-arguments-search? (t:LSType) -> SearchResult :
+  match(t) :
+    (t:FnT) :
+      if length(a(t)) == 0 : SSatisfied()
+      else : SFail()
+    (t:UVarT) : SBlocked(n(t))
+    (t) : SFail()
 
 ;============================================================
 ;=================== LoStanza Inference =====================

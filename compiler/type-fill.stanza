@@ -406,8 +406,7 @@ defn fill-exp (e:TExp, soln:SolverState, scope:List<Int>) -> TExp :
       ;Compute whether the func is of a type that
       ;can be called with the given arity.
       val check-args = check-args(ctxt(new-func) as CallCtxt)
-      val good-call? = all?(resolved?, check-args)
-      if good-call? :
+      if good-call?(type(new-func) as Type, check-args) :
         check-against-arg-types(BadArgTypes{result, _}, new-args, check-args)
 
       ;ERROR: Value cannot be called as function.
@@ -730,8 +729,7 @@ defn fill-ls-exp (e:LSExp, soln:SolverState, scope:List<Int>) -> LSExp :
       ;Compute whether the function is of a type that
       ;can be called with the given arity.
       val check-args = check-args(ctxt(new-func) as LSCallCtxt)
-      val good-call? = all?(resolved?, check-args)
-      if good-call? :
+      if good-call?(type(new-func) as LSType, check-args) :
         check-against-arg-types(BadArgTypes{result, _}, new-args, check-args)
       ;ERROR: Value cannot be called as function.
       else if new-func is-not LSMix :
@@ -747,8 +745,7 @@ defn fill-ls-exp (e:LSExp, soln:SolverState, scope:List<Int>) -> LSExp :
       ;Compute whether the function is of a type that
       ;can be called with the given arity.
       val check-args = check-args(ctxt(new-func) as LSCallCtxt)
-      val good-call? = all?(resolved?, check-args)
-      if good-call? :
+      if good-call?(type(new-func) as LSType, check-args) :
         check-against-arg-types(BadArgTypes{result, _}, new-args, check-args)
       ;ERROR: Value cannot be called as function.
       else if new-func is-not LSMix :
@@ -1293,6 +1290,13 @@ defn fill-methods (ms:Tuple<TDefmethod>, thist:Maybe<Type>,
 ;============================================================
 ;============= Resolved Predicates for Checking =============
 ;============================================================
+
+;Return true we're making a good call to the given function type. I.e.
+;the number of arguments is good and expected types are known.
+defn good-call? (func-type:Type|LSType, check-args:Tuple<Type|LSType>) -> True|False :
+  if resolved?(func-type) :
+    if empty?(check-args) : callable-without-arguments?(func-type) is True
+    else : all?(resolved?, check-args)
 
 ;Returns true if the given expression is a proper LValue.
 ;Must be called with a syntactically-valid lvalue.
