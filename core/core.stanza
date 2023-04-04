@@ -173,11 +173,11 @@ lostanza deftype StackMap :
   num-roots: int
   roots: int ...
 
-lostanza deftype StackTraceTable :
+protected lostanza deftype StackTraceTable :
   length: long
   entries: StackTraceTableEntry ...
 
-lostanza deftype StackTraceTableEntry :
+protected lostanza deftype StackTraceTableEntry :
   lbl: ptr<?>
   record: StackTraceRecord
 
@@ -185,6 +185,7 @@ lostanza deftype ClassDescriptor :
   case:int
   num-base-bytes:int
   record:ptr<ClassRecord>
+  root-names:ptr<ptr<byte>>
 
 lostanza deftype ClassRecord :
   num-bytes:int
@@ -193,7 +194,7 @@ lostanza deftype ClassRecord :
   num-roots:int
   roots:int ...
 
-lostanza deftype ArrayRecord :
+protected lostanza deftype ArrayRecord :
   num-bytes:int
   base-size:int
   item-size:int
@@ -210,7 +211,7 @@ protected lostanza deftype VMState :
   ;Compiled and Interpreted Mode
   global-offsets: ptr<long>   ;(Permanent State)
   global-mem: ptr<byte>       ;(Permanent State)
-  var sig-handler: long       ;(Permanent State) 
+  var sig-handler: long       ;(Permanent State)
   const-table: ptr<long>      ;(Permanent State)
   const-mem: ptr<byte>        ;(Permanent State)
   data-offsets: ptr<int>      ;(Permanent State)
@@ -220,6 +221,8 @@ protected lostanza deftype VMState :
   system-registers: ptr<long> ;(Permanent State)
   var heap: Heap              ;(Variable State)
   safepoint-table: ptr<?>     ;(Variable State)
+  debug-table: ptr<?>         ;(Variable State)
+  local-var-table: ptr<?>     ;(Variable State)
   ;Compiled Mode Tables
   class-table: ptr<ClassDescriptor>
   global-root-table: ptr<GlobalRoots>
@@ -227,6 +230,8 @@ protected lostanza deftype VMState :
   stack-trace-table: ptr<StackTraceTable>
   extern-table: ptr<ExternTable>
   callback-index-table: ptr<ExternDefnTable>
+  var current-coroutine-ptr: ptr<long>
+  var stepping-coroutine-ptr: ptr<long>
 
 lostanza deftype ExternTable :
   length: long
@@ -371,7 +376,7 @@ defn initialize-error-handler () :
 ;so serious that we cannot run the standard error-handling
 ;process. For example, out of memory, stack overflow, failed system
 ;invariance conditions.
-lostanza defn fatal! (msg:ptr<byte>) -> ref<Void> :
+protected lostanza defn fatal! (msg:ptr<byte>) -> ref<Void> :
   call-c clib/fflush(stdout)
   call-c clib/fprintf(current-err, "FATAL ERROR: %s\n", msg)
   call-c clib/fflush(current-err)
@@ -462,11 +467,13 @@ lostanza defn print-stack-trace (stack:ref<Stack>) -> ref<False> :
   val vms:ptr<VMState> = call-prim flush-vm()
 
   ;Discover return addresses
-  val buffer = stack-trace-return-addresses(vms,stack)
+  val buffer = stack-trace-frames(vms,stack)
 
   ;Print buffer
+  val stack-trace-table = vms.stack-trace-table
   for (var i:long = buffer.length - 1, i >= 0, i = i - 1) :
-    val entry = stack-trace-record(buffer.items[i], vms.stack-trace-table)
+    val frame = buffer.items[i] as ptr<StackFrame>
+    val entry = stack-trace-record(frame, stack-trace-table)
     if entry != null :
       print-record(entry)
 
@@ -489,31 +496,13 @@ lostanza defn print-record (record:ptr<StackTraceRecord>) -> ref<False> :
 
 lostanza defn collect-stack-trace (stack:ref<Stack>) -> ptr<PackedStackTrace> :
   val vms:ptr<VMState> = call-prim flush-vm()
-
-  ;Discover return addresses
-  val buffer = stack-trace-return-addresses(vms,stack)
-
-  ;Build stack trace
-  val builder = StackTraceBuilder()
-  for (var i:long = buffer.length - 1, i >= 0, i = i - 1) :
-    val entry = stack-trace-record(buffer.items[i], vms.stack-trace-table)
-    if entry != null :
-      add-entry(builder, entry)
-
-  ;Pack stack trace into stable memory
-  val trace = pack(builder)
-
-  ;Free the buffer
-  free(buffer)
-
-  ;Return the packed trace.
-  return trace
+  return core/collect-stack-trace/collect-stack-trace(vms, stack.frames, stack.stack-pointer, 0L)
 
 ;------------------------------------------------------------
 ;------------------------ Utilities -------------------------
 ;------------------------------------------------------------
 
-lostanza defn stack-trace-return-addresses (vms:ptr<VMState>, stack:ref<Stack>) -> ptr<LSLongVector> :
+protected lostanza defn stack-trace-frames (vms:ptr<VMState>, stack:ref<Stack>) -> ptr<LSLongVector> :
   ;Discover return addresses
   val buffer = LSLongVector()
 
@@ -522,7 +511,7 @@ lostanza defn stack-trace-return-addresses (vms:ptr<VMState>, stack:ref<Stack>) 
     begin : goto loop(stack.frames)
     loop (sp:ptr<StackFrame>) :
       ;Store in return buffer
-      add(buffer, sp.return)
+      add(buffer, sp as long)
 
       ;Continue if we're not at the end of the stack
       if sp < end-sp :
@@ -533,7 +522,8 @@ lostanza defn stack-trace-return-addresses (vms:ptr<VMState>, stack:ref<Stack>) 
   ;Return the buffer
   return buffer
 
-lostanza defn stack-trace-record (ret:long, trace-table:ptr<StackTraceTable>) -> ptr<StackTraceRecord> :
+protected lostanza defn stack-trace-record (frame:ptr<StackFrame>, trace-table:ptr<StackTraceTable>) -> ptr<StackTraceRecord> :
+  val ret = frame.return
   for (var i:int = 0, i < trace-table.length, i = i + 1) :
     val entry = addr(trace-table.entries[i])
     if ret == (entry.lbl as long) :
@@ -578,7 +568,7 @@ lostanza defn add (v:ptr<LSLongVector>, x:long) -> int :
   v.length = v.length + 1
   return 0
 
-lostanza defn free (v:ptr<LSLongVector>) -> int :
+protected lostanza defn free (v:ptr<LSLongVector>) -> int :
   call-c clib/free(v.items)
   call-c clib/free(v)
   return 0
@@ -632,10 +622,10 @@ public lostanza deftype Tuple<T> :
   var items: ref<T> ...
 
 public deftype List<T>
-lostanza deftype FullList<T> <: List<T> :
+protected lostanza deftype FullList<T> <: List<T> :
   head: ref<T>
   tail: ref<List<T>>
-lostanza deftype NilList <: List<Void>
+protected lostanza deftype NilList <: List<Void>
 
 public deftype Coroutine<I,O>
 
@@ -2045,7 +2035,7 @@ lostanza defn fatal-object-marked! (p:ptr<long>, vms:ptr<VMState>) -> ref<False>
 
 ;Calls fatal if any object in the heap is marked.
 lostanza defn ensure-no-marks-in-collection-area! (vms:ptr<VMState>) -> ref<False> :
-  #if-defined(COMPREHENSIVE-CHECKS) :
+  #if-defined(STRESS-TEST) :
     ;Iterate through the collection area of the heap and
     ;call fatal on any marked bits.
     iterate-marked(vms.heap.start, vms.heap.top, addr(fatal-object-marked!), vms)
@@ -2327,7 +2317,7 @@ lostanza defn update-liveness-trackers (vms:ptr<VMState>) -> ref<False> :
   return false
 
 lostanza defn evacuate-nursery (vms:ptr<VMState>) -> ref<False> :
-  #if-defined(COMPREHENSIVE-CHECKS) :
+  #if-defined(STRESS-TEST) :
     ;Ensure that write barriers properly record all writes to old generation.
     ensure-write-barrier-invariants!(vms)
 
@@ -2475,7 +2465,7 @@ lostanza defn initialize-heap-callback-routines () -> ref<False> :
 
 lostanza defn extend-stack (size:long) -> ref<False> :
   val vms:ptr<VMState> = call-prim flush-vm()
-  return extend-stack(size, addr(vms.heap)) 
+  return extend-stack(size, addr(vms.heap))
 
 ;============================================================
 ;================== New Garbage Collector ===================
@@ -3527,6 +3517,7 @@ lostanza deftype CoroutineParams :
   enter: ref<((RawCoroutine, ?) -> ?)>
 
 protected lostanza var current-coroutine:ref<RawCoroutine>
+lostanza var stepping-coroutine:ref<RawCoroutine|False> = false
 lostanza var COROUTINE-COUNTER:long
 
 lostanza defn initialize-coroutines () -> ref<False> :
@@ -3535,6 +3526,8 @@ lostanza defn initialize-coroutines () -> ref<False> :
   val crsp = call-prim crsp() as long
   current-coroutine = new RawCoroutine{0L, current-stack, false, COROUTINE-ACTIVE, 0, crsp, new SavedWinders{List(), false}}
   COROUTINE-COUNTER = 1L
+  vms.current-coroutine-ptr = addr(current-coroutine) as ptr<long>
+  vms.stepping-coroutine-ptr = addr(stepping-coroutine) as ptr<long>
   return false
 
 public lostanza defn RawCoroutine (enter:ref<((RawCoroutine, ?) -> ?)>) -> ref<RawCoroutine> :
@@ -9576,22 +9569,29 @@ public defn tokenize-shell-command (s:String) -> Collection<String> :
 ;must be escaped differently than the remaining arguments.
 
 public defn escape-shell-command (args:Seqable<String>) -> String :
+  defn replace-double-quotes (s:String) :
+    replace(s, "\"", "\\\"")
+  defn replace-backslashes (s:String) :
+    replace(s, "\\", "\\\\")
+  defn surround-with-quotes (s:String) :
+    string-join(['"' s '"'])
+
   #if-defined(PLATFORM-WINDOWS) :
     defn escape (s:String, i:Int) :
-      val s* =
-        replace{_, "\"", "\\\""} $
-        replace{_, "\\", "\\\\"} $
-        s
-      if i == 0 : s*
-      else : "\"%_\"" % [s*]
+      if i == 0 :
+        s $> surround-with-quotes
+      else :
+        s $> replace-backslashes
+          $> replace-double-quotes
+          $> surround-with-quotes
     val escaped = seq(escape, args, 0 to false)
     to-string("%s" % [escaped])
+
   #else :
     defn escape (s:String) :
-      {"\"%_\"" % [_]} $
-      replace{_, "\"", "\\\""} $
-      replace{_, "\\", "\\\\"} $
-      s
+      s $> replace-backslashes
+        $> replace-double-quotes
+        $> surround-with-quotes
     to-string("%s" % [seq(escape, args)])
 
 ;============================================================
