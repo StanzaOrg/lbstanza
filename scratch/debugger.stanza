@@ -4,30 +4,103 @@ defpackage debugger :
   import reader
   import core/dynamic-library
   import core/safepoints
-  import line-noise/prompter
+  import core/debug-table
   import core/sighandler
+  import stz/line-noise-prompter
+  import core/debug/read-stack-trace
+  import core/stack-trace
+  import core/local-table
 
 defn main () :
   val filename = command-line-arguments()[1]
   val lib = dynamic-library-open(filename)  
   unprotect-extents(lib)
-  set-sighandler(command-loop{lib, true})
+  val vartable = get-local-table(lib)
+  set-sighandler(command-loop{lib, vartable, true})
   try :
-    command-loop(lib, false)
+    command-loop(lib, vartable, false)
   catch (e:Exception) :
     println(e)
 
 defn* command-loop (lib:DynamicLibrary,
+                    vartable:LocalVarTable,
                     running?:True|False) -> False :
+  if running? :
+    val rip = get-sighandler-instruction-address()
+    print-hit(rip)
+    
   let loop () :
     val tokens = read-line(LineNoisePrompter("debug> ", "     > "))
     match(tokens:List<Token>) :
       match-syntax(tokens) :
+        (backtrace) :
+
+          ;Check whether the program is running.
+          if running? :
+
+            ;Read the stack trace of the running program.
+            val stack-trace = read-stack-trace(lib)
+
+            ;Print out unformatted
+            println(stack-trace)
+
+;            ;Filter out core packages.
+;            defn no-core-packages (package:Symbol, sig:String|False) -> True|False :
+;              package != `core
+;
+;            ;Print out the stack trace using the filter.
+;            print-stack-trace(current-output-stream(),
+;                              stack-trace,
+;                              no-core-packages)                              
+
+          ;If program is not running, then don't print out the
+          ;backtrace.
+          else :
+            println("Program is not running.")
+
+          ;Do not advance the program.
+          loop()
+          
         (safepoints) :
           print-safepoints(lib)
           loop()
+        (variables) :
+          print-all-variables(lib)
+          loop()
+        (locals ?ip-token ?sp-token) :
+          val ip = unwrap-token(ip-token) as Long
+          val sp = unwrap-token(sp-token) as Long
+          val ctxt = context(vartable, ip)
+          match(ctxt:VarContext) :
+            if length(ctxt) == 0 :
+              println("No named locals recorded.")
+            else :
+              for i in 0 to length(ctxt) do :
+                val v = ctxt[i]
+                println("Variable %_ = %_" % [name(v), read-int-at-stack-offset(stack-offset(v), sp)])
+          else :
+            println("No locals recorded.")
+          loop()
+        (locals) :
+          val rip = get-sighandler-instruction-address()
+          val ctxt = context(vartable, rip)
+          match(ctxt:VarContext) :
+            if length(ctxt) == 0 :
+              println("No named locals recorded.")
+            else :
+              for i in 0 to length(ctxt) do :
+                val v = ctxt[i]
+                println("Variable %_ = %_" % [name(v), read-int-at-stack-offset(stack-offset(v))])
+          else :
+            println("No locals recorded.")
+          loop()
         (break ?filename ?line) :
           set-safepoint(lib, unwrap-token(filename) as String, unwrap-token(line) as Int)
+          loop()
+        (print ?offset) :
+          match(unwrap-token(offset)) :
+            (offset:Int) : print-int-at-offset(lib, offset)
+            (name:Symbol) : print-int-with-name(lib, name)
           loop()
         (run) :
           if running? :
@@ -44,13 +117,18 @@ defn* command-loop (lib:DynamicLibrary,
             loop()
         (stop) :
           println("Stopping the program.")
-          throw(Exception("Program Stopped."))
+          throw(Exception("Program Stopped."))        
         (_ ...) :
           println("Unrecognized command.")
           loop()
     else :
-      println("No command entered.")
-      loop()
+      println("Quitting.")
+      exit(0)
+
+lostanza defn print-hit (address:ref<Long>) -> ref<False> :
+  val p = address.value as ptr<?>
+  call-c clib/printf("Hit breakpoint at %lld\n", p)
+  return false
 
 lostanza val PAGE-SIZE:long = 4096
 lostanza defn align-to-page-size (p:ptr<?>) -> ptr<?> :
@@ -92,6 +170,66 @@ lostanza defn set-safepoint (lib:ref<DynamicLibrary>, filename:ref<String>, line
       write-int3(address-list.addresses[i].address)
   return false
 
+lostanza defn get-local-table (lib:ref<DynamicLibrary>) -> ref<LocalVarTable> :
+  val vmstate-sym = dynamic-library-symbol(lib, String("stanza_vmstate"))
+  val vmstate = vmstate-sym.address as ptr<core/VMState>
+  return LocalVarTable(vmstate.local-var-table)
+
+lostanza defn get-debug-table (lib:ref<DynamicLibrary>) -> ref<DebugTable> :
+  val debug-table-sym = dynamic-library-symbol(lib, String("stanza_debug_table"))
+  return DebugTable(debug-table-sym.address as ptr<DebugTableLayout>)
+
+lostanza defn read-stack-trace (lib:ref<DynamicLibrary>) -> ref<SingleStackTrace> :
+  val vmstate-sym = dynamic-library-symbol(lib, String("stanza_vmstate"))
+  val vmstate = vmstate-sym.address as ptr<core/VMState>
+  return read-stack-trace(vmstate)
+
+defn print-all-variables (lib:DynamicLibrary) -> False :
+  val table = get-debug-table(lib)
+  for i in 0 to num-packages(table) do :
+    val package-table = table[i]
+    println("Package %_" % [name(package-table)])
+    for i in 0 to num-entries(package-table) do :
+      val entry = package-table[i]
+      println("  Variable %~ at offset %_" % [name(entry), offset(entry)])
+
+defn get-variable-offset (lib:DynamicLibrary, name:Symbol) -> Int|False :
+  val table = get-debug-table(lib)
+  value? $ for i in 0 to num-packages(table) first :
+    val package-table = table[i]
+    for i in 0 to num-entries(package-table) first :
+      val entry = package-table[i]
+      if /name(entry) == name : One(offset(entry))
+      else : None()
+
+lostanza defn read-int (address:ptr<?>) -> ref<Int> :
+  val value = [address as ptr<long>]
+  return new Int{(value >> 32L) as int}
+
+lostanza defn read-int-at-stack-offset (offset:ref<Int>) -> ref<Int> :
+  val rsp = get-sighandler-stack-pointer().value as ptr<?>
+  return read-int(rsp + offset.value)
+
+lostanza defn read-int-at-stack-offset (offset:ref<Int>, sp:ref<Long>) -> ref<Int> :
+  val rsp = sp.value as ptr<?>
+  return read-int(rsp + offset.value)
+
+lostanza defn read-int-at-offset (lib:ref<DynamicLibrary>, offset:ref<Int>) -> ref<Int> :
+  val vmstate-sym = dynamic-library-symbol(lib, String("stanza_vmstate"))
+  val vmstate = vmstate-sym.address as ptr<core/VMState>
+  val value-ptr = addr(vmstate.global-mem[offset.value])
+  return read-int(value-ptr)
+
+defn print-int-at-offset (lib:DynamicLibrary, offset:Int) -> False :
+  println("Value = %_" % [read-int-at-offset(lib, offset)])
+
+defn print-int-with-name (lib:DynamicLibrary, name:Symbol) -> False :
+  match(get-variable-offset(lib, name)) :
+    (offset:Int) :
+      println("%_ = %_" % [name, read-int-at-offset(lib, offset)])
+    (f:False) :
+      println("No variable named '%~'" % [name])
+
 lostanza defn write-int3 (p:ptr<byte>) -> ref<False> :
   call-c clib/printf("Set breakpoint at %p\n", p)
   [p] = 0xCCY
@@ -100,7 +238,7 @@ lostanza defn write-int3 (p:ptr<byte>) -> ref<False> :
 lostanza defn run-main (lib:ref<DynamicLibrary>) -> ref<Int> :
   val main-sym = dynamic-library-symbol(lib, String("main"))
   val main = main-sym.address as ptr<( (int, ptr<ptr<byte>>) -> int )>
-  val result = call-c [main](0, null)
+  val result = call-c [main](clib/input_argc - 1, addr(clib/input_argv[1]))
   return new Int{result}
 
 main()
