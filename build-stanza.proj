@@ -1,4 +1,5 @@
 include "core/stanza.proj"
+include "core/debug/stanza.proj"
 include "compiler/stanza.proj"
 
 build main :
@@ -21,3 +22,27 @@ build core-macros :
     stz/macro-plugin
   o: "../build/core-macros"
   pkg: "../pkgs"
+
+build debugger :
+  inputs:
+    debugger
+  pkg: "pkgs"
+  o: "stanza-debugger"
+
+build debug-adapter :
+  inputs:
+    debug-adapter
+  ccfiles:
+    "core/debug/debug-adapter.c"
+  ccflags:
+    on-platform:
+      os-x :
+        "-DBUILD_DEBUG_ADAPTER"
+        "-D_XOPEN_SOURCE"
+      linux :
+        "-DBUILD_DEBUG_ADAPTER"
+        "-fPIC"
+      else : ()
+  pkg: "pkgs"
+  o: "debug-adapter"
+

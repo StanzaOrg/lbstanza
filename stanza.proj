@@ -1,4 +1,5 @@
 include "examples/stanza.proj"
+include "build-stanza.proj"
 
 package stz/line-noise-prompter requires :
   ccfiles:
@@ -78,4 +79,3 @@ package stz/asmjit requires :
 package stz/macro-plugin requires :
   ccfiles: "compiler/macro-handshake.c"
   ccflags: "-shared"
-
