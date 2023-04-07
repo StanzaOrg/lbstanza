@@ -10,17 +10,17 @@ defpackage stz/el-var-table :
 ;============================================================
 
 ;Represents a table for holding information about
-;all definitions. 
+;all definitions.
 public deftype VarTable
 
-;Retrieve the record with the given identifier. 
+;Retrieve the record with the given identifier.
 public defmulti get (e:VarTable, n:Int) -> VTRecord
 
 ;Return true if a definition with the given id exists in the VarTable.
 public defmulti key? (e:VarTable, n:Int) -> True|False
 
 ;Retrieve the underlying IOTable used to translate DType
-;into EType. Used to retrieve the core ids. 
+;into EType. Used to retrieve the core ids.
 public defmulti iotable (e:VarTable) -> IOTable
 
 ;============================================================
@@ -90,7 +90,7 @@ with:
 
 ;Represents a multi-arity function.
 ;Since these functions are only used in a local-scope,
-;they are always expressed in EL IR. 
+;they are always expressed in EL IR.
 public defstruct EMultifnEntry <: FnEntry :
   funcs: Tuple<EFnEntry>
 with:
@@ -107,7 +107,7 @@ public defstruct VarEntry <: VarTableEntry :
 with:
   printer => true
 
-;Represents a type argument. 
+;Represents a type argument.
 public defstruct TVarEntry <: VarTableEntry
 
 ;============================================================
@@ -156,7 +156,7 @@ public defn mutable? (vt:VarTable, n:Int) -> True|False :
     (e:VarEntry) : mutable?(e)
     (e:FnEntry) : false
 
-;Return all the possible arities for the function with 
+;Return all the possible arities for the function with
 ;the given identifier.
 ;Assumes 'n' is a function definition.
 ;Fails if the function has a rest argument, and therefore
@@ -223,7 +223,7 @@ public defn type (vt:VarTable, n:Int) -> EType :
   match(entry(vt[n])) :
     (e:VarEntry) :
       ;Assumes that VarEntry is already converted to use EType.
-      type(e) as EType 
+      type(e) as EType
     (e:FnEntry) :
       if lostanza?(vt,n) :
         match(e) :
@@ -266,7 +266,7 @@ public defn fn-types (vt:VarTable, n:Int, arity:Int, targs:Tuple<EType>) -> [Tup
 
   ;Conversion to etype
   defn to-etype (t:DType) -> EType :
-    /to-etype(iotable(vt), t, targs)    
+    /to-etype(iotable(vt), t, targs)
 
   ;Retrieve the types if n corresponds to the given function entry.
   defn retrieve-types (e:DFnEntry|EFnEntry) -> [Tuple<EType>, EType] :
@@ -308,13 +308,13 @@ defn VarTable (records:Seqable<VTRecord>,
                parent:VarTable|False) -> VarTable :
   ;Ensure that vars use etype
   val records* = seq(ensure-vars-use-etype{_, iotable}, records)
-  
+
   ;Initialize table of records
   val table = to-inttable<VTRecord> $
     for r in records* seq :
       n(r) => r
 
-  ;Construct VarTable      
+  ;Construct VarTable
   new VarTable :
     ;Retrieve from amongst the given records, and
     ;if it doesn't exist, then try looking in the parent table.
@@ -330,7 +330,7 @@ defn VarTable (records:Seqable<VTRecord>,
         (r:VTRecord, p) : true
         (r:False, p:VarTable) : key?(p,n)
         (r:False, p:False) : false
-    ;Retrieve the wrapped IOTable.    
+    ;Retrieve the wrapped IOTable.
     defmethod iotable (this) :
       iotable
 
@@ -341,13 +341,13 @@ defn ensure-vars-use-etype (r:VTRecord, iotable:IOTable) -> VTRecord :
     val dt = type(e) as DType
     val et = to-etype(iotable, dt, [])
     VarEntry(mutable?(e), et, lostanza?(e))
-    
+
   match(entry(r)) :
     (e:VarEntry) :
       match(type(e)) :
         (t:DType) : sub-entry(r, convert(e))
         (t:EType) : r
-    (e) : r   
+    (e) : r
 
 ;============================================================
 ;============= Creating the Global Var Table ================
@@ -371,10 +371,10 @@ public defn GlobalVarTable (epackage:EPackage, iotable:IOTable) -> VarTable :
             (r:FnRec) : [lostanza?(r), tail?(r)]
             (r:MultiRec) : [false, false]
             (r:ExternFnRec) : [true, false]
-        ;Compute the argument types from the FnId.            
+        ;Compute the argument types from the FnId.
         val id = id(r) as FnId
         val ntargs = ntargs(id) + ncargs(id)
-        global-record(DFnEntry(ntargs, a1(id), false, a2(r), lostanza?, tail?))        
+        global-record(DFnEntry(ntargs, a1(id), false, a2(r), lostanza?, tail?))
       ;Variable definition
       (r:ValRec) :
         global-record(VarEntry(mutable?(r), type(r), lostanza?(r)))
@@ -413,7 +413,7 @@ public defn GlobalVarTable (epackage:EPackage, iotable:IOTable) -> VarTable :
   val imported-records = seq(imported-record?, imports(packageio(epackage)))
   val exported-records = seq(exported-record?, exps(epackage))
   val all-records = filter-by<VTRecord>(cat(imported-records, exported-records))
-  
+
   ;Return created VarTable.
   ;VarTable has no parent.
   VarTable(all-records, iotable, false)
@@ -437,7 +437,7 @@ public defn LocalVarTable (gvt:VarTable, e:ETExp) -> VarTable :
     ;Emit the given record.
     defn emit-record (n:Int, debug-name:String|False, e:VarTableEntry) :
       yield(VTRecord(false, n, debug-name, e))
-      
+
     ;Determine whether we are in a LoStanza context.
     val lostanza-context? = match(e) :
       (e:EDefn) : lostanza?(e)
@@ -448,13 +448,13 @@ public defn LocalVarTable (gvt:VarTable, e:ETExp) -> VarTable :
       (e:EDefObject) : false
       (e) : false
 
-    ;Gather function records    
+    ;Gather function records
     defn emit-function-records (e:EFn) :
       ;Argument records
       for targ in targs(e) do :
         emit-record(n(targ), debug-name(targ), TVarEntry())
       for arg in args(e) do :
-        emit-record(n(arg), debug-name(arg), VarEntry(false, type(arg), lostanza-context?))      
+        emit-record(n(arg), debug-name(arg), VarEntry(false, type(arg), lostanza-context?))
 
     ;Gather body records
     defn emit-body-records (e:EBody) :
@@ -471,7 +471,7 @@ public defn LocalVarTable (gvt:VarTable, e:ETExp) -> VarTable :
 
       ;Local variable records
       for e in locals(e) do :
-        emit-record(n(e), false, VarEntry(mutable?(e), type(e), lostanza-context?))
+        emit-record(n(e), debug-name(e), VarEntry(mutable?(e), type(e), lostanza-context?))
 
     ;Recursively analyze all functions and bodies.
     let loop (e:ELBigItem = e) :
