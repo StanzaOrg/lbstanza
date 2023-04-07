@@ -263,6 +263,7 @@ lostanza defn get-debug-table (lib:ref<DynamicLibrary>) -> ref<DebugTable> :
 lostanza defn type-of (v:long) -> ref<String> :
   val type-id = type-id(v)
   if type-id < 0 : return String("Unknown")
+  if type-id == tagof(core/Box) : return type-of(unbox(v))
   return String(app-class-name(type-id))
 lostanza defn app-class-name (x:long) -> ptr<byte> :
   val record = app-vms.class-table[x].record
@@ -280,6 +281,7 @@ lostanza val FAST-LAYOUT-GENERAL:int = 6
 lostanza defn field-count-of (v:long) -> long :
   val tag = type-id(v)
   if tag <= FLOAT-TAG-BITS : return 0L
+  if tag == tagof(core/Box) : return 0L
 
   val obj = (v - REF-TAG-BITS) as ptr<ObjectLayout>
   val descriptor = addr(app-vms.class-table[tag])
@@ -335,6 +337,7 @@ deftype RecognizedType :
   Long <: RecognizedType
   Double <: RecognizedType
   String <: RecognizedType
+  core/Box <: RecognizedType
   AppByteArray <: RecognizedType
   AppCharArray <: RecognizedType
   AppIntArray <: RecognizedType
@@ -346,6 +349,8 @@ deftype RecognizedType :
   core/NilList <: RecognizedType
   AppObject <: RecognizedType
 
+lostanza defn unbox (v:long) -> long :
+  return (untag(v) as ptr<core/Box>).item as long
 lostanza defn value-of (v:long) -> ref<RecognizedType> :
   val type-id = type-id(v)
   if type-id == tagof(False) :
@@ -368,6 +373,8 @@ lostanza defn value-of (v:long) -> ref<RecognizedType> :
     return String(untag(v) as ptr<String>)
   if type-id == tagof(StringSymbol) :
     return String(untag(v) as ptr<StringSymbol>)
+  if type-id == tagof(core/Box) :
+    return value-of(unbox(v))
   if type-id == tagof(ByteArray) :
     return AppByteArray(v)
   if type-id == tagof(CharArray) :
@@ -416,6 +423,8 @@ lostanza defn string-of (v:long) -> ref<String> :
     return to-source-string(String(untag(v) as ptr<String>))
   if type-id == tagof(StringSymbol) :
     return String(untag(v) as ptr<StringSymbol>)
+  if type-id == tagof(core/Box) :
+    return string-of(unbox(v))
   if type-id == tagof(ByteArray) :
     return to-string(AppByteArray(v))
   if type-id == tagof(CharArray) :
