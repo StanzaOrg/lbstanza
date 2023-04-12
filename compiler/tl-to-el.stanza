@@ -399,7 +399,7 @@ defn Compiler (struct-table:StructTable, namemap:NameMap, p:TPackage) :
     for (b in branches(e), eb in ebranches) do :
       emit(ELabel(n(eb)))
       for (a in args(b), t in types(eb), y in ys) do :
-        emit(ELocal(a, t, false, false))
+        emit(ELocal(a, t, false, debug-name?(namemap, a)))
         emit(EDef(EVarLoc(a), y, info(e)))
       if (not-system-package) :
         emit(ESafepoint(safepoint-group, info(body(b))))
