@@ -12,8 +12,7 @@ TOP="${PWD}"
 #   and the machine that GCC will produce code for (target).
 
 USAGE="STANZA_BUILD_PLATFORM={linux|macos|windows} STANZA_BUILD_VER=0.17.56 STANZA_CONFIG=/path STANZA_INSTALL_DIR=/path $0"
-# TODO FIXME downloading from internet addresses without https is dangerous
-STANZA_DOWNLOAD_BASEURL="http://lbstanza.org/resources/stanza"
+STANZA_DOWNLOAD_BASEURL="https://github.com/StanzaOrg/lbstanza/releases/download"
 
 
 # Required env var inputs
@@ -60,7 +59,7 @@ mkdir -p "${STANZA_CONFIG}"
 # Calculated env vars
 STANZA_DOWNLOAD_VER=${STANZA_BUILD_VER//./_}  # convert dots to underscores
 STANZA_DOWNLOAD_FILE="${STANZA_DOWNLOAD_PLATFORMCHAR}stanza_${STANZA_DOWNLOAD_VER}.zip"
-STANZA_DOWNLOAD_URL="${STANZA_DOWNLOAD_BASEURL}/${STANZA_DOWNLOAD_FILE}"
+STANZA_DOWNLOAD_URL="${STANZA_DOWNLOAD_BASEURL}/${STANZA_BUILD_VER}/${STANZA_DOWNLOAD_FILE}"
 TOP="${PWD}"
 
 # download zip to a tmp dir, unzip, install, and clean up tmp dir
