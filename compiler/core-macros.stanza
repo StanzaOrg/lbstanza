@@ -1004,7 +1004,8 @@ defsyntax core :
       $ls-letexp $ls-and $ls-or $ls-set $ls-labels $ls-block $ls-goto $ls-return
       $ls-let $ls-if $ls-match $ls-branch $ls-func $ls-def $ls-defvar $ls-deftype $ls-deffield
       $ls-defn $ls-defn* $ls-defmethod $ls-defmethod* $ls-extern $ls-extern-fn $ls-byte $ls-int
-      $ls-long $ls-float $ls-double $ls-? $ls-of $ls-ptr $ls-ref $ls-fn) do :
+      $ls-long $ls-float $ls-double $ls-? $ls-of $ls-ptr $ls-ref $ls-fn
+      $optional $keyword $optional-keyword $rest $keywordarg) do :
       add(TAG-TABLE, tag)
 
    public defproduction stanza-tag: Symbol|Token
