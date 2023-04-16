@@ -6822,7 +6822,7 @@ public defn IndentedStream (o:OutputStream) :
   IndentedStream(o, 2)
 
 public defn IndentedStream (o:OutputStream, n:Int) :
-  IndentedStream(o, 2, true)
+  IndentedStream(o, n, true)
 
 public defn IndentedStream (o:OutputStream, n:Int, initial-start-of-line?:True|False) :
   var start-of-line? = initial-start-of-line?

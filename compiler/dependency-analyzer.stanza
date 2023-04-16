@@ -1,0 +1,245 @@
+defpackage stz/dependency-analyzer :
+  import core
+  import collections
+  import reader
+  import stz/printing-utils
+  import stz/shortest-paths
+  import arg-parser
+
+;============================================================
+;============= Representation of Dependencies ===============
+;============================================================
+
+defstruct Dependencies:
+  entries:Tuple<KeyValue<Symbol,Tuple<Symbol>>>
+
+defmethod print (o:OutputStream, d:Dependencies) :
+  print(o, "Dependencies%_" % [colon-field-list(entries(d))])
+
+;============================================================
+;=============== Representation of Paths ====================
+;============================================================
+
+public defstruct DependencyPaths :
+  indices:IndexTable
+  graph-paths:GraphPaths
+
+;============================================================
+;================== Report Formatting =======================
+;============================================================
+
+defn print-report (o:OutputStream, p:DependencyPaths) :
+  val gp = graph-paths(p)
+  val o2 = IndentedStream(o,8)
+
+  ;Print out leaf packages.
+  println(o, "Leaf packages:\n")
+  for leaf in leaves(gp) do :
+    println(o2, indices(p)[leaf])
+  println(o, "")
+
+  ;Print out mutually-dependent packages.
+  for component in components(gp) do :
+    if length(component) > 2 :
+      println(o, "Group of mutually-dependent packages:\n")
+      for id in component do :
+        println(o2, indices(p)[id])
+      println(o, "")
+
+  ;Print out cycles in packages.
+  println(o, "Package dependency cycles:\n")
+  for cycle in cycles(gp) do :
+    println(o2, format-cycle(cycle, indices(p)))
+    println(o2, "")
+  println(o, "")    
+
+  ;Print out import paths.
+  for path in paths(gp) do :
+    println(o, "Import path for '%_':\n" % [indices(p)[node(path)]])
+    print-tree(o2, indices(p), path)
+    println(o2, "\n")    
+
+defn format-cycle (cycle:Tuple<Int>, indices:IndexTable) :
+  if length(cycle) == 2 :
+    "%_ <=> %_" % [indices[cycle[0]], indices[cycle[1]]]
+  else :
+    val ids = cat(cycle, [cycle[0]])
+    val names = seq({indices[_]}, ids)
+    "%*" % [join(names, " => ")]
+  
+defn print-tree (o:OutputStream, indices:IndexTable, tree:PathTree) :
+
+  ;Stack of header markers to print at beginning of line.
+  val markers = Vector<HeaderMarker>()
+
+  ;Print the given tree with the given starting marker.
+  defn print-entry (tree:PathTree, marker:HeaderMarker|False) :
+
+    ;Print the title entry for the tree.
+    do(print-marker, markers)
+    print-marker(marker)
+    print(o, indices[node(tree)])
+
+    ;Add one indentation.
+    switch(marker) :
+      SideT: add(markers, Side)
+      Corner: add(markers, Blank)
+      false: false
+
+    ;Print children.
+    val last-child = length(children(tree)) - 1
+    for (c in children(tree), i in 0 to false) do :
+      print(o, "\n")
+      print-entry(c, Corner when i == last-child else SideT)
+
+    ;Pop one indentation.
+    if marker is-not False :
+      pop(markers)
+
+  ;Print the given marker.
+  defn print-marker (m:HeaderMarker|False) :
+    switch(m) :
+      SideT : print(o, "├─ ")
+      Side : print(o, "│  ")
+      Corner : print(o, "└─ ")
+      Blank : print(o, "   ")
+      false : false
+
+  ;Launch!
+  print-entry(tree, false)
+
+;Indicate which marker to use.
+defenum HeaderMarker :
+  SideT
+  Side
+  Corner
+  Blank
+
+;============================================================
+;===================== Reader ===============================
+;============================================================
+
+defsyntax deps-file :
+
+  public defproduction deps:Dependencies
+  defrule deps = (Source Files: (_ ...)
+                  Package Dependencies: (?es:#dentry! ...)
+                  Package Group Dependencies: (_ ...)) :
+    Dependencies(to-tuple(es))
+  defrule deps = (Package Dependencies: (?es:#dentry! ...)) :
+    Dependencies(to-tuple(es))
+  fail-if deps = () :
+    DepsError(closest-info(), "Invalid syntax for dependencies file.")
+
+  defproduction dentry!: KeyValue<Symbol,Tuple<Symbol>>
+  defrule dentry! = (?name:#symbol! imports (?deps:#symbol! ...)) :
+    name => to-tuple(deps)
+  fail-if dentry! = () :
+    DepsError(closest-info(), "Invalid syntax for dependency entry.")
+
+  defproduction symbol!: Symbol
+  defrule symbol! = (?x) when unwrap-token(x) is Symbol : unwrap-token(x)
+  fail-if symbol! = () : DepsError(closest-info(), "Symbol expected here.")
+
+;============================================================
+;======================== Error =============================
+;============================================================
+
+public defstruct DepsError <: Exception :
+  info:FileInfo|False
+  message
+
+defmethod print (o:OutputStream, e:DepsError) :
+  val info-str = "" when info(e) is False
+            else "%_: " % [info(e)]
+  print(o, "%_%_" % [info-str, message(e)])
+
+;============================================================
+;==================== Compute Paths =========================
+;============================================================
+
+;Compute DependencyPaths given dependencies structure.
+defn compute-paths (deps:Dependencies) -> DependencyPaths :
+  val index-table = IndexTable()
+  val succ-table = IntTable-init<Vector<Int>>(Vector<Int>{})
+  for entry in entries(deps) do :
+    val package = index(index-table,key(entry))
+    val imports = map(index{index-table,_}, value(entry))
+    for import in imports do :
+      add(succ-table[import], package)
+
+  val graph-paths = graph-paths(num-nodes = length(index-table),
+                                successors = to-tuple{succ-table[_]})
+  DependencyPaths(index-table, graph-paths)
+
+;============================================================
+;================== Utility: IndexTable =====================
+;============================================================
+
+public deftype IndexTable
+public defmulti index (t:IndexTable, name:Symbol) -> Int
+public defmulti get (t:IndexTable, i:Int) -> Symbol
+public defmulti length (t:IndexTable) -> Int
+
+defn IndexTable () :
+
+  val indices = HashTable<Symbol,Int>()
+  val names = Vector<Symbol>()
+  defn add-name (name:Symbol) -> Int :
+    add(names, name)
+    val id = length(names) - 1
+    indices[name] = id
+    id
+
+  new IndexTable :
+    defmethod index (this, s:Symbol) :
+      set?(indices, s, add-name{s})
+    defmethod get (this, index:Int) :
+      names[index]
+    defmethod length (this) :
+      length(names)  
+
+;============================================================
+;======================== Launch! ===========================
+;============================================================
+
+defn analyze-action (args:CommandArgs) :
+  val filename = arg(args, 0)
+  val forms = reader/read-file(filename)
+  val deps = parse-syntax[deps-file / #deps](forms)
+  val dpaths = compute-paths(deps)
+  if flag?(args, "o") :
+    val report = new Printable :
+      defmethod print (o:OutputStream, this) :
+        print-report(o, dpaths)
+    spit(args["o"], report)
+  else :    
+    print-report(STANDARD-OUTPUT-STREAM, dpaths)
+
+val ANALYZE-DESCRIPTION = trim $ \<S>
+This command analyzes the text file that is output from the Stanza
+'analyze-dependencies' command. It reads the section under "Package
+Dependencies" and calculates why packages are imported, and why
+cycles are formed.
+
+Here is an example usage together with 'analyze-dependencies'.
+
+  stanza analyze-dependencies mypackage/myprogram -o deps.txt
+  stanza run stz/dependency-analyzer -- analyze deps.txt -o report.txt
+<S>
+
+simple-command-line-cli(
+  default-command = "analyze"
+  Command(
+    name = "analyze"
+    action = analyze-action,
+    argtype = OneArg,
+    arg-description = "the text file output of 'analyze-dependencies'."
+    description = "Analyzes the dependency graph and generates useful explanations."
+    long-description = ANALYZE-DESCRIPTION
+    Flag("o",
+         type = OneFlag,
+         optional? = OptionalFlag,
+         description = "The name of the report file to generate. If omitted, then \
+                        output is printed to screen directly.")))
+
