@@ -80,6 +80,33 @@ public defstruct ArgParseFailure <: CommandResult :
   cause:ArgParseError
 
 ;============================================================
+;=================== Construction ===========================
+;============================================================
+
+public defn Command (-- name:String,
+                        action:CommandArgs -> ?,
+                        argtype:ArgType = ZeroArg,
+                        arg-description:String|False = false,
+                        description:String|False = false,
+                        long-description:String|False = false,
+                        verify:CommandArgs -> ? = default-verify
+                        flags:Flag ...) :
+  Command(name,
+          argtype,
+          arg-description,
+          flags,
+          description,
+          long-description,
+          verify,
+          action)
+
+public defn Flag (name:String --
+                  type:FlagType
+                  optional?:FlagOptionalSetting = RequiredFlag
+                  description:String|False = false) :
+  Flag(name, type, optional?, description)
+
+;============================================================
 ;==================== Preconditions =========================
 ;============================================================
 
@@ -488,6 +515,13 @@ public defn execute (c:FoundCommand) :
 ;============================================================
 ;================= Convenience Drivers ======================
 ;============================================================
+
+public defn simple-command-line-cli (-- description:String|False = false
+                                        default-command:String|False = false
+                                        help?:True|False = true
+                                        exit-on-finish?:True|False = true
+                                        commands:Command ...) :
+  simple-command-line-cli(description, commands, default-command, help?, exit-on-finish?)
 
 public defn simple-command-line-cli (description:String|False,
                                      commands:Tuple<Command>,

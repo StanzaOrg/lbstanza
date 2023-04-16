@@ -1,0 +1,237 @@
+defpackage stz/shortest-paths :
+  import core
+  import collections
+  import stz/algorithms
+  import stz/utils
+  import stz/printing-utils
+
+;============================================================
+;=============== Representation of Result ===================
+;============================================================
+
+public defstruct GraphPaths :
+  leaves:Tuple<Int>
+  paths:Tuple<PathTree>
+  components:Tuple<Tuple<Int>>
+  cycles:Tuple<Tuple<Int>>
+  
+;Represent a tree of paths from a source node down to
+;the leaf nodes.
+public defstruct PathTree :
+  node:Int
+  children:Tuple<PathTree>
+
+defmethod print (o:OutputStream, p:GraphPaths) :
+  val items = [
+    simple-field("leaves", leaves(p))
+    named-list-fields("components", components(p))
+    named-list-fields("cycles", cycles(p))
+    inline-fields(paths(p))]
+  print(o, "GraphPaths%_" % [colon-field-list(items)])
+
+defmethod print (o:OutputStream, t:PathTree) :
+  switch(length(children(t))) :
+    0 : print(o, node(t))
+    else : print(o, "%_ /\n%_" % [node(t), Indented("%n" % [children(t)])])
+
+;============================================================
+;===================== Main Algorithm =======================
+;============================================================
+
+;Compute all paths through the graph.
+public defn graph-paths (-- num-nodes:Int
+                            successors:Int -> Seqable<Int>) -> GraphPaths :
+  
+  ;Compute all paths from each node.
+  val pathlist = Vector<PathTree>()
+  val leaves+cycles = compute-leaves-and-cycles(num-nodes = num-nodes,
+                                                successors = successors)
+  for node in 0 to num-nodes do :
+    val children = shortest-paths-children(
+                     num-nodes = num-nodes,
+                     source = node,
+                     successors = successors,
+                     leaf? = {leaves(leaves+cycles)[_]})
+    val paths = shortest-paths(
+                  source = node,
+                  children = children,
+                  leaf? = {leaves(leaves+cycles)[_]})
+    add(pathlist, paths)
+
+  ;Compute all leaf nodes.
+  val leaf-nodes = to-tuple $
+    for (node in 0 to false, leaf? in leaves(leaves+cycles)) filter :
+      leaf?
+
+  ;Compute all cycles.
+  val componentlist = Vector<Tuple<Int>>()
+  val cyclelist = Vector<Tuple<Int>>()
+  for cycle in cycles(leaves+cycles) do :
+    match(cycle:Tuple<Int>) :
+      add(componentlist, cycle)
+      val cs = all-cycles(num-nodes = num-nodes,
+                          source = cycle[0],
+                          successors = restrict-successors(successors, cycle))
+      add-all(cyclelist, cs)
+
+  ;Return all information.
+  GraphPaths(leaf-nodes,
+             to-tuple(pathlist),
+             to-tuple(componentlist)
+             to-tuple(cyclelist))
+  
+;Restrict successors to within the given subset of nodes.
+defn restrict-successors (successors:Int -> Seqable<Int>,
+                          nodes:Seqable<Int>) -> (Int -> Tuple<Int>) :
+  val subset = to-intset(nodes)
+  fn (node:Int) -> Tuple<Int> :
+    if subset[node] : to-tuple(filter({subset[_]}, successors(node)))
+    else : []
+
+;============================================================
+;============== Compute Leaves and Cycles ===================
+;============================================================
+
+defstruct LeavesAndCycles :
+  cycles:Array<Tuple<Int>|False>
+  leaves:Array<True|False>  
+
+defn compute-leaves-and-cycles (-- num-nodes:Int,
+                                   successors:Int -> Seqable<Int>) -> LeavesAndCycles :
+  ;Compute all components.
+  val components = strong-components $
+    for node in 0 to num-nodes seq :
+      node => to-list(successors(node))
+
+  ;Compute cycle indices.
+  val cycles = Array<Tuple<Int>|False>(num-nodes, false)
+  val cycle-indices = Array<Int|False>(num-nodes, false)
+  for component in components do :
+    match(component:List<Int>) :
+      if length(component) > 1 :
+        val min-node = minimum(component)
+        cycles[min-node] = to-tuple(component)
+        for node in component do :
+          cycle-indices[node] = min-node
+
+  ;Compute the representative node for the given node.
+  defn representative-node (node:Int) -> Int :
+    match(cycle-indices[node]) :
+      (c:Int) : c
+      (f:False) : node
+
+  ;Compute leaves.
+  val leaves = Array<True|False>(num-nodes, true)
+  for node in 0 to num-nodes do :
+    val node-r = representative-node(node)
+    for succ in successors(node) do :
+      val succ-r = representative-node(succ)
+      if node-r != succ-r :
+        match(cycles[node-r]) :
+          (cycle:Tuple<Int>) :
+            for node in cycle do :
+              leaves[node] = false
+          (f:False) :
+            leaves[node-r] = false
+
+  ;Return leaves and cycles
+  LeavesAndCycles(cycles, leaves)
+
+;============================================================
+;================= Compute Shortest Paths ===================
+;============================================================
+
+;Compute shortest paths children array.
+defn shortest-paths-children (-- num-nodes:Int,
+                                 source:Int,
+                                 successors:Int -> Seqable<Int>,
+                                 leaf?:Int -> True|False) -> Array<List<Int>> :
+
+  val visited = Array<True|False>(num-nodes, false)
+  
+  val children = Array<List<Int>>(num-nodes, List())
+
+  val queue = Queue<Int>()
+
+  defn visited? (node:Int) -> True|False :
+    visited[node]
+
+  defn visit (src:Int, dst:Int) -> False :
+    visited[dst] = true
+    children[src] = cons(dst, children[src])
+    add(queue, dst)
+
+  defn visit-successors (node:Int) :
+    for succ in successors(node) do :
+      if not visited?(succ) :
+        visit(node, succ)
+
+  ;Launch!
+  if not leaf?(source) :
+    visited[source] = true
+    visit-successors(source)
+    while not empty?(queue) :
+      val node = pop(queue)
+      if not leaf?(node) :
+        visit-successors(node)
+        
+  children    
+
+;Compute shortest paths tree. Discard any branches that
+;do not end in a leaf?.
+defn shortest-paths (-- source:Int,
+                        children:Array<List<Int>>,
+                        leaf?:Int -> True|False) -> PathTree :
+  defn path-tree (node:Int) -> PathTree|False :
+    if empty?(children[node]) :
+      PathTree(node, []) when leaf?(node)
+    else :
+      val paths = filter-by<PathTree>(seq(path-tree, children[node]))
+      if not empty?(paths) :
+        PathTree(node, to-tuple(paths))
+  path-tree(source) as PathTree
+
+;============================================================
+;=================== Compute Cycle Paths ====================
+;============================================================
+
+;Compute the backedges in a traversal from the given source.
+defn backedges (-- num-nodes:Int,
+                   source:Int,
+                   successors:Int -> Seqable<Int>) -> [Vector<KeyValue<Int,Int>>, Array<Int|False>] :
+  val backedges = Vector<KeyValue<Int,Int>>()
+  val parents = Array<Int|False>(num-nodes, false)
+  val visiting = Array<True|False>(num-nodes, false)
+  val visited = Array<True|False>(num-nodes, false)
+  let loop (node:Int = source, parent:Int|False = false) :
+    if visited[node] :
+      if visiting[node] :
+        add(backedges, (parent as Int) => node)
+    else :
+      visited[node] = true
+      parents[node] = parent
+      visiting[node] = true
+      do(loop{_, node}, successors(node))
+      visiting[node] = false
+  [backedges, parents]
+
+;Convert the backedges into cycles.
+defn make-cycles (-- backedges:Vector<KeyValue<Int,Int>>,
+                     parents:Array<Int|False>) -> Seqable<Tuple<Int>> :
+  defn chain (-- leaf:Int, root:Int) -> List<Int> :
+    if leaf == root : List(leaf)
+    else : cons(leaf, chain(leaf = parents[leaf] as Int, root = root))
+  for edge in backedges seq :
+    val src = key(edge)
+    val dst = value(edge)
+    to-tuple(reverse(chain(leaf = src, root = dst)))
+
+;Compute all cycles reachable from the given source.
+defn all-cycles (-- num-nodes:Int,
+                    source:Int,
+                    successors:Int -> Seqable<Int>) -> Seqable<Tuple<Int>> :
+  val [backedges, parents] = backedges(num-nodes = num-nodes,
+                                       source = source,
+                                       successors = successors)
+  make-cycles(backedges = backedges, parents = parents)            
+
