@@ -1428,6 +1428,7 @@ defn inlining-order (return:ELocalFn -> ?, e:ELBigItem) :
 
 defn inline-call (buffer:BodyBuffer,
                   ret:EVarLoc|False, f:EFn, call-targs:Tuple<EType>, call-args:Tuple<EImm>,
+                  call-info:TraceInfo,
                   tail?:True|False) :
   ;Utilities for substituting type arguments
   val targ-table = IntTable<EType>()
@@ -1479,6 +1480,13 @@ defn inline-call (buffer:BodyBuffer,
             match(ret:EVarLoc) :
               emit(buffer, ECall(ret, /f(i), ys(i), calltype(i), info(i)))
             emit(buffer, EGoto(end-lbl))
+        (i:ESafepoint) :
+          match(call-info, info?(i)) :
+            (call-info:StackTraceInfo, instruction-info:StackTraceInfo):
+              val info = StackTraceInfo(package(call-info), signature(call-info), info(instruction-info))
+              emit(buffer, ESafepoint(group-id(i), info))
+            (call-info, instruction-info):
+              emit(buffer, i)
         (i) :
           emit(buffer, i)
 
@@ -1523,7 +1531,7 @@ defn simple-inline (epackage:EPackage) :
                     val [ret, tail?] = match(i) :
                       (i:ECall) : [x(i), false]
                       (i:ETCall) : [false, true]
-                    inline-call(buffer, ret, func, targs, ys(i), tail?)
+                    inline-call(buffer, ret, func, targs, ys(i), info(i), tail?)
                   (_:False) :
                     emit(buffer, i)
             (i:EInitClosures) :
@@ -1696,7 +1704,7 @@ defn within-package-inline (epackage:EPackage, force-inline:Tuple<Int>) :
                     (i:ETCall) : [false, true]
                   ;Inline all of the instruction in the function body
                   ;into the current buffer.
-                  inline-call(buffer, ret, rename-fn(func), targs, ys(i), tail?)
+                  inline-call(buffer, ret, rename-fn(func), targs, ys(i), info(i), tail?)
                 (_:False) :
                   emit(buffer, i)
           else :
