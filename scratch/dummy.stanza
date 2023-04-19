@@ -573,7 +573,7 @@ lostanza defn hit-safepoint () -> ref<False>:
 lostanza defn run-main (lib:ref<DynamicLibrary>) -> ref<Int> :
   val main-sym = dynamic-library-symbol(lib, String("main"))
   val main = main-sym.address as ptr<( (int, ptr<ptr<byte>>) -> int )>
-  val result = call-c [main](0, null)
+  val result = call-c [main](clib/input_argc, clib/input_argv)
   return new Int{result}
 
 extern notify_stopped_at_entry: () -> int
@@ -586,9 +586,9 @@ var LOADED-PROGRAM:DynamicLibrary
 
 defn main () :
   val cmd-args = command-line-arguments()
-  println("Stanza: Command line arguments = %_" % [cmd-args])
+  ;println("Stanza: Command line arguments = %_" % [cmd-args])
 
-  val program-filename = cmd-args[1]
+  val program-filename = cmd-args[0]
   LOADED-PROGRAM = load-program(program-filename)
 
   set-sighandler(hit-safepoint)

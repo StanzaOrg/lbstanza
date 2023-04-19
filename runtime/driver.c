@@ -1106,9 +1106,9 @@ static stz_long bitset_size (stz_long heap_size) {
 
 #ifdef BUILD_DEBUG
 int stanza_main (int argc, char* argv[]) {
-  printf("C: Running program with %d arguments:\n", argc);
-  for (char** p = argv; *p != NULL; p++)
-    printf("  \"%s\"\n", *p);
+  //printf("C: Running program with %d arguments:\n", argc);
+  //for (char** p = argv; *p != NULL; p++)
+  //  printf("  \"%s\"\n", *p);
 
 #else
 STANZA_API_FUNC int main (int argc, char* argv[]) {

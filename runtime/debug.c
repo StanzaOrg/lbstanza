@@ -1865,14 +1865,13 @@ void notify_stopped_at_safepoint(const void* pc) {
 // Skeleton of Stanza debgger. It runs on a separate thread.
 // TODO: replace it woth LoStanza function.
 static void* handle_launch(void* args) {
-  char** argv = (char**) args;
   // TODO: Replace the code below with the debugger run with 'argv'
-  log_printf("! Running stanza program %s with arguments:\n", argv[0]);
-  for (char** p = argv; *++p;)
-    log_printf("  %s\n", *p);
-
+  char** argv = (char**) args;
   int argc = 0;
   for (char** p = argv; *p++; argc++);
+  log_printf("! Running stanza program %s with %d arguments:\n", argv[0], argc);
+  for (char** p = argv; *++p;)
+    log_printf("  %s\n", *p);
   stanza_main(argc, argv);
 
   send_process_exited(0);
@@ -1891,15 +1890,14 @@ static inline const char* launch_program(const JSObject* request_arguments) {
   if (!program) return "no program specified";
 
   const char** args = NULL;
-  const char* error = get_string_array(request_arguments, "args", 2, &args);
+  const char* error = get_string_array(request_arguments, "args", 1, &args);
   if (!error) {
     const char** env = NULL;
     error = get_string_array(request_arguments, "env", 0, &env);
     if (!error) {
       free_path(program_path);
       program_path = get_absolute_path(program);
-      args[1] = program_path;
-      args[0] = debug_adapter_path;
+      args[0] = program_path;
       // TODO: launch the program here, remember program_pid
       // For now, lets just run stanza debugger in-process on a separate thread and ignore 'env'
       pthread_t program_thread;
