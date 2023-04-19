@@ -1868,7 +1868,7 @@ static void* handle_launch(void* args) {
   char** argv = (char**) args;
   // TODO: Replace the code below with the debugger run with 'argv'
   log_printf("! Running stanza program %s with arguments:\n", argv[0]);
-  for (char** p = argv; *++p != NULL;)
+  for (char** p = argv; *++p;)
     log_printf("  %s\n", *p);
 
   int argc = 0;

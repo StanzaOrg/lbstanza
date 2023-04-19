@@ -238,7 +238,7 @@ lostanza defn write-int3 (p:ptr<byte>) -> ref<False> :
 lostanza defn run-main (lib:ref<DynamicLibrary>) -> ref<Int> :
   val main-sym = dynamic-library-symbol(lib, String("main"))
   val main = main-sym.address as ptr<( (int, ptr<ptr<byte>>) -> int )>
-  val result = call-c [main](0, null)
+  val result = call-c [main](clib/input_argc - 1, addr(clib/input_argv[1]))
   return new Int{result}
 
 main()
