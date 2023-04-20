@@ -87,10 +87,10 @@ defn read-proj-action (cmdargs:CommandArgs) :
       workdir
     defmethod foreign-package-managers (this) :
       manager-infos(get?(cmdargs, "package-managers", []))
-    defmethod package-manager-variables (this, params:ForeignPackageParamsStmt, platform:Symbol) :
+    defmethod package-manager-variables (this, params:ForeignPackageParamsStmt, platform:Symbol, link-type:Symbol) :
       switch(package-manager(params)) :
         `conan : conan-vars(platform, params)        
-  val proj = read-proj-files(filenames, platform, env)
+  val proj = read-proj-files(filenames, platform, `static, env)
   println(proj)
 
 ;Launch!
