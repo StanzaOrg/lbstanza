@@ -90,7 +90,7 @@ defn subset? (xs:Seqable<Symbol>, ys:Seqable<Symbol>) -> True|False :
 ;preprocessed into "./gzip". 
 
 defn ensure-slash (filename:String) -> String :
-  if contains?(filename, '/') :
+  if contains?(norm-path(filename), '/') :
     filename
   else :
     string-join(["./", filename])
