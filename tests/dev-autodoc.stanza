@@ -56,6 +56,9 @@ public defn read-input-ir (filenames:Tuple<String>) -> Tuple<IPackage> :
 ;    -toc-renamer-filename asdf
 ;    -trace
 
+set-command-line-arguments $ 
+  ["dev-autodoc" "gen-docs" "data/doc-core.stanza" "-md-docs-dir" "mydir"]
+
 defn gen-docs-action (cmd-args:CommandArgs) -> False :
   val filenames = args(cmd-args)
   val ipackages = read-input-ir(filenames)
