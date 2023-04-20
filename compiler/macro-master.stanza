@@ -90,10 +90,13 @@ defn subset? (xs:Seqable<Symbol>, ys:Seqable<Symbol>) -> True|False :
 ;preprocessed into "./gzip". 
 
 defn ensure-slash (filename:String) -> String :
-  if contains?(norm-path(filename), '/') :
-    filename
-  else :
-    string-join(["./", filename])
+  val has-slash? =
+    #if-defined(PLATFORM-WINDOWS) :
+      contains?(filename, '/') or contains?(filename, '\\')
+    #else :
+      contains?(filename, '/')
+  if has-slash? : filename
+  else : string-join(["./", filename])
 
 ;============================================================
 ;==================== Sanity Handshake ======================
