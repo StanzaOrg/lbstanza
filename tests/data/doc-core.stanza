@@ -1,0 +1,26 @@
+defpackage core
+
+public deftype Byte
+public deftype Char
+public deftype Int
+public deftype Long
+public deftype Float
+public deftype Double
+public deftype String
+public deftype Symbol
+public deftype List<T>
+public deftype True
+public deftype False
+public deftype Maybe<T>
+public deftype None <: Maybe<Void>
+public deftype One<T> <: Maybe<T>
+public deftype Stack
+public deftype Fn
+public deftype Type
+public deftype Box
+public deftype StackFrame
+public deftype Unique
+
+doc: "my doc for myfunction"
+defn myfunction (x:Int) :
+  2

@@ -1,0 +1,83 @@
+defpackage stz-test-suite/dev-autodoc :
+  import core
+  import collections
+  import reader
+  import parser/macroexpander
+  import stz/il-ir
+  import stz/input
+  import stz/renamer
+  import stz/resolver
+  import stz-test-suite/test-tools
+  import stz/core-macros
+  import stz/type
+  import stz/type-instantiation
+  import stz/type-errors
+  import stz/tl-to-el
+  import stz/el
+  import stz/tl-ir
+  import stz/auto-doc
+  import arg-parser
+
+;============================================================
+;=================== Read an Input IR =======================
+;============================================================
+
+;Read in the files and convert to IPackage.
+public defn read-input-ir (filenames:Tuple<String>) -> Tuple<IPackage> :
+  ;Read, macroexpand, and convert to input IR.
+  val ipackages = to-tuple $ for filename in filenames seq-cat :
+    val form = read-file(filename)
+    val expanded = macroexpand(SimpleMacroexpander(), form, List())
+    val default-imports = [IImport(`core), IImport(`collections)]
+    to-ipackages(expanded, default-imports)
+    
+  ;Rename
+  val rename-result = rename-il(ipackages)
+  if errors(rename-result) is-not False :
+    throw(errors(rename-result) as RenameErrors)
+  val renamed = packages(rename-result)
+  
+  ;Resolve
+  val resolve-env = new stz/resolver/Env :
+    defmethod imported-package (this, package:Symbol) : false
+  val resolve-result = resolve-il(renamed, resolve-env)
+  if errors(resolve-result) is-not False :
+    throw(errors(resolve-result) as ResolveErrors)
+  val resolved = /ipackages(resolve-result)
+
+  ;Return resolved ipackages.
+  resolved
+
+;============================================================
+;================= Command Line Usage =======================
+;============================================================
+
+;Example call:
+;
+;  dev-autodoc
+;    gen-docs core.stanza collections.stanza myprog.stanza
+;    -md-docs-dir mydir
+;    -fig-filter-filename myfig
+;    -toc-renamer-filename asdf
+;    -trace
+
+defn gen-docs-action (cmd-args:CommandArgs) -> False :
+  val filenames = args(cmd-args)
+  val ipackages = read-input-ir(filenames)
+  println("GEN DOCS FOR:")
+  do(println{name(_)}, ipackages)
+  println("md-docs-dir = %_" % [cmd-args["md-docs-dir"]])
+  println("fig-filter-filename = %_" % [get?(cmd-args,"fig-filter-filename", false)])
+  println("toc-renamer-filename = %_" % [get?(cmd-args, "toc-renamer-filename", false)])
+  println("trace = %_" % [flag?(cmd-args, "trace")])
+
+simple-command-line-cli(
+  exit-on-finish? = false
+  Command(
+    name = "gen-docs"
+    argtype = AtLeastOneArg
+    action = gen-docs-action
+    Flag("md-docs-dir", type = OneFlag)
+    Flag("fig-filter-filename", type = OneFlag, optional? = OptionalFlag)
+    Flag("toc-renamer-filename", type = OneFlag, optional? = OptionalFlag)
+    Flag("trace", type = ZeroFlag, optional? = OptionalFlag)))
