@@ -1,0 +1,137 @@
+defpackage stz/exp-printer :
+  import core
+  import collections
+
+;<doc>=======================================================
+;======================= Documentation ======================
+;============================================================
+
+Explanation of Precedence:
+
+  All operator tokens are tagged with a precedence:
+
+    + => 0
+    - => 0
+    * => 1
+    / => 1
+    >> => 2
+
+  What does "expression with precedence 2" mean? It is
+  an expression where all operators have precedence greater
+  than or equal to 2.
+
+    a + a * a   has precedence  0
+    a * a >> a   has precedence 1
+
+  Along with their tagged precedence, all operators are
+  tagged with their accepted left-hand-side and right-hand-side
+  precedences.
+
+    + => (lhs-precedence = 0, rhs-precedence = 1)
+
+  This means that the left-side expression of a + operation
+  must be a 0 precedence expression, and the right-side
+  expression must be a 1 precedence expression.  
+
+;============================================================
+;=======================================================<doc>
+
+;============================================================
+;===================== Representation =======================
+;============================================================
+
+;Represents a printable expression.
+public deftype PrintExp
+
+;Leaf expression: printed as is.
+public defstruct Atom <: PrintExp :
+  value
+
+;Binary operator: printed with parentheses to
+;ensure precedence.
+public defstruct BinOp <: PrintExp :
+  op
+  a:PrintExp
+  b:PrintExp
+  precedence:Int
+  lhs-precedence:Int
+  rhs-precedence:Int
+  uses-angle-chars?:True|False
+
+;Surround: Wrap something with scoping characters.
+public defstruct Surround <: PrintExp :
+  exps:Tuple<PrintExp>
+  style:SurroundStyle
+
+;The different styles of scoping characters.
+public defenum SurroundStyle :
+  Paren
+  Angle
+  Bracket
+  Brace
+
+;============================================================
+;================ Parenthesis Insertion =====================
+;============================================================
+
+;Processes the expression by inserting parenthesis around
+;everything that disrupts the precedence order.
+defn insert-parens (e:PrintExp) -> PrintExp :
+  ;Helper: Surround an exp with parentheses when requested.
+  defn paren (e:PrintExp) : Surround([e], Paren)
+  defn paren? (e:PrintExp, b:True|False) : paren(e) when b else e
+  
+  match(e) :
+    (e:Atom) :
+      e
+    (e:BinOp) :
+      var a* = insert-parens(a(e))
+      var b* = insert-parens(b(e))
+      a* = paren?(a*, exp-precedence(a*) < lhs-precedence(e))
+      b* = paren?(b*, exp-precedence(b*) < rhs-precedence(e))
+      BinOp(op(e), a*, b*, precedence(e), lhs-precedence(e), rhs-precedence(e), uses-angle-chars?(e))
+    (e:Surround) :
+      val exps* = map(insert-parens, exps(e))
+      if style(e) == Angle :
+        val exps* = for e in exps* map :
+          paren?(e, exposes-angle-chars?(e))
+        Surround(exps*, style(e))        
+      else :
+        Surround(exps*, style(e))
+
+;Returns the precedence level of the expression.
+;NOTE: Assumes that the expression has been normalized using 'insert-parens'
+;already.
+defn exp-precedence (e:PrintExp) -> Int :
+  match(e) :
+    (e:BinOp) : precedence(e)
+    (e:Atom|Surround) : INT-MAX
+
+;Return true if the given expression contains exposed operators
+;that uses angle characters.
+;NOTE: Assumes that the expression has been normalized using 'insert-parens'
+;already.
+defn exposes-angle-chars? (e:PrintExp) -> True|False :
+  match(e) :
+    (e:Atom|Surround) : false
+    (e:BinOp) : uses-angle-chars?(e) or exposes-angle-chars?(a(e)) or exposes-angle-chars?(b(e))
+
+;============================================================
+;===================== Printing =============================
+;============================================================
+
+defmethod print (o:OutputStream, e:PrintExp) :
+  defn fmt (e:PrintExp) :
+    match(e) :
+      (e:Atom) :
+        value(e)
+      (e:BinOp) :
+        "%_%_%_" % [fmt(a(e)), op(e), fmt(b(e))]
+      (e:Surround) :
+        switch(style(e)) :
+          Paren: "(%,)" % [seq(fmt,exps(e))]
+          Angle: "<%,>" % [seq(fmt,exps(e))]
+          Bracket: "{%,}" % [seq(fmt,exps(e))]
+          Brace: "[%,]" % [seq(fmt,exps(e))]
+  print(o, fmt(insert-parens(e)))
+      
