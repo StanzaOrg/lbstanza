@@ -9,14 +9,9 @@ defpackage stz-test-suite/dev-autodoc :
   import stz/resolver
   import stz-test-suite/test-tools
   import stz/core-macros
-  import stz/type
-  import stz/type-instantiation
-  import stz/type-errors
-  import stz/tl-to-el
-  import stz/el
-  import stz/tl-ir
-  import stz/auto-doc
+  import stz/auto-doc-engine
   import arg-parser
+  import stz/namemap
 
 ;============================================================
 ;=================== Read an Input IR =======================
@@ -64,12 +59,13 @@ public defn read-input-ir (filenames:Tuple<String>) -> Tuple<IPackage> :
 defn gen-docs-action (cmd-args:CommandArgs) -> False :
   val filenames = args(cmd-args)
   val ipackages = read-input-ir(filenames)
-  println("GEN DOCS FOR:")
-  do(println{name(_)}, ipackages)
-  println("md-docs-dir = %_" % [cmd-args["md-docs-dir"]])
-  println("fig-filter-filename = %_" % [get?(cmd-args,"fig-filter-filename", false)])
-  println("toc-renamer-filename = %_" % [get?(cmd-args, "toc-renamer-filename", false)])
-  println("trace = %_" % [flag?(cmd-args, "trace")])
+  val namemap = NameMap(seq(namemap, ipackages))
+  gen-doc(cmd-args["md-docs-dir"],
+          namemap,
+          ipackages,
+          get?(cmd-args,"fig-filter-filename", false)
+          get?(cmd-args, "toc-renamer-filename", false)
+          flag?(cmd-args, "trace"))
 
 simple-command-line-cli(
   exit-on-finish? = false
