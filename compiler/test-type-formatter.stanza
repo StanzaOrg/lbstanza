@@ -1,0 +1,50 @@
+defpackage stz/test-type-formatter :
+  import core
+  import collections
+  import stz/type-formatter
+  import stz/type-fargs
+  import stz/types with:
+    prefix(TOf, TTuple) => types-
+
+;Helper:
+defn TOf (n:Int, args:Type ...) : types-TOf(n, args)
+defn TTuple (args:Type ...) : types-TTuple(args)
+
+public defn main () :
+  val names = to-inttable<Symbol> $ [
+    0 => `Int
+    1 => `String
+    2 => `Tuple
+    3 => `Array
+    4 => `Table
+    10 => `T
+    11 => `S
+  ]
+  val tf = TypeFormatter({names[_]})
+  defn test (t:Type|LSType) :
+    println(format(tf,t))
+
+  test $ TOf(0)
+  test $ TOf(1)
+  test $ TOf(2, TOf(0))
+  test $ TOf(4, TOf(0), TOf(1))
+  val a = TArrow([TOf(0)], TOf(1))
+  test $ a
+  test $ TArrow([TOf(0)], a)
+  test $ TArrow([a], a)
+  test $ TArrow([TOf(0), TOf(0)], TOf(0))
+  test $ TOf(2, a)
+  test $ TOf(2, TTuple(a))
+  test $ TGradual()
+  test $ TBot()
+  test $ TAnd(a,a)
+  test $ TAnd(TOf(0),TOf(1))
+  test $ TOr(TOf(2),TAnd(TOf(0),TOf(1)))
+  test $ TFunction([10], [11], [PositionalArg<Type>(false,TOf(0))], TOf(0))
+  test $ TFunction([10], [11], [PositionalArg<Type>(true,TOf(0))], TOf(0))
+  test $ TFunction([], [], [PositionalArg<Type>(false,TOf(0))], TOf(0))
+
+  
+
+
+main()

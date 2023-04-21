@@ -70,6 +70,39 @@ public defenum SurroundStyle :
   Bracket
   Brace
 
+;Indicates whether an op is left/right associative.
+public defenum Associativity :
+  LeftAssociative
+  RightAssociative
+  DualAssociative
+
+;============================================================
+;==================== Constructors ==========================
+;============================================================
+
+;Named arguments.
+public defn BinOp (op,
+                   a:PrintExp,
+                   b:PrintExp --
+                   precedence:Int,
+                   lhs-precedence:Int,
+                   rhs-precedence:Int,
+                   uses-angle-chars?:True|False = false) -> BinOp :
+  BinOp(op, a, b, precedence, lhs-precedence, rhs-precedence, uses-angle-chars?)
+
+;LHS/RHS precedence through associativity.
+public defn BinOp (op,
+                   a:PrintExp,
+                   b:PrintExp --
+                   precedence:Int,
+                   associativity:Associativity = LeftAssociative
+                   uses-angle-chars?:True|False = false) -> BinOp :
+  val [lhs-precedence, rhs-precedence] = switch(associativity) :
+    LeftAssociative: [precedence, precedence + 1]
+    RightAssociative: [precedence + 1, precedence]
+    DualAssociative: [precedence, precedence]
+  BinOp(op, a, b, precedence, lhs-precedence, rhs-precedence, uses-angle-chars?)
+
 ;============================================================
 ;================ Parenthesis Insertion =====================
 ;============================================================
