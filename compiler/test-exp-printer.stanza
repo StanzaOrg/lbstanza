@@ -1,0 +1,52 @@
+defpackage stz/test-exp-printer :
+  import core
+  import collections
+  import stz/exp-printer
+
+defn V (x:Int|String) :
+  Atom(x)
+  
+defn plus (a:PrintExp, b:PrintExp) :
+  BinOp(" + ", a, b,
+        0, 0, 1, false)
+
+defn times (a:PrintExp, b:PrintExp) :
+  BinOp(" * ", a, b,
+        1, 1, 2, false)
+
+defn arrow (xs:Tuple<PrintExp>, y:PrintExp) :
+  val x = switch(length(xs)) :
+    1 : xs[0]
+    else : Surround(xs, Paren)
+  BinOp(" -> ", x, y
+        0, 1, 0, true)
+
+defn of (x:PrintExp, ys:PrintExp ...) :
+  val y = Surround(ys, Angle)
+  BinOp("", x, y,
+        10, 10, 11, false)
+
+defn P (es:PrintExp ...) :
+  Surround(es, Paren)
+
+public defn main () :
+
+  println $ V(1)
+  println $ V("myvar")
+  println $ V(1) + V(3)
+  println $ V(1) + V(3) + V(8)
+  println $ V(1) + (V(3) + V(8))
+  println $ (V(1) + V(3)) + V(8)
+  println $ V("a") * V("b") + V("c")
+  println $ V("a") * (V("b") + V("c"))
+  println $ arrow([V("Int"), V("String")], V("String"))
+  println $ arrow([], V("String"))
+  println $ arrow([V("Int")], V("String"))
+  println $ arrow([V("Int")], arrow([V("String")], V("R")))
+  println $ arrow([arrow([V("String")], V("R"))], V("Int"))
+  println $ of(V("Tuple"), V("String"))
+  println $ of(V("Tuple"), arrow([arrow([V("String")], V("R"))], V("Int")))
+  println $ of(V("Tuple"), arrow([V("String")], V("R")), V("Int"))
+  println $ of(V("Tuple"), of(V("Tuple"), V("String")), V("Int"))
+  
+main()

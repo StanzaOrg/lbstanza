@@ -3,6 +3,7 @@ defpackage stz/type-formatter :
   import collections
   import stz/types
   import stz/type-fargs
+  import stz/exp-printer
 
 ;============================================================
 ;======================== API ===============================
@@ -13,10 +14,10 @@ defpackage stz/type-formatter :
 public deftype TypeFormatter
 
 ;Format a type as a human-readable object.
-public defmulti format (f:TypeFormatter, t:Type|LSType) -> Printable
+public defmulti format (f:TypeFormatter, t:Type|LSType) -> ?
 
 ;Format an FArg as a human-readable object.
-public defmulti format (f:TypeFormatter, a:FArg) -> Printable
+public defmulti format (f:TypeFormatter, a:FArg) -> ?
 
 ;============================================================
 ;========================= Format ===========================
@@ -26,220 +27,101 @@ public defmulti format (f:TypeFormatter, a:FArg) -> Printable
 ;looking up names of variables.
 public defn TypeFormatter (name:Int -> Symbol) :
 
-  ;HiStanza format(s). 
-  ;Format a list of HiStanza types.
-  ;- angle-context: True if the list is surrounded by angle brackets <...>. 
-  defn hsfs (o:OutputStream, ts:Seqable<Type>, angle-context:True|False) :
-    for (t in ts, i in 0 to false) do :
-      print(o, ", ") when i > 0
-      hsf(o, t, 0, angle-context)
-
-  ;HiStanza format arguments.
-  defn argfs (o:OutputStream, xs:Seqable<FArg<Type>>) :
-    for (x in xs, i in 0 to false) do :
-      print(o, ", ") when i > 0
-      match(x) :
-        (x:PositionalArg<Type>) :
-          hsf(o, type(x), 0, false)
-          print(o, " = ?") when optional?(x)
-        (x:KeywordArg<Type>) :
-          print(o, /name(x))
-          print(o, ":")        
-          hsf(o, type(x), 0, false)
-          print(o, " = ?") when optional?(x)
-        (x:VarArg<Type>) :
-          print(o, /name(x))
-          print(o, ":")
-          hsf(o, type(x), 0, false)
-          print(o, " ...")
-
-  ;HiStanza formatting.
-  ;- The level that this type appears in.
-  defn hsf (o:OutputStream, t:Type, lvl:Int, angle-context:True|False) -> ? :
-  
-    ;Decide whether parentheses are necessary.
-    val paren? =
-      if hslevel(t) < lvl : true
-      else if angle-context : t is TArrow
-    val angle-context* = angle-context and not paren?
-
-    print(o, "(") when paren?
+  ;Convert a Stanza type.
+  defn pexp (t:Type) -> PrintExp :
     match(t) :
       (t:TArrow) :
-        if length(a1(t)) == 1 :
-          hsf(o, a1(t)[0], 1, angle-context*)
-          print(o, " -> ")
-          hsf(o, a2(t), 0, angle-context*)
-        else :
-          print(o, "(")
-          hsfs(o, a1(t), false)
-          print(o, ") -> ")
-          hsf(o, a2(t), 0, angle-context*)
+        arrow(paren?(seq(pexp,a1(t))), pexp(a2(t)))
       (t:TFunction) :
+        val arrow-exp = arrow(paren?(seq(parg,a1(t))), pexp(a2(t)))
         val type-args = cat(
-          for v in targs(t) seq : "%~" % [name(v)]
-          for v in cargs(t) seq : "?%~" % [name(v)])
-        if not empty?(type-args) :
-          print(o, "<%,> . " % [type-args])
-        print(o, "(")
-        argfs(o, a1(t))
-        print(o, ") -> ")
-        hsf(o, a2(t), 0, angle-context*)
+          for v in targs(t) seq : Atom("%~" % [name(v)])
+          for v in cargs(t) seq : Atom("?%~" % [name(v)]))
+        targ-dot(type-args, arrow-exp)        
       (t:TOr) :
-        hsf(o, a(t), 1, angle-context*)
-        print(o, "|")
-        hsf(o, b(t), 1, angle-context*)
+        BinOp("|", pexp(a(t)), pexp(b(t)),
+              precedence = 2, associativity = DualAssociative)
       (t:TAnd) :
-        hsf(o, a(t), 2, angle-context*)
-        print(o, "&")
-        hsf(o, b(t), 2, angle-context*)
-      ;Atomic
+        BinOp("&", pexp(a(t)), pexp(b(t)),
+              precedence = 3, associativity = DualAssociative)
       (t:TOf) :
-        write(o, name(n(t)))
         val elide-args? = all?({_ is TGradual}, args(t))
-        if not elide-args? :
-          print(o, "<")
-          hsfs(o, args(t), true)
-          print(o, ">")
+        if elide-args? : Atom(written(name(n(t))))
+        else : of(Atom(written(name(n(t)))), angle(seq(pexp,args(t))))
       (t:TVar) :
         match(/name(t)) :
-          (n:Symbol) : write(o, n)
-          (_:False) : write(o, name(n(t)))
+          (n:Symbol) : Atom(written(n))
+          (_:False) : Atom(written(name(n(t))))
       (t:TCap) :
-        print(o, "?")
         match(/name(t)) :
-          (n:Symbol) : write(o, n)
-          (_:False) : write(o, name(n(t)))
-      (t:TGradual) :
-        print(o, "?")
-      (t:TBot) :
-        print(o, "Void")
-      (t:TTop) :
-        print(o, "Top")
-      (t:TTuple) :
-        print(o, "[")
-        hsfs(o, args(t), false)
-        print(o, "]")
+          (n:Symbol) : Atom("?%~" % [n])
+          (_:False) : Atom("?%~" % [name(n(t))])
+      (t:TGradual) : Atom("?")
+      (t:TBot) : Atom("Void")
+      (t:TTop) : Atom("Top")
+      (t:TTuple) : braces(seq(pexp,args(t)))
       (t:TUVar) :
+        val name-atom = Atom(written(name(n(t))))
         match(bounds(t)) :
           (b:NoBound) :
-            print(o, name(n(t)))
+            name-atom
           (b:UpperBound) :
-            print(o, name(n(t)))
-            print(o, "(<: ")
-            hsf(o, type(b), 0, false)
-            print(o, ")")
+            join-exp(name-atom, paren(prefix("<:", pexp(type(b)))))
           (b:MixBound) :
-            print(o, name(n(t)))
-            print(o, "(mix ")
-            hsfs(o, types(b), false)
-            print(o, ")")
-        
-    print(o, ")") when paren?
+            val name-atom = Atom(written(name(n(t))))
+            join-exp(name-atom, paren(prefix("mix", seq(pexp,types(b)))))
 
-  ;HiStanza format(s). 
-  ;Format a list of HiStanza types.
-  ;- angle-context: True if the list is surrounded by angle brackets <...>. 
-  defn lsfs (o:OutputStream, ts:Seqable<LSType>, angle-context:True|False) :
-    for (t in ts, i in 0 to false) do :
-      print(o, ", ") when i > 0
-      lsf(o, t, 0, angle-context)
-
-  ;HiStanza format arguments.
-  defn largfs (o:OutputStream, xs:Seqable<FArg<LSType>>) :
-    for (x in xs, i in 0 to false) do :
-      print(o, ", ") when i > 0
-      match(x) :
-        (x:PositionalArg<LSType>) :
-          lsf(o, type(x), 0, false)
-          print(o, " = ?") when optional?(x)
-        (x:KeywordArg<LSType>) :
-          print(o, /name(x))
-          print(o, ":")        
-          lsf(o, type(x), 0, false)
-          print(o, " = ?") when optional?(x)
-        (x:VarArg<LSType>) :
-          print(o, /name(x))
-          print(o, ":")
-          lsf(o, type(x), 0, false)
-          print(o, " ...")
-
-  ;LoStanza formatting.
-  defn lsf (o:OutputStream, t:LSType, lvl:Int, angle-context:True|False) -> ? :
-
-    ;Decide whether parentheses are necessary.
-    val paren? =
-      if lslevel(t) < lvl : true
-      else if angle-context : t is FnT
-    val angle-context* = angle-context and not paren?
-
-    print(o, "(") when paren?
+  ;Convert a LoStanza type.
+  defn pexp (t:LSType) -> PrintExp :
     match(t) :
       (t:TLSFunction) :
         val type-args = cat(
-          for v in targs(t) seq : "%~" % [name(v)]
-          for v in cargs(t) seq : "?%~" % [name(v)])
-        if not empty?(type-args) :
-          print(o, "<%,> . " % [type-args])
-        print(o, "(")
-        largfs(o, a1(t))
-        print(o, ") -> ")     
-        lsf(o, a2(t), 0, angle-context*) 
+          for v in targs(t) seq : Atom("%~" % [name(v)])
+          for v in cargs(t) seq : Atom("?%~" % [name(v)]))
+        val arrow-exp = arrow(paren?(seq(parg, a1(t))), pexp(a2(t)))
+        targ-dot(type-args, arrow-exp)
       (t:FnT) :
-        if length(a(t)) == 1 and r(t) is False :
-          lsf(o, a(t)[0], 1, angle-context*)
-          print(o, " -> ")
-          lsf(o, b(t), 0, angle-context*)
-        else :
-          print(o, "(")
-          match(r(t)) :
-            (r:False) :
-              lsfs(o, a(t), false)
-              print(o, ") -> ")
-            (r:LSType) :
-              lsfs(o, cat(a(t), [r]), false)
-              print(o, " ...) -> ")
-          lsf(o, b(t), 0, angle-context*)
-      (t:ByteT) :
-        print(o, "byte")
-      (t:IntT) :
-        print(o, "int")
-      (t:LongT) :
-        print(o, "long")
-      (t:FloatT) :
-        print(o, "float")
-      (t:DoubleT) :
-        print(o, "double")
-      (t:UnknownT) :
-        print(o, "?")
-      (t:UVarT) :
-        print(o, name(n(t)))
-      (t:PtrT) :
-        print(o, "ptr<")
-        lsf(o, type(t), 0, true)
-        print(o, ">")
-      (t:RestT) :
-        lsf(o, type(t), 1, angle-context*)
-        print(o, " ...")
+        val x = match(r(t)) :
+          (r:LSType) :
+            paren $ cat(
+              seq(pexp, a(t)),
+              [ellipsis(pexp(r))])
+          (f:False) :
+            paren(seq(pexp, a(t)))
+        arrow(x, pexp(b(t)))
+      (t:ByteT) : Atom("byte")
+      (t:IntT) : Atom("int")
+      (t:LongT) : Atom("long")
+      (t:FloatT) : Atom("float")
+      (t:DoubleT) : Atom("double")
+      (t:UnknownT) : Atom("?")
+      (t:UVarT) : Atom(written(name(n(t))))
+      (t:PtrT) : of("ptr", angle(pexp(type(t))))
+      (t:RestT) : ellipsis(pexp(type(t)))
       (t:StructT) :
         val elide-args? = all?({_ is TGradual}, args(t))
-        write(o, name(n(t)))
-        if not elide-args? :
-          print(o, "<")
-          hsfs(o, args(t), true)
-          print(o, ">")
-      (t:RefT) :
-        print(o, "ref<")
-        hsf(o, type(t), 0, true)
-        print(o, ">")        
-    print(o, ")") when paren?
+        val name-exp = Atom(written(name(n(t))))
+        if elide-args? : name-exp
+        else : of(name-exp, angle(seq(pexp,args(t))))
+      (t:RefT) : of("ref", angle(pexp(type(t))))
+
+  ;Convert function arg to exp.
+  defn parg (a:FArg<Type|LSType>) -> PrintExp :
+    match(a) :
+      (a:PositionalArg<Type|LSType>) :
+        if optional?(a) : eq-optional?(pexp(type(a)))
+        else : pexp(type(a))
+      (a:KeywordArg<Type|LSType>) :
+        val e = colon(Atom(written(/name(a))), pexp(type(a)))
+        if optional?(a) : eq-optional?(e)
+        else : e
+      (a:VarArg<Type|LSType>) :
+        ellipsis(colon(Atom(written(/name(a))), pexp(type(a))))
 
   ;Return the formatting function.
   new TypeFormatter :
     defmethod format (this, t:Type|LSType) :
-      match(t) :
-        (t:Type) : wrap-printable $ hsf{_, t, 0, false}
-        (t:LSType) : wrap-printable $ lsf{_, t, 0, false}
+      pexp(t)
 
     defmethod format (this, a:FArg) :
       defn option-str (b:True|False) :
@@ -253,36 +135,73 @@ public defn TypeFormatter (name:Int -> Symbol) :
           "%_:%_ ..." % [/name(a), format(this,type(a))]
 
 ;============================================================
-;================== Precedences =============================
+;================ PrintExp Utilities ========================
 ;============================================================
 
-;Syntax level of type.
-;Lower means lower priority. Higher means tighter binding.
-defn hslevel (t:Type)-> Int :
-  match(t) :
-    ;Arrows
-    (t:TArrow) : 0
-    ;Or Types
-    (t:TOr) : 1
-    ;And Types
-    (t:TAnd) : 2
-    ;Atomic types
-    (t) : 3
+;Surround given expressions with parentheses.
+defn paren (es:Seqable<PrintExp>) -> PrintExp :
+  Surround(to-tuple(es), Paren)
+defn paren (e:PrintExp) : paren([e])
+defn braces (es:Seqable<PrintExp>) -> PrintExp :
+  Surround(to-tuple(es), Brace)
 
-;Syntax level of LoStanza type.
-defn lslevel (t:LSType) -> Int :
-  match(t) :
-    ;Function
-    (t:FnT) : 0
-    ;Everything else is atomic
-    (t) : 1
+;Surround the given expressions with parentheses if it isn't
+;exactly 1 exp.
+defn paren? (es:Seqable<PrintExp>) -> PrintExp :
+  val es-tuple = to-tuple(es)
+  if length(es-tuple) == 1 : es-tuple[0]
+  else : paren(es-tuple)
 
-;============================================================
-;================== Utilities ===============================
-;============================================================
+;Helper: <v,t> . a
+defn targ-dot (input-ts:Seqable<PrintExp>, a:PrintExp) :
+  val ts = to-tuple(input-ts)
+  if empty?(to-seq(ts)) : a
+  else : join-exp(angle(ts), sep = " . ", a)
 
-;Helper: Wrap closure in printable object
-defn wrap-printable (f:OutputStream -> False) :
-  new Printable :
-    defmethod print (o:OutputStream, this) :
-      f(o)
+;Helper: Wrap in angle brackets.
+defn angle (es:Seqable<PrintExp>) : Surround(to-tuple(es), Angle)
+defn angle (e:PrintExp) : angle([e])
+
+;Add a string prefix to an expression or sequence of expressions.
+defn prefix (s:String, e:PrintExp) :
+  join-exp(s,e)
+defn prefix (s:String, input-es:Seqable<PrintExp>) :
+  val es = to-seq(input-es)
+  if empty?(es) :
+    Atom(s)
+  else :
+    for (e in es, i in 0 to false) seq :
+      prefix(s,e) when i == 0 else e
+
+;Helper: e = ?
+defn eq-optional? (e:PrintExp) :
+  join-exp(e, " = ?")
+
+;Helper: Create an atom if it's not already one.
+defn atom? (e) :
+  match(e:PrintExp) : e
+  else : Atom(e)
+
+;Helper: a<b>
+defn of (a, b:PrintExp) :
+  BinOp("", atom?(a), b, precedence = 4)
+
+;Helper: a -> b
+defn arrow (a:PrintExp, b:PrintExp) :
+  BinOp(" -> ", a, b, precedence = 1,
+        associativity = RightAssociative, uses-angle-chars? = true)
+
+;Helper: a:b
+defn colon (a:PrintExp, b:PrintExp) :
+  join-exp(a, sep = ":", b)
+        
+;Helper: e ...
+defn ellipsis (e:PrintExp) :
+  join-exp(e, " ...")
+
+;Join two expressions using a separator.
+defn join-exp (a, b -- sep:String = "") :
+  val a* = atom?(a)
+  val b* = atom?(b)
+  BinOp(Atom(sep), a*, b*, precedence = 0,
+        associativity = DualAssociative)
