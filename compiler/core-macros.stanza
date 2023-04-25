@@ -1706,6 +1706,24 @@ defsyntax core :
          qquote(let : (~ defs ~ x)))
    defrule id != (where)
 
+   ;                    Then-After
+   ;                    ==========
+   defrule exp4 = (?value:#exp4 then-after ?result:#after-binder #:! ?body:#exp!) :
+      val template = `(
+        let :
+          val result = value
+          body
+          result)
+      val filled = fill-template(template, [
+        `result => result
+        `value => value
+        `body => body])
+      parse-syntax[core / #exp](filled)
+
+   defproduction after-binder
+   defrule after-binder = ((?x:#id)) : x
+   defrule after-binder = () : gensym(`result)
+
    ;                     For
    ;                     ===
    defproduction in!
