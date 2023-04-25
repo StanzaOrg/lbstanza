@@ -466,6 +466,18 @@ defmethod stringify? (e:VarN, nm:NameMap) :
   if key?(nm, n(e)) : 
     name(nm[n(e)])
 
+defmethod stringify? (e:IOptional, nm:NameMap) :
+  stringify?(name(e), nm)
+
+defmethod stringify? (e:IKeyword, nm:NameMap) :
+  stringify?(name(e), nm)
+
+defmethod stringify? (e:IOptionalKeyword, nm:NameMap) :
+  stringify?(name(e), nm)
+
+defmethod stringify? (e:IRest, nm:NameMap) :
+  stringify?(name(e), nm)
+
 defmethod stringify? (r:Raw, nm:NameMap) : 
   stringify?(class(r), nm)
 
