@@ -8,10 +8,6 @@ defpackage stz/el-reordering :
 ;=================== Representation =========================
 ;============================================================
 
-;- num-non-dispatch: The number of optional/vararg arguments
-;  in front that do not participate in multi dispatch.
-;- indices: E.g. indices[2] = 4 means that the new argument 2
-;  corresponds to the previous argument 4.
 ;- args: The reordered arguments, with postprocessed types.
 public defstruct OrderedArgs<T> :
   dispatch:DispatchMask
