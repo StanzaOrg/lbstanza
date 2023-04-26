@@ -26,7 +26,8 @@ defpackage stz/pkg-serializer :
            TypeofOp, XchgIns, SetIns, ConvertIns, InterpretIns, UnaOp, BinOp, VoidBinOp,
            DualOp, Load, Store, Call, Return, Goto, Break, Label, LinkLabel,
            ExLabel, Match, Dispatch, MethodDispatch, DefData, DefText, DefDirectives, DefExportLabel, DefByte,
-           DefInt, DefLong, DefFloat, DefDouble, DefString, DefBytes, DefSpace, DefLabel, Comment) => asm-
+           DefInt, DefLong, DefFloat, DefDouble, DefString, DefBytes, DefSpace, DefLabel, Comment,
+           NoOp, LoadGoto, Safepoint) => asm-
 
   ;Pkg imports
   import stz/pkg-ir
