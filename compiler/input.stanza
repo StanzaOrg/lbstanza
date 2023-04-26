@@ -7,6 +7,7 @@ defpackage stz/input :
   import stz/dl-ir
   import stz/visibility
   import stz/timing-log-api
+  import stz/list-to-tree
 
 ;============================================================
 ;======================= Timers =============================
@@ -26,7 +27,7 @@ public defn to-ipackages (form, default-imports:Tuple<IImport>) -> Tuple<IPackag
       read-iexp(form)
     within log-time(CHECK-IL) :
       check(e,false)
-    split-packages(e, default-imports)
+    split-packages(remove-nodoc(e), default-imports)
 
 public defn to-il (form, allow-pure-expressions?:True|False) -> IExp :
   within log-time(IL-IR) :
@@ -43,13 +44,9 @@ public defn to-il (form, allow-pure-expressions?:True|False) -> IExp :
 public defn exported-types (ps:Tuple<IPackage>) :
   val types = HashSet<TypeId>()
   for p in ps do :
-    defn scan (e:IExp) :
-      match(e) :
-        (e:IVisibility) : scan(exp(e))
-        (e:IBegin) : do(scan, exps(e))
-        (e:IDefType|ILSDefType) : add(types, TypeId(name(p), name!(e)))
-        (e) : false
-    do(scan, exps(p))
+    for e in seq-cat(top-level-exps, exps(p)) do :
+      match(e:IDefType|ILSDefType) :
+        add(types, TypeId(name(p), name!(e)))
   types
 
 ;============================================================
@@ -99,6 +96,8 @@ defn ls-name-args (e:IExp) -> [IExp, List<IExp>] :
       ;Stanza Declaration Forms
       ($doc string:e) :
         IDoc(string, info)
+      ($nodoc e:e) :
+        INoDoc(e, info)
       ($deftype name:e parent:e children:e ...) :
          val [name*, args*] = name-args(name)
          IDefType(name*, args*, parent, children, info)
@@ -318,6 +317,63 @@ defn ls-name-args (e:IExp) -> [IExp, List<IExp>] :
          ILSFnT(a1, ar, a2, info)
 
 ;============================================================
+;===================== Process INoDoc =======================
+;============================================================
+
+;In the given code:
+;
+;  doc: "myfunc"
+;  nodoc: defn f ...
+;  defn g ...
+;
+;The doc string should be pushed inwards to be right in front of
+;'defn g' instead of in front of 'defn f'. This function pushes
+;doc strings past 'nodoc' forms to the next applicable form.
+;Handles nesting 'begin' and 'ivisibility' forms properly.
+
+;Process the input expression to remove all INoDoc forms
+;and push IDoc forms past INoDoc forms.
+defn remove-nodoc (input-expression:IExp) -> IExp :
+
+  ;Accumulate expressions and doc forms.
+  val exp-items = Vector<ListItem<IExp>>()
+  val doc-items = Vector<IDoc>()
+
+  ;Substitute the expressions in the given IVisibility exp.
+  defn sub-exps (v:IVisibility, es:List<IExp>) -> IVisibility :
+    IVisibility(IBegin?(es), visibility(v), info(v))
+
+  ;Loop through expression and emit ListItem into buffer.
+  defn* loop (e:IExp) :
+    match(e) :
+      (e:IBegin) :
+        do(loop, exps(e))
+      (e:IVisibility) :
+        add(exp-items, ListStart<IExp>(sub-exps{e, _}))
+        loop(exp(e))
+        add(exp-items, ListEnd<IExp>())
+      (e:IDoc) :
+        add(doc-items, e)
+      (e:INoDoc) :
+        add(exp-items, ListAtom<IExp>(exp(e)))
+      (e) :
+        for d in doc-items do :
+          add(exp-items, ListAtom<IExp>(d))
+        add(exp-items, ListAtom<IExp>(e))
+        clear(doc-items)
+  loop(input-expression)
+  for d in doc-items do :
+    add(exp-items, ListAtom<IExp>(d))
+
+  ;Return IExps.
+  IBegin?(process-items(exp-items))
+
+;Create an IBegin when necessary.
+defn IBegin? (es:List<IExp>) -> IExp :
+  if length(es) == 1 : head(es)
+  else : IBegin(es, info(head(es)))
+
+;============================================================
 ;================ Splitting into Packages ===================
 ;============================================================
 
@@ -436,6 +492,7 @@ defn to-iimport (e:IImportExp) -> IImport :
          IVisibility: {exp:te}
          IDoc:
             custom{ensure-doc-string(string(e))}
+         INoDoc: {exp:te}           
          IDefType :
             {class:v args:(v ...) parent:pt? children:(dc ...)}
             custom{ensure-wellformed-children(e)}

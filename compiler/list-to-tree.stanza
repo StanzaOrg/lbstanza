@@ -1,0 +1,36 @@
+defpackage stz/list-to-tree :
+  import core
+  import collections
+  
+;============================================================
+;==================== List Items ============================
+;============================================================
+
+public deftype ListItem<T>
+public defstruct ListAtom<T> <: ListItem<T> : (value:T)
+public defstruct ListStart<T> <: ListItem<T> : (make:List<T> -> T)
+public defstruct ListEnd<T> <: ListItem<T>
+
+;============================================================
+;====================== To List =============================
+;============================================================
+
+;Converts a flat list of list items into a tree representation.
+;ListStart/ListEnd pairs are converted into trees using their
+;'make' function.
+
+public defn process-items<?T> (input-items:Seqable<ListItem<?T>>) -> List<T> :
+  val items = to-seq(input-items)
+  defn read-list () -> List<T> :
+    if empty?(items) :
+      List()
+    else :
+      match(next(items)) :
+        (item:ListEnd<T>) :
+          List()
+        (item:ListStart<T>) :
+          val head = make(item)(read-list())
+          cons(head, read-list())
+        (item:ListAtom<T>) :
+          cons(value(item), read-list())
+  read-list()
