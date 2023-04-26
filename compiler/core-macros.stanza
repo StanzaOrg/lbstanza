@@ -995,7 +995,7 @@ defsyntax core :
 
    val TAG-TABLE = HashSet<Symbol>()
    for tag in `(
-      $package $import $prefix-of $prefix $public $protected $private $doc $deftype $defchild $def
+      $package $import $prefix-of $prefix $public $protected $private $doc $nodoc $deftype $defchild $def
       $defvar $defn $defn* $defmulti $defmethod $defmethod* $fn $fn*
       $multi $begin $let $match $branch $new $as $as? $set $do
       $prim $tuple $quote $none $of $and $or $->
@@ -1218,6 +1218,7 @@ defsyntax core :
    defrule doc-string? = () : None()
 
    defrule exp4 = (?x:#doc-string)
+   defrule exp4 = (nodoc : ?e:#exp) : qquote($nodoc ~ e)
 
    ;                Function Call
    ;                =============

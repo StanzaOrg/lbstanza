@@ -60,6 +60,8 @@ with:
          ;=== Doc Form ===
          IDoc :
             string: IExp
+         INoDoc :
+            exp: IExp
 
          ;=== Argument Specifiers ===
          IOptional:
@@ -390,6 +392,8 @@ with:
 
       IDoc :
          ($doc string)
+      INoDoc :
+         ($nodoc exp)
 
       IOptional:
          ($optional name)
@@ -621,11 +625,12 @@ public defn top-level-exps (e:IExp) -> Seqable<IExp> :
       match(e) :
         (e:IBegin) : do(loop, exps(e))
         (e:IVisibility) : loop(exp(e))
+        (e:INoDoc) : loop(exp(e))
         (e) : yield(e)
 
 ;Flatten and remove private expressions
 ;Adds only a single level of flattening and assumes nested levels are already flattened
-public defn scope-flatten (es:List<IExp>) :
+defn scope-flatten (es:List<IExp>) -> List<IExp> :
    for e in es seq-append :
       match(e) :
          (e:IBegin) :
@@ -642,6 +647,7 @@ public defn ScopeBegin (es:List<IExp>, info:False|FileInfo) :
    if empty?(es*) : IBegin(es*, info)
    else if empty?(tail(es*)) : head(es*)
    else : IBegin(es*, info)
+
 ;============================================================
 ;==================== Dump to File ==========================
 ;============================================================
