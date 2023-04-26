@@ -729,7 +729,7 @@ defn uni-arity-trampoline-fn (f:EMix|EInstFn) -> EFn :
       (f:EMix) : info(funcs(f)[0])
 
   ;Create the EFn.
-  EFn(true, [], args, arity * PositionalArg<EType>{false,ETop()}, ETop(),
+  EFn(true, [], args, ETop(),
     EBody([], [], [], [], [tcall])
     false)
 
@@ -1042,7 +1042,7 @@ defn insert-guards (epackage:EPackage, gvt:VarTable) :
       emit(buffer, guard-localfn(f,vt,uninitialized-vars))
     for o in localobjs(body(f)) do :
       emit(buffer, guard-localobj(o,vt,uninitialized-vars))
-    val return-type = a2(f) when not lostanza-context?
+    val return-type = ret(f) when not lostanza-context?
     guard-body(body(f), buffer, vt, lostanza-context?, return-type, info(f), uninitialized-vars)
     sub-body(f, to-body(buffer, true, false, false))
 

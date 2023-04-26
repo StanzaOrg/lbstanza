@@ -225,6 +225,31 @@ public defn empty? (f:Free) :
 ;============================================================
 ;====================== Accessors ===========================
 ;============================================================
+
+;Helper: Retrieve the wrapped type within an FArg.
+;Assumes that it is a simple positional arg.
+defn pos-arg-type!<?T> (a:FArg<?T>) -> T :
+  match(a:PositionalArg<T>) :
+    fatal("Not a simple positional arg.") when optional?(a)
+    type(a)
+  else :
+    fatal("Not a simple positional arg.")
+
+;Retrieve the EType of a function argument.
+;(Assume post-conversion to positional args.)
+public defn type (a:EFnArg) -> EType :
+  pos-arg-type!(arg(a))
+
+;Substitute the EType of a function argument.
+;(Assume post-conversion to positional args.)
+public defn sub-type (a:EFnArg, t:EType) -> EFnArg :
+  pos-arg-type!(arg(a))
+  sub-arg(a, PositionalArg<EType>(false,t))
+
+;Create a simple positional EFnArg given its type.
+public defn EFnArg (n:Int, type:EType, debug-name:String|False) -> EFnArg :
+  EFnArg(n, PositionalArg<EType>(false,type), debug-name)
+
 ;<comment>
 ;Retrieve the wrapped types of all of the arguments.
 ;Meant to be used after all arguments are converted to
