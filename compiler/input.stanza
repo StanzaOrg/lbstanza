@@ -27,7 +27,7 @@ public defn to-ipackages (form, default-imports:Tuple<IImport>) -> Tuple<IPackag
       read-iexp(form)
     within log-time(CHECK-IL) :
       check(e,false)
-    split-packages(remove-nodoc(e), default-imports)
+    split-packages(process-nodocs(e), default-imports)
 
 public defn to-il (form, allow-pure-expressions?:True|False) -> IExp :
   within log-time(IL-IR) :
@@ -35,7 +35,7 @@ public defn to-il (form, allow-pure-expressions?:True|False) -> IExp :
       read-iexp(form)
     within log-time(CHECK-IL) :
       check(e, allow-pure-expressions?)
-    e
+    process-nodocs(e)
 
 ;============================================================
 ;========== Exported Types from IPackage ====================
@@ -331,17 +331,19 @@ defn ls-name-args (e:IExp) -> [IExp, List<IExp>] :
 ;doc strings past 'nodoc' forms to the next applicable form.
 ;Handles nesting 'begin' and 'ivisibility' forms properly.
 
+;Process all nodoc forms.
+;Top-level docs are pushed past their nodoc expressions.
+;Nested nodocs are removed.
+defn process-nodocs (e:IExp) -> IExp :
+  IBegin?(map(remove-nodoc, push-doc-past-nodoc(e)))  
+
 ;Process the input expression to remove all INoDoc forms
 ;and push IDoc forms past INoDoc forms.
-defn remove-nodoc (input-expression:IExp) -> IExp :
+defn push-doc-past-nodoc (input-expression:IExp) -> List<IExp> :
 
   ;Accumulate expressions and doc forms.
   val exp-items = Vector<ListItem<IExp>>()
   val doc-items = Vector<IDoc>()
-
-  ;Substitute the expressions in the given IVisibility exp.
-  defn sub-exps (v:IVisibility, es:List<IExp>) -> IVisibility :
-    IVisibility(IBegin?(es), visibility(v), info(v))
 
   ;Loop through expression and emit ListItem into buffer.
   defn* loop (e:IExp) :
@@ -366,12 +368,22 @@ defn remove-nodoc (input-expression:IExp) -> IExp :
     add(exp-items, ListAtom<IExp>(d))
 
   ;Return IExps.
-  IBegin?(process-items(exp-items))
+  process-items(exp-items)
+
+;Remove any occurrences of nodoc form in expression.
+defn remove-nodoc (e:IExp) -> IExp :
+  match(e) :
+    (e:INoDoc) : remove-nodoc(exp(e))
+    (e) : map(remove-nodoc, e)
 
 ;Create an IBegin when necessary.
 defn IBegin? (es:List<IExp>) -> IExp :
   if length(es) == 1 : head(es)
   else : IBegin(es, info(head(es)))
+
+;Substitute the expressions in the given IVisibility exp.
+defn sub-exps (v:IVisibility, es:List<IExp>) -> IVisibility :
+  IVisibility(IBegin?(es), visibility(v), info(v))
 
 ;============================================================
 ;================ Splitting into Packages ===================
@@ -525,6 +537,7 @@ defn to-iimport (e:IImportExp) -> IImport :
          + se*
          custom{ensure-body(e)}
       se*("scope level form") :
+         INoDoc: {exp:se*}
          IDef: {name:b type:t? value:e}
          IDefVar: {name:v type:t? value:e?}
          IDefn :
@@ -691,6 +704,7 @@ defn to-iimport (e:IImportExp) -> IImport :
 
       lc("LoStanza command") :
          IBegin: {exps:(lc ...)}
+         INoDoc: {exp:lc}
          ILSDef: {name:v type:lt? exp:le}
          ILSDefVar: {name:v type:lt exp:le?}
          ILSSet: {exp:lval value:le}
@@ -700,8 +714,8 @@ defn to-iimport (e:IImportExp) -> IImport :
          ILSLabels:
             {blocks:(blk ...)}
             custom{ensure-entry-block(info(e), blocks(e))}
-         ILSGoto: {name:v, args:(le ...)}
-         ILSReturn: {exp:le}
+         ILSGoto: {name:v, args:(le ...)}         
+         ILSReturn: {exp:le}         
          + lcalls
 
       lbr("LoStanza branch") :
@@ -878,17 +892,29 @@ defn ensure-impure (e:IExp) :
       stz/check-lang-engine/error!(info(e), "Expression %~ has no effect and is invalid in this context." % [e])
 
 defn ensure-body (e:IExp) :
-   val es = match(e) :
-      (e:IBegin) : exps(e)
-      (e) : List(e)
-   if empty?(es) :
-      stz/check-lang-engine/error!(info(e), "No expressions in body.")
-   else :
-      do(ensure-impure, but-last(es))
-      match(last(es)) :
-         (e:IDef|IDefVar|IDefn) :
-            stz/check-lang-engine/error!(info(e), "Declaration cannot be last expression in body.")
-         (e) : false
+  ;Return flattened expressions, skipping nodoc forms.
+  defn flattened-exps (e:IExp) :
+    generate<IExp> :
+      let loop (e:IExp = e) :
+        match(e) :
+          (e:IBegin) : do(loop, exps(e))
+          (e:INoDoc) : loop(exp(e))
+          (e) : yield(e)
+
+  val es = flattened-exps(e)
+  if empty?(es) :
+    stz/check-lang-engine/error!(info(e), "No expressions in body.")
+  else :
+    let loop () :
+      val e = next(es)
+      ;Case: Last expression.
+      if empty?(es) :
+        if e is IDef|IDefVar|IDefn :
+          stz/check-lang-engine/error!(info(e), "Declaration cannot be last expression in body.")
+      ;Case: Not last expression.
+      else :
+        ensure-impure(e)
+        loop()
 
 defn ensure-branch-arity (e:IMatch) :
    val bs = branches(e) as List<IBranch>
