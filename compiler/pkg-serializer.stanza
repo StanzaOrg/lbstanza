@@ -259,7 +259,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     EDefGlobal: (n:int, type:etype, mutable?:bool, lostanza?:bool)
     EDefn: (n:int, func:efunction, lostanza?:bool)
     EDefClosure: (n:int, closure:int, ntargs:int, nargs:int, func:efunction)
-    EDefmulti: (n:int, targs:tuple(int), a1-args:tuple(farg(etype)), a2:etype, dispatch:opt(dispatchmask), info:traceinfo)
+    EDefmulti: (n:int, targs:tuple(efntarg), args:tuple(efnarg), ret:etype, dispatch:opt(dispatchmask), info:traceinfo)
     EDefmethod: (n:int, multi:int, targs:tuple(etype), func:efunction as EFn, lostanza?:bool, dispatch:opt(dispatchmask))
     EDefStruct: (n:int, parent:opt(etype), base:tuple(efield), items:opt(efield))
     EExternFn: (n:int, lbl:opt(symbol), func:efunction as EFn)
@@ -294,7 +294,11 @@ defserializer PkgSerializer (include-asm?:True|False) :
 
   defunion efunction (EFunction) :
     EMultifn: (funcs:tuple(efunction as EFn))
-    EFn: (tail?:bool, targs:tuple(int), args:tuple(int), a1-args:tuple(farg(etype)), a2:etype, body:ebody, info:traceinfo)
+    EFn: (tail?:bool, targs:tuple(efntarg), args:tuple(efnarg), ret:etype, body:ebody, info:traceinfo)
+
+  deftype efnarg (EFnArg) : (n:int, arg:farg(etype), debug-name:opt(string))
+
+  deftype efntarg (EFnTArg) : (n:int, debug-name:opt(string))
 
   deftype elocal (ELocal) : (n:int, type:etype, mutable?:bool)
 
@@ -368,7 +372,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     ECheck: (y:eimm, type:etype, ctxt:error-ctxt, info:traceinfo)
     ECheckSet: (y:eimm, name:opt(string), info:traceinfo)
     EReturn: (y:eimm)
-    ETDef: (x:etvarloc, y:eimm)
+    ETDef: (x:etvarloc, y:union(eimm,etype))
     EEnd: (info:traceinfo)
     ETypeof: (n1:int, n2:int, type:etype, y:eimm)
 

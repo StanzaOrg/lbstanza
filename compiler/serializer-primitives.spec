@@ -158,6 +158,28 @@ defcombinator opt (item:T) (x:T|False) :
       1Y : #skip[item]
       else : #error
 
+;============================================================
+;======================= Unions =============================
+;============================================================
+defcombinator union (a:A, b:B) (x:A|B) :
+  writer :
+    match(x) :
+      (x:A) :
+        #write[byte](0Y)
+        #write[a](x)
+      (x:B) :
+        #write[byte](1Y)
+        #write[b](x)
+  reader :
+    switch(#read[byte]) :
+      0Y : #read[a]
+      1Y : #read[b]
+      else : #error
+  skip :
+    switch(#read[byte]) :
+      0Y : #skip[a]
+      1Y : #skip[b]
+      else : #error
 
 ;============================================================
 ;====================== Maybe ===============================
