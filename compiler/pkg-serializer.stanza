@@ -373,6 +373,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     ECheckSet: (y:eimm, name:opt(string), info:traceinfo)
     EReturn: (y:eimm)
     ETDef: (x:etvarloc, y:union(eimm,etype))
+    ESafepoint: (group-id:int, into:traceinfo)
     EEnd: (info:traceinfo)
     ETypeof: (n1:int, n2:int, type:etype, y:eimm)
 
