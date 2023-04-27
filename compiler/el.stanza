@@ -311,8 +311,6 @@ defn collapse (epackages:Tuple<EPackage>) :
 ;Convert and reorder all arguments for all multis and functions
 ;to required positional arguments only.
 defn conv-to-positional-args (e:EPackage, iotable:IOTable) -> EPackage :
-  fatal("FIX")
-  ;<comment>
 
   ;Call reorder-args with proper wrapping functions.
   defn reorder-args (args:Tuple<FArg<EType>>) -> OrderedArgs :
@@ -324,12 +322,11 @@ defn conv-to-positional-args (e:EPackage, iotable:IOTable) -> EPackage :
   
   ;Convert a function and return the computed dispatch mask.
   defn conv-fn (e:EFn) -> [EFn, DispatchMask|False] :
-    if requires-ordering?(a1-args(e)) :
-      val ordered = reorder-args(a1-args(e))
+    val e-args = map(arg,args(e))
+    if requires-ordering?(e-args) :
+      val ordered = reorder-args(e-args)
       val new-args = reorder(ordered, args(e))
-      val new-e = e
-               $> sub-args{_, new-args}
-               $> sub-a1-args{_, args(ordered)}
+      val new-e = sub-args(e, new-args)
       [new-e, dispatch(ordered)]
     else :
       [e, false]    
@@ -348,12 +345,14 @@ defn conv-to-positional-args (e:EPackage, iotable:IOTable) -> EPackage :
 
   ;Convert all arguments in EDefmulti to positional arguments.
   defn conv-pos-args (m:EDefmulti) -> EDefmulti :
-    if requires-ordering?(a1-args(m)) :
-      val ordered = reorder-args(a1-args(m))
-      m $> sub-a1-args{_, args(ordered)}
+    val e-args = map(arg,args(m))
+    if requires-ordering?(e-args) :
+      val ordered = reorder-args(e-args)
+      val new-args = reorder(ordered, args(m))
+      m $> sub-args{_, new-args}
         $> sub-dispatch{_, dispatch(ordered)}
     else :
-      sub-dispatch(m, trivial-dispatch(length(a1-args(m))))
+      sub-dispatch(m, trivial-dispatch(length(e-args)))
 
   ;Convert all arguments in EDefmethod to positional arguments.
   defn conv-pos-args (e:EDefmethod|EMethod) -> EDefmethod|EMethod :
@@ -362,7 +361,7 @@ defn conv-to-positional-args (e:EPackage, iotable:IOTable) -> EPackage :
       e $> sub-func{_, f}
         $> sub-dispatch{_, mask}
     else :
-      val arity = length(a1-args(func(e)))
+      val arity = length(args(func(e)))
       sub-dispatch(e, trivial-dispatch(arity))
 
   ;Helper: Call 'f' on any nested ELBigItem within e.
@@ -381,7 +380,6 @@ defn conv-to-positional-args (e:EPackage, iotable:IOTable) -> EPackage :
       (x:EFn) : conv-pos-args(x)
       (x) : x
   map(loop, e)
-  ;<comment>
 
 ;============================================================
 ;================== Method TArg Mapping =====================
