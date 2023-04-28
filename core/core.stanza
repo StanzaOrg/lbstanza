@@ -41,6 +41,7 @@ protected extern input_argc: int
 protected extern input_argv: ptr<ptr<byte>>
 protected extern input_argv_needs_free: int
 protected extern strlen: ptr<byte> -> int
+protected extern strcmp: (ptr<byte>, ptr<byte>) -> int
 protected extern current_time_us: () -> long
 protected extern current_time_ms: () -> long
 protected extern get_env_vars: () -> ptr<ptr<byte>>
@@ -222,6 +223,7 @@ protected lostanza deftype VMState :
   registers: ptr<long>        ;(Permanent State)
   system-registers: ptr<long> ;(Permanent State)
   var heap: Heap              ;(Variable State)
+  safepoint-table: ptr<?>     ;(Variable State)
   ;Compiled Mode Tables
   class-table: ptr<ClassDescriptor>
   global-root-table: ptr<GlobalRoots>
