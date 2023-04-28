@@ -215,6 +215,7 @@ protected lostanza deftype VMState :
   ;Compiled and Interpreted Mode
   global-offsets: ptr<long>   ;(Permanent State)
   global-mem: ptr<byte>       ;(Permanent State)
+  var sig-handler: long       ;(Permanent State) 
   const-table: ptr<long>      ;(Permanent State)
   const-mem: ptr<byte>        ;(Permanent State)
   data-offsets: ptr<int>      ;(Permanent State)
@@ -2523,6 +2524,9 @@ lostanza defn core-iterate-roots (f:ptr<((ptr<long>, ptr<VMState>) -> ref<False>
   for (var i:int = 0, i < nroots, i = i + 1) :
     val r = roots.roots[i]
     [f](addr(globals[r]), vms)
+
+  ;Scan signal handler
+  [f](addr(vms.sig-handler), vms)
 
   ;Scan const roots
   val consts = vms.const-table
