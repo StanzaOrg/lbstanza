@@ -226,7 +226,7 @@ defn compile-function (targs:Tuple<Int>, cargs:Tuple<Int>, args:Tuple<Int>,
       EFnTArg(v, debug-name?(namemap,v))
   val args* = to-tuple $
     for (v in args, t in a1) seq :
-      EFnArg(v, to-etype(t), debug-name?(namemap,v))
+      EFnArg(v, to-earg(t), debug-name?(namemap,v))
   val ret* = to-etype(a2)
   val c = Compiler(struct-table, namemap)
   compile(c, fbody, tail?)
