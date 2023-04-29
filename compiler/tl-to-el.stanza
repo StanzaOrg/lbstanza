@@ -251,18 +251,33 @@ defmulti emit (c:Compiler, l:ELocalType) -> False
 defmulti emit (c:Compiler, i:EIns) -> False
 
 defn Compiler (struct-table:StructTable, namemap:NameMap) :
-  ;Buffers
+  ;Buffers for holding generated locals, types, functions,
+  ;objects, and instructions.
   val locals = Vector<ELocal>()
   val localtypes = Vector<ELocalType>()
   val localfns = Vector<ELocalFn>()
   val localobjs = Vector<ELocalObj>()
   val ins = Vector<EIns>()
+
+  ;Use this as the id of the group for this particular compile session.
+  ;It is assumed that each function is compiled using a new Compiler object.
   val safepoint-group = fresh-id()
+  
+  ;Emit safepoints only if the flag is set.
+  val emit-safepoints? = contains?(EXPERIMENTAL-FEATURES, `safepoints)
+
+  ;Add a new instruction to the instruction buffer.
+  ;For safepoints specifically, add them only if the feature is turned-on.
+  defn emit (l:EIns) :
+    match(l:ESafepoint) : add(ins, l) when emit-safepoints?
+    else : add(ins, l)
+
+  ;Emit new locals, types, functions, and objects to their
+  ;respective buffers.
   defn emit (l:ELocal) : add(locals, l)
   defn emit (l:ELocalType) : add(localtypes, l)
   defn emit (l:ELocalFn) : add(localfns, l)
   defn emit (l:ELocalObj) : add(localobjs, l)
-  defn emit (l:EIns) : add(ins, l)
 
   ;Retrieve name (if any) of identifier
   defn name? (n:Int) :
