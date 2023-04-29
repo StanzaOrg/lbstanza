@@ -123,6 +123,7 @@ defpackage core :
   import collections
   import core/stack-trace
   import core/parsed-path
+  import core/safepoints
 
 ;============================================================
 ;===================== Internal Types =======================
@@ -4097,6 +4098,14 @@ public lostanza defn extern-id-table () -> ref<HashTable<Symbol,Int>> :
     val name = to-symbol(String(entry.name))
     set(return-table, name, new Int{i as int})
   return return-table
+
+;============================================================
+;================== Safepoint Table =========================
+;============================================================
+
+public lostanza defn safepoint-table () -> ptr<SafepointTable> :
+  val vms:ptr<VMState> = call-prim flush-vm()
+  return vms.safepoint-table as ptr<SafepointTable>
 
 ;============================================================
 ;===================== Utilities ============================
