@@ -45,7 +45,7 @@ public defn compile (epackage:EPackage) -> VMPackage :
         match(e) :    
           (e:EDefn) : compile(e, global-table, iotable, ehier, progbuffer)
           (e:EDefClosure) : compile(e, dtable, global-table, iotable, ehier, progbuffer)
-          (e:EDefGlobal) : compile(e, global-table, progbuffer)
+          (e:EDefGlobal) : compile(e, global-table, iotable, progbuffer)
           (e:EDefStruct) : compile(e, global-table, iotable, progbuffer)
           (e:EInit) : compile(init-compiler, e)
           (e:EExtern) : compile(e, progbuffer)
@@ -193,7 +193,7 @@ defn compile (e:EDefClosure, dtable:IntTable<Tuple<Int>>,
   val f = compile-efunction(true, n(e), closure(e), func(e), global-table, iotable, ehier, progbuffer)
   add(progbuffer, sub-dependencies(f, dtable[n(e)]))
 
-defn compile (e:EDefGlobal, global-table:GlobalTable, progbuffer:ProgBuffer) :
+defn compile (e:EDefGlobal, global-table:GlobalTable, iotable:IOTable, progbuffer:ProgBuffer) :
   val size = size(global-table, type(e))
   val offsets = offsets(global-table, type(e))
   val vmtypes = vmtypes(global-table, type(e))
@@ -363,7 +363,7 @@ defn compile (e:EDefmulti, global-table:GlobalTable, iotable:IOTable, ehier:EHie
   ;Split arguments into non-dispatch and dispatch arguments.
   val all-args = to-tuple $ cat-all $ [
     [false-obj(iotable)          ;Closure
-     NumConst(length(args(e)))]  ;Arity
+     NumConst(length(/args(e)))] ;Arity
     targs                        ;Type arguments
     args]                        ;Arguments
 
@@ -386,7 +386,8 @@ defn compile (e:EDefmethod, global-table:GlobalTable, iotable:IOTable, ehier:EHi
 
   ;Isolate the dispatch types for the method.
   val dispatch-types = to-tuple $
-    filter({_1}, a1(func(e)), /dispatch(dispatch(e) as DispatchMask))
+    for (arg in args(func(e)), mask in dispatch(dispatch(e) as DispatchMask)) seq? :
+      One(type(arg)) when mask else None()    
 
   ;Calculate the typesets that the VM uses for dispatch.
   val typesets = map(to-typeset, dispatch-types)
@@ -398,7 +399,7 @@ defn compile (e:EDefmethod, global-table:GlobalTable, iotable:IOTable, ehier:EHi
 defn compile (e:EExternFn, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer) :
   val f = func(e)
   add(progbuffer, compile-efunction(false, n(e), false, f, global-table, iotable, ehier, progbuffer))
-  add(progbuffer, VMExternDefn(lbl(e), n(e), map(to-vm-type,a1(f)), to-vm-type(a2(f))))
+  add(progbuffer, VMExternDefn(lbl(e), n(e), map(to-vm-type{type(_)},args(f)), to-vm-type(ret(f))))
 
 ;- include-closure-and-arity-args? controls whether the calling convention includes
 ;  the closure and the arity as the first arguments. If true, then they are included

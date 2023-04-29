@@ -264,12 +264,13 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
   val safepoint-group = fresh-id()
   
   ;Emit safepoints only if the flag is set.
-  val emit-safepoints? = contains?(EXPERIMENTAL-FEATURES, `safepoints)
+  val emit-safepoints? = contains?(stz/params/EXPERIMENTAL-FEATURES, `safepoints)
 
   ;Add a new instruction to the instruction buffer.
   ;For safepoints specifically, add them only if the feature is turned-on.
   defn emit (l:EIns) :
-    match(l:ESafepoint) : add(ins, l) when emit-safepoints?
+    match(l:ESafepoint) :
+      add(ins, l) when emit-safepoints?
     else : add(ins, l)
 
   ;Emit new locals, types, functions, and objects to their
