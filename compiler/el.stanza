@@ -313,7 +313,7 @@ defn collapse (epackages:Tuple<EPackage>) :
 defn conv-to-positional-args (e:EPackage, iotable:IOTable) -> EPackage :
 
   ;Call reorder-args with proper wrapping functions.
-  defn reorder-args (args:Tuple<FArg<EType>>) -> OrderedArgs :
+  defn reorder-args (args:Tuple<EFnArg>) -> [DispatchMask,Tuple<EFnArg>] :
     val tuple-n = n(iotable, CORE-TUPLE-ID)
     val maybe-n = n(iotable, CORE-MAYBE-ID)
     /reorder-args(args,
@@ -322,12 +322,10 @@ defn conv-to-positional-args (e:EPackage, iotable:IOTable) -> EPackage :
   
   ;Convert a function and return the computed dispatch mask.
   defn conv-fn (e:EFn) -> [EFn, DispatchMask|False] :
-    val e-args = map(arg,args(e))
-    if requires-ordering?(e-args) :
-      val ordered = reorder-args(e-args)
-      val new-args = reorder(ordered, args(e))
+    if requires-ordering?(seq(arg,args(e))) :
+      val [dispatch,new-args] = reorder-args(args(e))
       val new-e = sub-args(e, new-args)
-      [new-e, dispatch(ordered)]
+      [new-e, dispatch]
     else :
       [e, false]    
 
@@ -345,14 +343,12 @@ defn conv-to-positional-args (e:EPackage, iotable:IOTable) -> EPackage :
 
   ;Convert all arguments in EDefmulti to positional arguments.
   defn conv-pos-args (m:EDefmulti) -> EDefmulti :
-    val e-args = map(arg,args(m))
-    if requires-ordering?(e-args) :
-      val ordered = reorder-args(e-args)
-      val new-args = reorder(ordered, args(m))
+    if requires-ordering?(seq(arg,args(m))) :
+      val [dispatch,new-args] = reorder-args(args(m))
       m $> sub-args{_, new-args}
-        $> sub-dispatch{_, dispatch(ordered)}
+        $> sub-dispatch{_, dispatch}
     else :
-      sub-dispatch(m, trivial-dispatch(length(e-args)))
+      sub-dispatch(m, trivial-dispatch(length(args(m))))
 
   ;Convert all arguments in EDefmethod to positional arguments.
   defn conv-pos-args (e:EDefmethod|EMethod) -> EDefmethod|EMethod :
@@ -1177,7 +1173,7 @@ defn conv-call (f:EInstFn,
                 wrap-tuple:Tuple<EImm> -> EImm,
                 emit-call:(EImm, Tuple<EImm>) -> False) -> False :
   ;Compute new rearranged arguments.
-  val ordered-args = reorder-args(/args(pattern(f)))
+  val ordered-args = reorder-call-args(/args(pattern(f)))
   
   val new-args = Vector<EImm>()
   for pat-arg in ordered-args do :
