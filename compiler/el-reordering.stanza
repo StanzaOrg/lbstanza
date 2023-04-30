@@ -8,10 +8,6 @@ defpackage stz/el-reordering :
 ;=================== Representation =========================
 ;============================================================
 
-;- num-non-dispatch: The number of optional/vararg arguments
-;  in front that do not participate in multi dispatch.
-;- indices: E.g. indices[2] = 4 means that the new argument 2
-;  corresponds to the previous argument 4.
 ;- args: The reordered arguments, with postprocessed types.
 public defstruct OrderedArgs<T> :
   dispatch:DispatchMask
@@ -22,7 +18,7 @@ public defstruct OrderedArgs<T> :
 ;============================================================
 
 ;Returns true if the arguments needs to be reordered or processed.
-public defn requires-ordering? (args:Tuple<FArg>) -> True|False :
+public defn requires-ordering? (args:Seqable<FArg>) -> True|False :
   for arg in args any? :
     match(arg) :
       (arg:PositionalArg) : optional?(arg)
@@ -34,6 +30,7 @@ public defn requires-ordering? (args:Tuple<FArg>) -> True|False :
 ;============================================================
 
 ;Compute the new ordering of the given arguments.
+;Requires the wrap-maybe and wrap-tuple functions to be provided.
 public defn reorder-args<?T> (args:Tuple<FArg<?T>>,
                               wrap-maybe:T -> T,
                               wrap-tuple:T -> T) -> OrderedArgs<T> :
@@ -92,16 +89,21 @@ public defn reorder-args<?T> (args:Tuple<FArg<?T>>,
 ;============================================================
 
 ;Reorder a tuple of items according to the indices in 'ordered'.
-public defn reorder<?T> (ordered:OrderedArgs, xs:Tuple<?T>) -> Tuple<T> :
-  for i in indices(dispatch(ordered)) map :
-    xs[i]
+public defn reorder-args (fn-args:Tuple<EFnArg>,
+                          wrap-maybe:EType -> EType,
+                          wrap-tuple:EType -> EType) -> [DispatchMask,Tuple<EFnArg>] :
+  val ordered = reorder-args(map(arg,fn-args), wrap-maybe, wrap-tuple)
+  val new-args = to-tuple $ for (i in indices(dispatch(ordered)), farg in args(ordered)) seq :
+    val old-arg = fn-args[i]
+    sub-arg(old-arg, farg)
+  [dispatch(ordered), new-args]
 
 ;============================================================
 ;================== Simple Reordering =======================
 ;============================================================
 
-;Compute the new ordering of the given arguments.
-public defn reorder-args<?T> (args:Tuple<FArg<?T>>) -> Tuple<FArg<T>> :
+;Compute the new ordering of the given function call arguments.
+public defn reorder-call-args<?T> (args:Tuple<FArg<?T>>) -> Tuple<FArg<T>> :
   ;Classify arguments into groups:
   ;- OPTIONAL POS ARGS
   ;- OPTIONAL KEY ARGS

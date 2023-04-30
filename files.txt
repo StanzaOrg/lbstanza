@@ -1,0 +1,216 @@
+commit 344f43156cca32f95da9676168f7af3865e20620
+Author: Oleg Pliss <o.pliss@jitx.com>
+Date:   Tue Apr 4 00:29:17 2023 -0700
+
+    Changes to common files
+
+M	build-stanza.proj
+A	compiler/absolute-info.stanza
+R100	compiler/stz-algorithms.stanza	compiler/algorithms.stanza
+R100	compiler/stz-arg-parser.stanza	compiler/arg-parser.stanza
+R100	compiler/stz-asm-emitter.stanza	compiler/asm-emitter.stanza
+R100	compiler/stz-asm-ir-utils.stanza	compiler/asm-ir-utils.stanza
+R089	compiler/stz-asm-ir.stanza	compiler/asm-ir.stanza
+R100	compiler/stz-asmjit.stanza	compiler/asmjit.stanza
+A	compiler/ast-lang.stanza
+A	compiler/ast-printer-lang.stanza
+R098	compiler/stz-auto-doc.stanza	compiler/auto-doc.stanza
+R089	compiler/stz-aux-file.stanza	compiler/aux-file.stanza
+R100	compiler/stz-backend.stanza	compiler/backend.stanza
+A	compiler/base-dir.stanza
+R100	compiler/stz-basic-blocks.stanza	compiler/basic-blocks.stanza
+R100	compiler/stz-basic-ops.stanza	compiler/basic-ops.stanza
+R100	compiler/stz-binary-tree.stanza	compiler/binary-tree.stanza
+R100	compiler/stz-bindings-extractor.stanza	compiler/bindings-extractor.stanza
+R098	compiler/stz-bindings-to-vm.stanza	compiler/bindings-to-vm.stanza
+R100	compiler/stz-bindings.stanza	compiler/bindings.stanza
+R093	compiler/stz-branch-table.stanza	compiler/branch-table.stanza
+R100	compiler/stz-build-manager.stanza	compiler/build-manager.stanza
+A	compiler/bytebuffer-emitter.stanza
+R100	compiler/stz-c-trampoline.stanza	compiler/c-trampoline.stanza
+R100	compiler/stz-call-records.stanza	compiler/call-records.stanza
+R089	compiler/lang-check.stanza	compiler/check-lang-engine.stanza
+A	compiler/check-lang.stanza
+R100	compiler/stz-code-emitter.stanza	compiler/code-emitter.stanza
+A	compiler/code-reader.stanza
+R099	compiler/stz-code-table.stanza	compiler/code-table.stanza
+R095	compiler/stz-codegen.stanza	compiler/codegen.stanza
+R100	compiler/stz-comments-tests.stanza	compiler/comments-tests.stanza
+R100	compiler/stz-comments.stanza	compiler/comments.stanza
+R095	compiler/stz-compiler-main.stanza	compiler/compiler-main.stanza
+R099	compiler/stz-compiler.stanza	compiler/compiler.stanza
+R099	compiler/stz-config.stanza	compiler/config.stanza
+R100	compiler/stz-const-pool.stanza	compiler/const-pool.stanza
+R100	compiler/stz-conversion-utils.stanza	compiler/conversion-utils.stanza
+R083	compiler/stz-core-macros.stanza	compiler/core-macros.stanza
+R100	compiler/stz-cvm-code-table.stanza	compiler/cvm-code-table.stanza
+R099	compiler/stz-cvm-encoder.stanza	compiler/cvm-encoder.stanza
+R100	compiler/stz-cycles.stanza	compiler/cycles.stanza
+R100	compiler/stz-data-pool.stanza	compiler/data-pool.stanza
+R093	compiler/stz-defs-db-ir.stanza	compiler/defs-db-ir.stanza
+R095	compiler/stz-defs-db-serializer.stanza	compiler/defs-db-serializer.stanza
+R089	compiler/stz-defs-db.stanza	compiler/defs-db.stanza
+R100	compiler/stz-dependencies.stanza	compiler/dependencies.stanza
+R100	compiler/stz-dispatch-dag.stanza	compiler/dispatch-dag.stanza
+R099	compiler/stz-dl-ir.stanza	compiler/dl-ir.stanza
+R100	compiler/stz-dl.stanza	compiler/dl.stanza
+R100	compiler/stz-driver.stanza	compiler/driver.stanza
+A	compiler/dump-to-log.stanza
+R100	compiler/stz-dyn-bi-table.stanza	compiler/dyn-bi-table.stanza
+R100	compiler/stz-dyn-tree.stanza	compiler/dyn-tree.stanza
+R100	compiler/stz-dyn-graph.stanza	compiler/dynamic-graph.stanza
+R100	compiler/stz-ehier.stanza	compiler/ehier.stanza
+R097	compiler/stz-el-basic-blocks.stanza	compiler/el-basic-blocks.stanza
+R100	compiler/stz-el-freevars.stanza	compiler/el-freevars.stanza
+R096	compiler/stz-el-infer-engine.stanza	compiler/el-infer-engine.stanza
+R097	compiler/stz-el-infer.stanza	compiler/el-infer.stanza
+R092	compiler/stz-el-ir.stanza	compiler/el-ir.stanza
+R092	compiler/stz-el-to-vm.stanza	compiler/el-to-vm.stanza
+A	compiler/el-trace-info.stanza
+R100	compiler/stz-el-unique-ids.stanza	compiler/el-unique-ids.stanza
+R100	compiler/stz-el-utils.stanza	compiler/el-utils.stanza
+R100	compiler/stz-el-var-table.stanza	compiler/el-var-table.stanza
+R095	compiler/stz-el.stanza	compiler/el.stanza
+R100	compiler/stz-extern-intrinsics.stanza	compiler/extern-intrinsics.stanza
+R096	compiler/stz-front-end.stanza	compiler/front-end.stanza
+R100	compiler/stz-gen-bindings.stanza	compiler/gen-bindings.stanza
+R100	compiler/stz-graphviz.stanza	compiler/graphviz.stanza
+R100	compiler/stz-hash.stanza	compiler/hash.stanza
+R100	compiler/stz-ids.stanza	compiler/ids.stanza
+R094	compiler/stz-il-ir.stanza	compiler/il-ir.stanza
+R100	compiler/stz-infer.stanza	compiler/infer.stanza
+R070	compiler/stz-input.stanza	compiler/input.stanza
+R100	compiler/stz-jit-code-table.stanza	compiler/jit-code-table.stanza
+R099	compiler/stz-jit-encoder.stanza	compiler/jit-encoder.stanza
+R100	compiler/stz-keyed-set.stanza	compiler/keyed-set.stanza
+M	compiler/line-noise-prompter.stanza
+R084	compiler/stz-main.stanza	compiler/main.stanza
+R100	compiler/stz-mocker.stanza	compiler/mocker.stanza
+R097	compiler/stz-namemap.stanza	compiler/namemap.stanza
+R083	compiler/stz-optimistic-file-analysis.stanza	compiler/optimistic-file-analysis.stanza
+R100	compiler/stz-package-stamps.stanza	compiler/package-stamps.stanza
+R070	compiler/stz-packed-class-table.stanza	compiler/packed-class-table.stanza
+A	compiler/packed-debug-table.stanza
+R100	compiler/stz-packed-safepoint-table.stanza	compiler/packed-safepoint-table.stanza
+R100	compiler/stz-padder.stanza	compiler/padder.stanza
+R091	compiler/stz-params.stanza	compiler/params.stanza
+R088	compiler/stz-pkg.stanza	compiler/pkg.stanza
+A	compiler/preparsed-template.stanza
+R100	compiler/stz-primitives.stanza	compiler/primitives.stanza
+A	compiler/printing-utils.stanza
+A	compiler/proj-manager.stanza
+A	compiler/proj-utils.stanza
+R089	compiler/stz-proj.stanza	compiler/proj.stanza
+R099	compiler/lang-read.stanza	compiler/read-lang-engine.stanza
+A	compiler/reader-lang.stanza
+R094	compiler/stz-reg-alloc.stanza	compiler/reg-alloc.stanza
+R100	compiler/lang-renamer.stanza	compiler/renamer-lang.stanza
+R097	compiler/stz-renamer.stanza	compiler/renamer.stanza
+R089	compiler/stz-repl.stanza	compiler/repl.stanza
+R100	compiler/lang-resolver.stanza	compiler/resolver-lang.stanza
+R086	compiler/stz-resolver.stanza	compiler/resolver.stanza
+R079	compiler/stz-safepoint-table-creator.stanza	compiler/safepoint-table-creator.stanza
+R100	compiler/lang-serializer.stanza	compiler/serializer-lang.stanza
+R100	compiler/stz-serializer.stanza	compiler/serializer.stanza
+R100	compiler/stz-set-simplifier.stanza	compiler/set-simplifier.stanza
+R100	compiler/stz-set-utils.stanza	compiler/set-utils.stanza
+R100	compiler/stz-shuffle.stanza	compiler/shuffle.stanza
+R100	compiler/stz-stable-arrays.stanza	compiler/stable-arrays.stanza
+M	compiler/stanza.proj
+A	compiler/stitcher-debug.stanza
+A	compiler/stitcher-global-table.stanza
+A	compiler/stitcher-local-table.stanza
+A	compiler/stitcher-safepoints.stanza
+R083	compiler/stz-stitcher.stanza	compiler/stitcher.stanza
+D	compiler/stz-langs.stanza
+D	compiler/stz-proj-manager.stanza
+D	compiler/stz-proj-utils.stanza
+R100	compiler/stz-terminal-style.stanza	compiler/terminal-style.stanza
+R100	compiler/stz-test-driver.stanza	compiler/test-driver.stanza
+R094	compiler/stz-test-framework.stanza	compiler/test-framework.stanza
+R099	compiler/stz-test-lang.stanza	compiler/test-lang.stanza
+A	compiler/test-packed-debug-table.stanza
+A	compiler/test-stitcher-local-table.stanza
+A	compiler/test-timing-log-commands.stanza
+A	compiler/timing-log-api.stanza
+A	compiler/timing-log-commands.stanza
+A	compiler/timing-log-options.stanza
+A	compiler/timing-log-overlap-analysis.stanza
+A	compiler/timing-log-reader.stanza
+A	compiler/timing-log.stanza
+R097	compiler/stz-tl-ir.stanza	compiler/tl-ir.stanza
+R100	compiler/stz-tl-to-dl.stanza	compiler/tl-to-dl.stanza
+R090	compiler/stz-tl-to-el.stanza	compiler/tl-to-el.stanza
+A	compiler/trace-info.stanza
+R084	compiler/stz-trie-table.stanza	compiler/trie-table.stanza
+R100	compiler/stz-type-calculus.stanza	compiler/type-calculus.stanza
+R098	compiler/stz-type.stanza	compiler/type.stanza
+R100	compiler/stz-typeset.stanza	compiler/typeset.stanza
+A	compiler/uitree.stanza
+R096	compiler/stz-utils.stanza	compiler/utils.stanza
+A	compiler/verbose.stanza
+R100	compiler/stz-visibility.stanza	compiler/visibility.stanza
+R100	compiler/stz-vm-analyze.stanza	compiler/vm-analyze.stanza
+R100	compiler/stz-vm-ids.stanza	compiler/vm-ids.stanza
+R092	compiler/stz-vm-ir.stanza	compiler/vm-ir.stanza
+R100	compiler/stz-vm-load-unit.stanza	compiler/vm-load-unit.stanza
+R098	compiler/stz-vm-normalize.stanza	compiler/vm-normalize.stanza
+R100	compiler/stz-vm-opcodes.stanza	compiler/vm-opcodes.stanza
+R100	compiler/stz-vm-structures.stanza	compiler/vm-structures.stanza
+R095	compiler/stz-vm-table.stanza	compiler/vm-table.stanza
+R097	compiler/stz-vm.stanza	compiler/vm.stanza
+A	core/collect-stack-trace.stanza
+M	core/collections.stanza
+M	core/core.stanza
+A	core/debug-table.stanza
+A	core/debug/read-stack-trace.stanza
+A	core/debug/system-types.stanza
+A	core/local-table.stanza
+A	core/long-vector.stanza
+M	core/macro-utils.stanza
+D	core/parser.stanza
+A	core/parser/binding-analysis.stanza
+A	core/parser/context.stanza
+A	core/parser/engine-frames.stanza
+A	core/parser/engine-lang.stanza
+A	core/parser/engine-value-stack.stanza
+A	core/parser/engine.stanza
+A	core/parser/errors.stanza
+A	core/parser/eval-value.stanza
+A	core/parser/lookahead-tokens.stanza
+A	core/parser/macro-compiler.stanza
+A	core/parser/macro-runtime.stanza
+A	core/parser/macro-syntax.stanza
+A	core/parser/merged-syntax-package.stanza
+A	core/parser/op-compiler.stanza
+A	core/parser/ops.stanza
+A	core/parser/pattern-parser.stanza
+A	core/parser/patterns.stanza
+A	core/parser/postprocessing.stanza
+A	core/parser/syntax-package-compiler.stanza
+A	core/parser/syntax-package-merger.stanza
+A	core/parser/syntax-package-registry.stanza
+A	core/parser/syntax-packages.stanza
+A	core/parser/timers.stanza
+A	core/parser/translate.stanza
+M	core/safepoints.stanza
+M	core/sighandler.c
+M	core/sighandler.stanza
+M	core/stack-trace.stanza
+M	core/stanza.proj
+R100	core/threadedreader.stanza	core/threaded-reader.stanza
+M	docs/build-system.md
+M	runtime/driver.c
+D	scripts/test-asm
+D	scripts/test-full
+D	scripts/test-hikl
+D	scripts/test-kl
+D	scripts/test-macros
+D	scripts/test-tgt
+D	scripts/test-type-kl
+M	stanza.proj
+M	tests/indexing-data/stanza.proj
+M	tests/indexing-data/test-package.stanza
+A	tests/indexing-data/test-unresolved-symbol.stanza
+M	tests/test-definitions-database.stanza
+M	tests/test-packed-class-table.stanza

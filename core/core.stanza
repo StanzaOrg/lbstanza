@@ -41,6 +41,7 @@ protected extern input_argc: int
 protected extern input_argv: ptr<ptr<byte>>
 protected extern input_argv_needs_free: int
 protected extern strlen: ptr<byte> -> int
+protected extern strcmp: (ptr<byte>, ptr<byte>) -> int
 protected extern current_time_us: () -> long
 protected extern current_time_ms: () -> long
 protected extern get_env_vars: () -> ptr<ptr<byte>>
@@ -122,6 +123,7 @@ defpackage core :
   import collections
   import core/stack-trace
   import core/parsed-path
+  import core/safepoints
 
 ;============================================================
 ;===================== Internal Types =======================
@@ -214,6 +216,7 @@ protected lostanza deftype VMState :
   ;Compiled and Interpreted Mode
   global-offsets: ptr<long>   ;(Permanent State)
   global-mem: ptr<byte>       ;(Permanent State)
+  var sig-handler: long       ;(Permanent State) 
   const-table: ptr<long>      ;(Permanent State)
   const-mem: ptr<byte>        ;(Permanent State)
   data-offsets: ptr<int>      ;(Permanent State)
@@ -222,6 +225,7 @@ protected lostanza deftype VMState :
   registers: ptr<long>        ;(Permanent State)
   system-registers: ptr<long> ;(Permanent State)
   var heap: Heap              ;(Variable State)
+  safepoint-table: ptr<?>     ;(Variable State)
   ;Compiled Mode Tables
   class-table: ptr<ClassDescriptor>
   global-root-table: ptr<GlobalRoots>
@@ -2522,6 +2526,9 @@ lostanza defn core-iterate-roots (f:ptr<((ptr<long>, ptr<VMState>) -> ref<False>
     val r = roots.roots[i]
     [f](addr(globals[r]), vms)
 
+  ;Scan signal handler
+  [f](addr(vms.sig-handler), vms)
+
   ;Scan const roots
   val consts = vms.const-table
   val nconsts = [vms.const-mem as ptr<int>]
@@ -4091,6 +4098,14 @@ public lostanza defn extern-id-table () -> ref<HashTable<Symbol,Int>> :
     val name = to-symbol(String(entry.name))
     set(return-table, name, new Int{i as int})
   return return-table
+
+;============================================================
+;================== Safepoint Table =========================
+;============================================================
+
+public lostanza defn safepoint-table () -> ptr<SafepointTable> :
+  val vms:ptr<VMState> = call-prim flush-vm()
+  return vms.safepoint-table as ptr<SafepointTable>
 
 ;============================================================
 ;===================== Utilities ============================
