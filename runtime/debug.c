@@ -99,6 +99,7 @@ enum {
   INVALID_FRAME_ID = 0
 };
 
+bool run_in_VM;
 static char* program_path;
 static pid_t program_pid;
 static pthread_mutex_t send_lock;
@@ -3437,6 +3438,10 @@ int main(int argc, char** argv) {
     }
     if (is_arg("port", &args)) {
       port_arg = get_arg_value(&args);
+      continue;
+    }
+    if (is_arg("vm", &args)) {
+      run_in_VM = true;
       continue;
     }
     break;
