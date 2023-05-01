@@ -9,6 +9,7 @@ defpackage stz/vm-normalize :
     prefix(StdArg, ShadowArg, ArgType, CallLoc, CallRecord) => Stz
   import core/stack-trace
   import stz/timing-log-api
+  import stz/trace-info
 
 ;- HighStanza IntOps need to be lowered to sequences of primitive ops.
 ;- Call commands need to be broken up into register and memory arguments.
@@ -812,7 +813,7 @@ public defstruct CallRecordIns <: VMIns :
   ret: RetRecords
   f: VMImm
   args: CallRecords
-  trace-entry: StackTraceEntry|False with: (as-method => true)
+  trace-entry: StackTraceInfo|False with: (as-method => true)
   type: CallType
 with: (printer => true)
 

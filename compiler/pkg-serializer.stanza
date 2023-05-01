@@ -28,6 +28,9 @@ defpackage stz/pkg-serializer :
            ExLabel, Match, Dispatch, MethodDispatch, DefData, DefText, DefDirectives, DefExportLabel, DefByte,
            DefInt, DefLong, DefFloat, DefDouble, DefString, DefBytes, DefSpace, DefLabel, Comment,
            NoOp, LoadGoto, Safepoint) => asm-
+  import stz/absolute-info
+  import stz/trace-info
+  import stz/el-trace-info
 
   ;Pkg imports
   import stz/pkg-ir
@@ -147,7 +150,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     n:int
     visibility:visibility
     rec:drec
-    info:opt(info)
+    info:opt(absinfo)
     documentation?:opt(string)
 
   deftype dimport (Import) : (n:int, rec:drec, transient?:bool)
@@ -482,6 +485,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     files:tuple(file-safepoints)
     
   deftype file-safepoints (VMFileSafepoints) :
+    base:string
     filename:string
     entries:tuple(safepoint-info)
 
@@ -645,7 +649,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     DerefOp: ()
     CRSPOp: ()
 
-  deftype trace-entry (StackTraceEntry) : (package:symbol, signature:opt(string), info:opt(info))
+  deftype trace-entry (StackTraceInfo) : (package:symbol, signature:opt(string), info:opt(absinfo))
 
   ;==========================================================
   ;================== Assembly Types ========================
@@ -787,7 +791,13 @@ defserializer PkgSerializer (include-asm?:True|False) :
   ;===================== Atoms ==============================
   ;==========================================================
 
+  deftype absinfo (AbsoluteFileInfo) :
+    base:string
+    filename:string
+    line:int
+    column:int
+
   defunion traceinfo (TraceInfo) :
-    FileInfo: info
-    StackTraceEntry: trace-entry
+    AbsoluteFileInfo: #error
+    StackTraceInfo: trace-entry
     False: bool as False

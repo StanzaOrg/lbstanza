@@ -23,6 +23,9 @@ defpackage stz/el :
   import stz/timing-log-api
   import stz/type-fargs
   import stz/dump-to-log
+  import stz/absolute-info
+  import stz/trace-info
+  import stz/el-trace-info
 
 ;============================================================
 ;==================== Drivers ===============================
@@ -194,10 +197,14 @@ defn fill-stack-trace-entries (epackage:EPackage) -> EPackage :
 
   ;Compute the new trace info after adding the context.
   defn add-context (context:StackTraceContext, info:TraceInfo) -> TraceInfo :
-    StackTraceEntry(package(context), signature?(context), info as FileInfo|False)
+    match(signature?(context), info) :      
+      (sig:False, info:False) : false
+      (sig:String|False, info:AbsoluteFileInfo|False) : StackTraceInfo(package(context), sig, info)
 
   ;Launch!
-  fill-entry(epackage, TopLevel(name(epackage))) as EPackage
+  val result = fill-entry(epackage, TopLevel(name(epackage))) as EPackage
+  ensure-all-items-have-stack-trace-info!(result)
+  result
 
 ;============================================================
 ;===================== Collapsing ===========================

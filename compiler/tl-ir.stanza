@@ -12,30 +12,31 @@ defpackage stz/tl-ir :
   import stz/type-instfns
   import stz/type-match
   import stz/type-fargs
+  import stz/absolute-info
 
 ;============================================================
 ;====================== Shared Multis =======================
 ;============================================================
 
 ;Retrieve the file information.
-public defmulti info (c:TComm) -> FileInfo|False
+public defmulti info (c:TComm) -> AbsoluteFileInfo|False
 
 ;The type of an expression.
 public defmulti type (t:TExp) -> False|Type
 public defmulti sub-type (e:TExp, t:False|Type) -> TExp
 
 ;The file info of an expression.
-public defmulti info (t:TExp) -> FileInfo|False
+public defmulti info (t:TExp) -> AbsoluteFileInfo|False
 
 ;The type of a LoStanza expression.
 public defmulti type (t:LSExp) -> False|LSType
 public defmulti sub-type (t:LSExp, type:False|LSType) -> LSExp
 
 ;The file info of a LoStanza expression.
-public defmulti info (t:LSExp) -> FileInfo|False
+public defmulti info (t:LSExp) -> AbsoluteFileInfo|False
 
 ;The file info of a LoStanza command.
-public defmulti info (t:LSComm) -> FileInfo|False
+public defmulti info (t:LSComm) -> AbsoluteFileInfo|False
 
 ;The context of an expression.
 public defmulti ctxt (a:LSExp) -> LSContext|False
@@ -150,7 +151,7 @@ public defast :
   defnodes TComm :
     ;Common nodes.
     common :
-      info: FileInfo|False with: (as-method => true)
+      info: AbsoluteFileInfo|False with: (as-method => true)
     common-options:
       printer => true
 
@@ -261,7 +262,7 @@ public defast :
 
   defnodes TExp :
     common :
-      info: FileInfo|False with: (as-method => true)
+      info: AbsoluteFileInfo|False with: (as-method => true)
       type: False|Type with: (as-method => true, updater => sub-type)
       ctxt: Context|False with: (as-method => true, default => false, updater => sub-ctxt)
     common-options:
@@ -300,7 +301,7 @@ public defast :
 
   defnodes LSComm :
     common:
-      info: FileInfo|False with: (as-method => true)
+      info: AbsoluteFileInfo|False with: (as-method => true)
     common-options:
       printer => true
     LSCall: (exp:LSExp)
@@ -323,7 +324,7 @@ public defast :
 
   defnodes LSExp :
     common :
-      info: FileInfo|False with: (as-method => true)
+      info: AbsoluteFileInfo|False with: (as-method => true)
       type: False|LSType with: (as-method => true, updater => sub-type)
       ctxt: LSContext|False with: (as-method => true, default => false, updater => sub-ctxt)
     common-options :
@@ -631,7 +632,7 @@ public defast :
 
   ignore :
     Int
-    FileInfo|False
+    AbsoluteFileInfo|False
     False|Selection
     ?
     Tuple<Int>
