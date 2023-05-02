@@ -119,6 +119,8 @@ defn ls-name-args (e:IExp) -> [IExp, List<IExp>] :
       ;Stanza Declaration Forms
       ($doc string:e) :
         IDoc(string, add-base-dir(info))
+      ($nodoc e:e) :
+        INoDoc(e, add-base-dir(info))
       ($deftype name:e parent:e children:e ...) :
          val [name*, args*] = name-args(name)
          IDefType(name*, args*, parent, children, add-base-dir(info))
@@ -137,9 +139,9 @@ defn ls-name-args (e:IExp) -> [IExp, List<IExp>] :
          val [name*, targs*] = name-args(name)
          val body = ScopeBegin(body0, bodyn, add-base-dir(info))
          IDefn(true, name*, targs*, a1, a2, args, body, add-base-dir(info))
-      ($defmulti name:e (a1:e ...) a2:e) :
+      ($defmulti name:e (a1:e ...) a2:e, (args:e ...)) :
          val [name*, targs*] = name-args(name)
-         IDefmulti(name*, targs*, a1, a2, add-base-dir(info))
+         IDefmulti(name*, targs*, a1, a2, args, add-base-dir(info))
       ($defmethod name:e (args:e ...) (a1:e ...) a2:e body0:e bodyn:e ...) :
          val [name*, targs*] = name-args(name)
          val body = ScopeBegin(body0, bodyn, add-base-dir(info))
@@ -148,6 +150,20 @@ defn ls-name-args (e:IExp) -> [IExp, List<IExp>] :
          val [name*, targs*] = name-args(name)
          val body = ScopeBegin(body0, bodyn, add-base-dir(info))
          IDefmethod(true, name*, false, targs*, a1, a2, args, body, add-base-dir(info))
+
+      ;Argument specifiers
+      ($optional name:e) :
+         IOptional(name, add-base-dir(info))
+      ($keyword name:e) :
+         IKeyword(name, add-base-dir(info))
+      ($optional-keyword name:e) :
+         IOptionalKeyword(name, add-base-dir(info))
+      ($rest name:e) :
+         IRest(name, add-base-dir(info))
+
+      ;Named arguments
+      ($keywordarg name:e value:e) :
+         IKeywordArg(name, value, add-base-dir(info))
 
       ;Stanza Expression Forms
       ($fn (args:e ...) (a1:e ...) a2:e body0:e bodyn:e ...) :
@@ -934,7 +950,7 @@ defn ensure-branch-arity (e:IMatch) :
 defn ensure-unique-imports (ipackage: IDefPackage) :
   ;Each entry, package => info, means that the package 'package' was already
   ;imported on line 'info'.
-  val import-table = HashTable<Symbol,FileInfo|False>()
+  val import-table = HashTable<Symbol,AbsoluteFileInfo|False>()
 
   for i in imports(ipackage) do :
     val name = package?(i)
@@ -943,7 +959,7 @@ defn ensure-unique-imports (ipackage: IDefPackage) :
         ;Create the sentence describing where it was previously imported.
         val prev-info = import-table[name]
         val info-str =
-          match(prev-info:FileInfo) : " It was previously imported at %_." % [prev-info]
+          match(prev-info:AbsoluteFileInfo) : " It was previously imported at %_." % [/info(prev-info)]
           else : " It has already been imported."
         val msg = "Cannot import the package '%~' again.%_"
         stz/check-lang-engine/error!(info(i), msg % [name, info-str])        

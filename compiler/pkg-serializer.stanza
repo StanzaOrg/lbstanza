@@ -501,7 +501,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
   deftype debug-info (VMDebugInfo) :
     id:int
     name:opt(string)
-    info:opt(info)
+    info:opt(absinfo)
 
   defunion vmimm (VMImm) :
     Local: (index:int)
@@ -798,6 +798,5 @@ defserializer PkgSerializer (include-asm?:True|False) :
     column:int
 
   defunion traceinfo (TraceInfo) :
-    AbsoluteFileInfo: #error
     StackTraceInfo: trace-entry
     False: bool as False

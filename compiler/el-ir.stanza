@@ -907,7 +907,7 @@ defsyntax el-ir :
                               ?f:#efunc) :
     EDefClosure(n, c, ntargs, nargs, f)
   defrule etexp = (defmulti ?n:#vid<?targs:#efntarg ...> (?args:#efnarg ...) -> ?ret:#etype) :
-    EDefmulti(n, to-tuple(targs), to-tuple(args), ret, add-base-dir(closest-info()))
+    EDefmulti(n, to-tuple(targs), to-tuple(args), ret, false, add-base-dir(closest-info()))
   defrule etexp = (defmethod ?ls:#lostanza? ?multi:#vid<?targs:#etype ...> (id = ?n:#vid) ?f:#efn) :
     EDefmethod(n, multi, to-tuple(targs), f, ls, false)
   defrule etexp = (defstruct ?n:#tid ?p:#parent? : (?fs:#edeffield ... ~ ...)) :
