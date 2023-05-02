@@ -18,6 +18,7 @@ defpackage stz/il-to-tl :
   import stz/type-errors
   import stz/algorithms
   import stz/type-utils
+  import stz/absolute-info
 
 ;============================================================
 ;===================== Driver ===============================
@@ -979,7 +980,7 @@ defn destructure-args (args:Seqable<IExp>, input-body:TExp) -> [Tuple<Int>, TExp
   ;Compute the new arguments to use.
   ;Introduce temporary variables as necessary for destructuring.
   val new-args = Vector<Int>()
-  val entries = Vector<[FileInfo|False,Tuple<Int>,VarN]>()
+  val entries = Vector<[AbsoluteFileInfo|False,Tuple<Int>,VarN]>()
   for arg in args do :
     match(arg:ITuple) :
       val tmp = VarN(fresh-id(),false)
@@ -1142,7 +1143,7 @@ defn check-valid-hierarchy (hier:TypeHierarchy) -> False :
 defn type-loc (n:Int) -> DefinedType :
   val ventry = get-var-entry(n)
   match(info(ventry)) :
-    (info:FileInfo) : DefinedType(name(ventry), DefLoc(info))
+    (info:AbsoluteFileInfo) : DefinedType(name(ventry), DefLoc(info))
     (f:False) : DefinedType(name(ventry), DefLoc(PackageName(package(ventry))))
 
 ;============================================================
@@ -1151,7 +1152,7 @@ defn type-loc (n:Int) -> DefinedType :
 
 ;Add a type error if the given class doesn't have the right type
 ;arity.
-defn ensure-correct-tarity (info:FileInfo|False, n:Int, targs:Tuple<Type>) -> False :
+defn ensure-correct-tarity (info:AbsoluteFileInfo|False, n:Int, targs:Tuple<Type>) -> False :
   val actual-arity = type-arity(n)
   val num-args = length(targs)
   if num-args != actual-arity :

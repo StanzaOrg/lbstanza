@@ -4,6 +4,7 @@ defpackage stz/type-errors :
   import collections
   import stz/tl-ir
   import stz/types
+  import stz/absolute-info
 
 ;============================================================
 ;==================== Type Definition =======================
@@ -275,4 +276,4 @@ defn quotes (x) : "'%_'" % [x]
 
 ;Format the FileInfo for the beginning of an error message.
 defn info-str (info:AbsoluteFileInfo|False) :
-  "" when info is False else "%_: " % [/info(info)]
+  "" when info is False else "%_: " % [/info(info as AbsoluteFileInfo)]

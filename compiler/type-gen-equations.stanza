@@ -17,6 +17,7 @@ defpackage stz/type-gen-equations :
   import stz/type-instantiation
   import stz/type-capside
   import stz/type-fargs
+  import stz/absolute-info
 
 ;============================================================
 ;================== Main Entry Point ========================
@@ -1197,7 +1198,7 @@ defn gen-function-reference (func:TRef|TMix, ctxt:Context) -> TMix :
              typed-refs, unsatisfiable-svar(), InstFns([]), [])        
 
 ;Generate instantiated mix of reference to multi.
-defn gen-multi-reference (info:FileInfo|False,
+defn gen-multi-reference (info:AbsoluteFileInfo|False,
                           refs:Tuple<TRef>,
                           ctxt:MultiCtxt|LSMultiCtxt) -> TMix :
   ;Annotate each of the refs with types.
