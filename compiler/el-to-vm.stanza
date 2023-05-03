@@ -227,15 +227,17 @@ defn compile (e:EDefStruct, global-table:GlobalTable, iotable:IOTable, progbuffe
   val class-name = class-name(n(e), parents, iotable)
   val base-size = size(global-table, n(e))
   val base-roots = roots(global-table, n(e))
+  val base-root-names = root-names(global-table, n(e))
   val class = match(items(e)) :
     ;Object class
     (items:False) :
-      VMLeafClass(n(e), class-name, [n(e)], parents, base-size, base-roots)
+      VMLeafClass(n(e), class-name, [n(e)], parents, base-size, base-roots, base-root-names)
     ;Array class
     (items:EDefField) :
       val item-size = size(global-table, type(items))
       val item-roots = roots(global-table, type(items))
-      VMArrayClass(n(e), class-name, [n(e)], parents, base-size, item-size, base-roots, item-roots)
+      val item-root-names = root-names(global-table, type(items))
+      VMArrayClass(n(e), class-name, [n(e)], parents, base-size, item-size, base-roots, item-roots, base-root-names, item-root-names)
   add(progbuffer, class)
 
 defn compile (compiler:Compiler, e:EInit) :
@@ -266,7 +268,9 @@ defn compile (e:EDefObject, dtable:IntTable<Tuple<Int>>, global-table:GlobalTabl
   val nslots = ntargs(e) + nargs(e)
   val base-size = 8 * nslots
   val base-roots = to-tuple(0 to nslots)
-  add(progbuffer, VMLeafClass(n(e), class-name, dtable[n(e)], parents, base-size, base-roots))
+  ;[TODO] Fix artificially generated names for EDefObject.
+  val base-root-names = map(to-symbol{"slot@%_" % [_ * 8]}, base-roots)
+  add(progbuffer, VMLeafClass(n(e), class-name, dtable[n(e)], parents, base-size, base-roots, base-root-names))
 
 defn compile (e:EDefType, progbuffer:ProgBuffer) :
   val parents = parent-ids(parent(e))
@@ -1738,15 +1742,34 @@ defmulti instance-method? (t:GlobalTable, n:Int) -> True|False
 defmulti code-address (t:GlobalTable, n:Int) -> VMImm
 defmulti address (t:GlobalTable, n:Int) -> VMImm
 
-;Retrieve struct properties
+;Returns the offsets of all primitive fields in the type.
+;(Assumes that struct-typed fields are further expanded.)
 defmulti offsets (gt:GlobalTable, t:EType) -> Tuple<Int>
-defmulti size (gt:GlobalTable, t:EType) -> Int
-defmulti length (gt:GlobalTable, t:EType) -> Int
-defmulti vmtypes (gt:GlobalTable, t:EType) -> Tuple<VMType>
 defmulti offsets (gt:GlobalTable, n:Int) -> Tuple<Int>
+
+;Returns the names of all primitive fields in the type.
+;(Assumes that struct-typed fields are further expanded into,
+;e.g. myfield.x.value). Result will have same length as 'offsets'.
+defmulti field-names (gt:GlobalTable, t:EType) -> Tuple<Symbol>
+defmulti field-names (gt:GlobalTable, n:Int) -> Tuple<Symbol>
+
+;Returns the number of bytes needed to represent the given
+;type. Includes necessary padding.
+defmulti size (gt:GlobalTable, t:EType) -> Int
 defmulti size (gt:GlobalTable, n:Int) -> Int
+
+;Returns the number of primitive elements needed to represent
+;the given type. Used by the compiler when a local variable
+;is directly represented as a set of VMLocals.
+defmulti length (gt:GlobalTable, t:EType) -> Int
 defmulti length (gt:GlobalTable, n:Int) -> Int
+
+;Returns the types of all primitive fields in the type.
+;(Assumes that struct-typed fields are further expanded into their
+;primitives types).
+defmulti vmtypes (gt:GlobalTable, t:EType) -> Tuple<VMType>
 defmulti vmtypes (gt:GlobalTable, n:Int) -> Tuple<VMType>
+
 defmulti alignment (gt:GlobalTable, t:EType) -> Int
 defmulti field-index (gt:GlobalTable, n:Int, index:Int) -> Int
 defmulti field-offset (gt:GlobalTable, n:Int, index:Int) -> Int
@@ -1770,6 +1793,7 @@ defstruct StructEntry <: GlobalEntry :
   vmtypes: Tuple<VMType> with: (default => void)
   field-indices: Tuple<Int> with: (default => void)
   field-offsets: Tuple<Int> with: (default => void)
+  field-names: Tuple<Symbol> with: (default => void)
 defstruct ClosureEntry <: GlobalEntry :
   ntargs: Int
   nargs: Int
@@ -1811,7 +1835,7 @@ defn GlobalTable (io:PackageIO, epackage:EPackage) :
           (t:DFnT) : FnEntry(ExternFn())
           (t) : VarEntry(to-etype(t), true)
       (r:StructRec) :
-        defn sfield (f) : EDefField(mutable?(f), to-etype(type(f), ntargs(r)))
+        defn sfield (f) : EDefField(mutable?(f), name(f), to-etype(type(f), ntargs(r)))
         val base* = map(sfield, base(r))
         val items* = match(items(r)) :
           (items:StructField) : sfield(items)
@@ -1866,15 +1890,24 @@ defn GlobalTable (io:PackageIO, epackage:EPackage) :
       val vmtypes-list = Vector<VMType>()
       val field-indices-list = Vector<Int>()
       val field-offsets-list = Vector<Int>()
+      val field-names-list = Vector<Symbol>()
 
       ;Analyze each base field
-      for t in seq(type, base(e)) do :
+      for f in base(e) do :
         ;Retrieve properties of this type
+        val t = type(f)
         val os = offsets(this,t)
         val vmts = vmtypes(this,t)
         val aln = alignment(this,t)
         val size = size(this,t)
         val len = length(this,t)
+
+        ;Add names to field-names-list.
+        match(t:EStructT) :
+          for fname in field-names(this,t) do :
+            add(field-names-list, to-symbol("%_.%_" % [name(f), fname]))
+        else :
+          add(field-names-list, name(f))
 
         ;Pad to appropriate alignment (assumes aln is power of 2)
         size-accum = (size-accum + aln - 1) & (- aln)
@@ -1904,7 +1937,8 @@ defn GlobalTable (io:PackageIO, epackage:EPackage) :
                   alignment-accum,
                   to-tuple(vmtypes-list),
                   to-tuple(field-indices-list),
-                  to-tuple(field-offsets-list))
+                  to-tuple(field-offsets-list),
+                  to-tuple(field-names-list))
 
     ;Driver
     do(compute-properties, struct-ns) where :
@@ -1983,6 +2017,13 @@ defn GlobalTable (io:PackageIO, epackage:EPackage) :
         (t) : [0]
     defmethod offsets (this, n:Int) :
       offsets(table[n] as StructEntry)
+    defmethod field-names (this, t:EType) :
+      match(t:EStructT) :
+        field-names(table[n(t)] as StructEntry)
+      else :
+        fatal("Type '%_' has no field-names." % [object-type(t)])
+    defmethod field-names (this, n:Int) :
+      field-names(table[n] as StructEntry)
     defmethod field-index (this, n:Int, index:Int) :
       val e = table[n] as StructEntry
       if index < length(field-indices(e)) :
@@ -2021,12 +2062,36 @@ defn GlobalTable (io:PackageIO, epackage:EPackage) :
   compute-struct-properties(gt)
   gt
 
+;Returns the indices of all roots in the given EType.
 defn roots (gt:GlobalTable, t:EType) -> Tuple<Int> :
   roots(offsets(gt,t), vmtypes(gt,t))
 
+;Returns the indices of all roots in the given object
+;with struct identifier 'n'.
 defn roots (gt:GlobalTable, n:Int) -> Tuple<Int> :
   roots(offsets(gt, n), vmtypes(gt, n))
 
-defn roots (offsets:Seqable<Int>, types:Seqable<VMType>) :
+;Helper: Compute the indices of the roots from the offsets and
+;all types of all fields in a type. A root is a field with type VMRef.
+defn roots (offsets:Seqable<Int>, types:Seqable<VMType>) -> Tuple<Int> :
   val root-offsets = for (o in offsets, t in types) filter : t is VMRef
   to-tuple(seq({_ / 8}, root-offsets))
+
+;Returns the corresponding field names of all roots in the given EType.
+defn root-names (gt:GlobalTable, t:EType) -> Tuple<Symbol> :
+  root-names(field-names(gt,t), vmtypes(gt,t))
+  
+;Returns the corresponding field names of all roots in the given
+;object iwh struct identifier 'n'.
+defn root-names (gt:GlobalTable, n:Int) -> Tuple<Symbol> :
+  root-names(field-names(gt,n), vmtypes(gt,n))
+
+;Helper: Compute the field names of all roots in an object.
+;- field-names: The listing of all field names in the object.
+;- field-types: The listing of all field types in the object.
+;  (Note that, similar to the 'roots' case, we assume that 
+;   struct-typed fields are expanded down to their primitives.)
+defn root-names (field-names:Seqable<Symbol>,
+                 field-types:Seqable<VMType>) -> Tuple<Symbol> :
+  val root-names = for (n in field-names, t in types) filter : t is VMRef
+  to-tuple(root-names)

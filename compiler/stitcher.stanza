@@ -287,7 +287,7 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
       ;Construct the info for the description of the global,
       ;and recording its offset.
       val global-info = new GlobalInfo :
-      
+
         ;Record the global offset for this global.
         defmethod save-offset (this, id:Int, offset:Int) :
           set-global-prop(pkgids, id, GlobalProps(offset))
@@ -734,6 +734,7 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
             val label-id = unique-label(code-emitter)
             E $ Label(label-id)
             E $ NoOp()
+            add-trace-entry(label-id, trace-entry(i))
             record-safepoint(package-safepoints, id(i), label-id)
           (i:LinkLabel) :
             val gid = global-id!(pkgids, id(i))
@@ -859,15 +860,16 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
         for (c in class-table, i in 0 to num-concrete-classes) seq :
           match(c) :
             (c:VMLeafClass) :
-              LeafClassRecord(i, name(c), size(c), roots(c))
+              LeafClassRecord(i, name(c), size(c), roots(c), root-names(c))
             (c:VMArrayClass) :
-              ArrayClassRecord(i, name(c), base-size(c), item-size(c), base-roots(c), item-roots(c))
+              ArrayClassRecord(i, name(c), base-size(c), item-size(c), base-roots(c), item-roots(c), base-root-names(c), item-root-names(c))
       val packer = new StaticPacker :
         defmethod make-label (this) : unique-id(stubs)
         defmethod emit-comment (this, str:String) : E $ Comment(str)
         defmethod emit-label (this, id:Int) : E $ Label(id)
         defmethod emit-pointer-to-label (this, id:Int) : E $ DefLabel(id)
         defmethod emit (this, x:Int) : E $ DefInt(x)
+        defmethod emit (this, x:Long) : E $ DefLong(x)
         defmethod emit (this, x:String) : E $ DefString(x)
     E $ DefText()
     E $ Comment("End of Class Table")
@@ -913,8 +915,8 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
           E $ DefInt(line(info))
           E $ DefInt(column(info))
         (f:False) :
-          E $ DefLong(0L)        
-          E $ DefLong(0L)        
+          E $ DefLong(0L)
+          E $ DefLong(0L)
           E $ DefInt(0)
           E $ DefInt(0)
     E $ DefText()
