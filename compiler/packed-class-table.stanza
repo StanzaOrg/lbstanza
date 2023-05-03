@@ -62,14 +62,13 @@ defn emit (packer:StaticPacker, names:Seqable<Symbol>) -> False :
     emit-label(packer, labels[i])
     emit(packer, to-string(n))
 
-defn field-names (names:Tuple<Symbol>) :
-  to-seq(names)
-defn field-names (r:ClassTableRecord) :
+;Retrieve all the field names for the given record.
+;If it's an array record, then returns the concatenation of its base
+;root names with its item root names.
+defn field-names (r:ClassTableRecord) -> Tuple<Symbol> :
   match(r) :
-    (r:LeafClassRecord) :
-      field-names(root-names(r))
-    (r:ArrayClassRecord) :
-      cat(field-names(base-root-names(r)), field-names(item-root-names(r)))
+    (r:LeafClassRecord) : root-names(r)
+    (r:ArrayClassRecord) : to-tuple(cat(base-root-names(r), item-root-names(r)))
 
 public defn pack (records:Collection<ClassTableRecord>, packer:StaticPacker) -> False :
   ;Sanity check.
@@ -326,31 +325,48 @@ lostanza defn pack (r:ref<PackedClassRecord>) -> ptr<?> :
   ;Return the allocated memory.
   return record
 
-defn size (s:String) : length(s) + 1
-defn num-bytes-for-field-names (r:ClassTableRecord) -> Int :
-  var s = 0
-  for n in field-names(r) do :
-    s = s + size(name(n))
-  s
-defn num-field-names (r:ClassTableRecord) :
-  count(field-names(r))
+;Return number of bytes occupied by string (includes null terminator.)
+defn num-bytes (s:String) : length(s) + 1
 
+;Return total number of bytes for storing all the field names
+;in the record, one after the other.
+defn num-bytes-for-field-names (r:ClassTableRecord) -> Int :
+  sum(seq(num-bytes{name(_)}, field-names(r)))
+
+;Return the number of field names in the record.
+defn num-field-names (r:ClassTableRecord) -> Int :
+  length(field-names(r))
+
+;Holds the packing progress when packing the field names.
+;- fields: The write pointer for the string addresses.
+;- names: The write pointer for the string contents.
 lostanza deftype FieldNamePacker :
   var fields:ptr<ptr<byte>>
   var names:ptr<byte>
+
+;Write another string into the FieldNamePacker.
 lostanza defn append (packer:ref<FieldNamePacker>, s:ref<String>) -> ref<False> :
+  ;Write the next string address, and increment ".fields".
   [packer.fields] = packer.names
   packer.fields = packer.fields + sizeof(ptr<ptr<byte>>)
-  val size = size(s).value
+  
+  ;Write the next string contents, and increment ".names".
+  val size = num-bytes(s).value
   call-c clib/memcpy(packer.names, addr!(s.chars), size)
   packer.names = packer.names + size
+  
   return false
+
+;Pack all field names into the FieldNamePacker.
 defn pack (packer:FieldNamePacker, r:ClassTableRecord) -> False :
   for n in field-names(r) do : append(packer, name(n))
+
+;Pack all the field names and return a pointer to the packed fields.
 lostanza defn pack-field-names (r:ref<ClassTableRecord>) -> ptr<?> :
   val num-fields = num-field-names(r).value
   val num-bytes = num-fields * sizeof(ptr<?>) + num-bytes-for-field-names(r).value
   val packed-fields:ptr<ptr<byte>> = call-c clib/malloc(num-bytes)
   val packed-names:ptr<byte> = addr(packed-fields[num-fields]) as ptr<byte>
   val packer = new FieldNamePacker{packed-fields, packed-names}
+  pack(packer, r)
   return packed-fields
