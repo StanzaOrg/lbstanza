@@ -293,7 +293,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     ETop: ()
     EBot: ()
 
-  deftype efield (EDefField) : (mutable?:bool, type:etype)
+  deftype efield (EDefField) : (mutable?:bool, name:symbol, type:etype)
 
   defunion efunction (EFunction) :
     EMultifn: (funcs:tuple(efunction as EFn))
@@ -552,8 +552,10 @@ defserializer PkgSerializer (include-asm?:True|False) :
 
   defunion vmclass (VMClass) :
     VMArrayClass: (id:int, name:string, dependencies:tuple(int), parents:tuple(int),
-                   base-size:int, item-size:int, base-roots:tuple(int), item-roots:tuple(int))
-    VMLeafClass: (id:int, name:string, dependencies:tuple(int), parents:tuple(int), size:int, roots:tuple(int))
+                   base-size:int, item-size:int, base-roots:tuple(int), item-roots:tuple(int),
+                   base-root-names:tuple(symbol), item-root-names:tuple(symbol))
+    VMLeafClass: (id:int, name:string, dependencies:tuple(int), parents:tuple(int), size:int,
+                  roots:tuple(int), root-names:tuple(symbol))
     VMAbstractClass: (id:int, parents:tuple(int), children:tuple(int))
 
   defunion vmins (VMIns) :
@@ -585,6 +587,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     LiveIns: (xs:tuple(vmimm))
     CommentIns: (message:string)
     UnreachableIns: ()
+    SafepointIns: (id:int, trace-entry!:trace-entry)
 
   deftype vmbranch (VMBranch) : (types:tuple(typeset), n:int)
 

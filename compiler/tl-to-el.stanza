@@ -68,7 +68,7 @@ defn compile (p:TPackage,
         
       (c:TLDefType) :
         defn conv-field (f:Field) -> EDefField :
-          EDefField(mutable?(f), to-etype(type(f)))
+          EDefField(mutable?(f), name(f), to-etype(type(f)))
         val [fs, lf] = split-rest-field(fields(c))
         val base = map(conv-field, fs)
         val items = match(lf:Field) :

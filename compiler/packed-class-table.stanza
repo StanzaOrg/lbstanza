@@ -16,6 +16,7 @@ public defstruct LeafClassRecord <: ClassTableRecord :
   name:String with: (as-method => true)
   size: Int
   roots: Tuple<Int>
+  root-names: Tuple<Symbol>
 with:
   printer => true
 
@@ -26,6 +27,8 @@ public defstruct ArrayClassRecord <: ClassTableRecord :
   item-size: Int
   base-roots: Tuple<Int>
   item-roots: Tuple<Int>
+  base-root-names: Tuple<Symbol>
+  item-root-names: Tuple<Symbol>
 with:
   printer => true
 
@@ -39,11 +42,33 @@ public defmulti emit-comment (p:StaticPacker, str:String) -> False
 public defmulti emit-label (p:StaticPacker, id:Int) -> False
 public defmulti emit-pointer-to-label (p:StaticPacker, id:Int) -> False
 public defmulti emit (p:StaticPacker, x:Int) -> False
+public defmulti emit (p:StaticPacker, x:Long) -> False
 public defmulti emit (p:StaticPacker, x:String) -> False
 
 ;============================================================
 ;================== Overall Static Packer ===================
 ;============================================================
+
+defn emit (packer:StaticPacker, names:Seqable<Symbol>) -> False :
+  ;Generate labels
+  val labels = to-tuple(seq(make-label{packer}, names))
+
+  ;Emit the root
+  for (n in names, i in 0 to false) do :
+    emit-pointer-to-label(packer, labels[i])
+
+  ;Emit the names
+  for (n in names, i in 0 to false) do :
+    emit-label(packer, labels[i])
+    emit(packer, to-string(n))
+
+;Retrieve all the field names for the given record.
+;If it's an array record, then returns the concatenation of its base
+;root names with its item root names.
+defn field-names (r:ClassTableRecord) -> Tuple<Symbol> :
+  match(r) :
+    (r:LeafClassRecord) : root-names(r)
+    (r:ArrayClassRecord) : to-tuple(cat(base-root-names(r), item-root-names(r)))
 
 public defn pack (records:Collection<ClassTableRecord>, packer:StaticPacker) -> False :
   ;Sanity check.
@@ -54,6 +79,7 @@ public defn pack (records:Collection<ClassTableRecord>, packer:StaticPacker) -> 
 
   ;Generate labels
   val labels = to-tuple(seq(make-label{packer}, records))
+  val field-labels = to-tuple(seq(make-label{packer}, records))
 
   ;Emit descriptors
   for (r in records, i in 0 to false) do :
@@ -61,7 +87,11 @@ public defn pack (records:Collection<ClassTableRecord>, packer:StaticPacker) -> 
     emit(packer, case(descriptor))
     emit(packer, num-base-bytes(descriptor))
     emit-pointer-to-label(packer, labels[i])
-  
+    if empty?(field-names(r)) :
+      emit(packer, 0L)
+    else :
+      emit-pointer-to-label(packer, field-labels[i])
+
   ;Emit full layout records
   for (r in records, i in 0 to false) do :
     ;Emit comment and pack!
@@ -69,7 +99,15 @@ public defn pack (records:Collection<ClassTableRecord>, packer:StaticPacker) -> 
     emit-label(packer, labels[i])
     pack(r, packer)
 
+  ;Emit field name records
+  for (r in records, i in 0 to false) do :
+    if not empty?(field-names(r)) :
+      emit-comment(packer, to-string("Field Name Records: Class %_ (index %_)" % [name(r), index(r)]))
+      emit-label(packer, field-labels[i])
+      emit(packer, field-names(r))
+
 defmethod pack (p:StaticPacker, x:Int) : emit(p, x)
+defmethod pack (p:StaticPacker, x:Long) : emit(p, x)
 defmethod pack (p:StaticPacker, s:String) : emit(p, s)
 
 ;============================================================
@@ -81,6 +119,7 @@ lostanza deftype ClassDescriptor :
   case:int
   num-base-bytes:int
   full-layout:ptr<?>
+  field-names:ptr<?>
 
 ;Returns the number of class entries in the allocated byte array.
 lostanza defn num-class-entries (table:ref<StableByteArray>) -> ref<Int> :
@@ -98,19 +137,19 @@ public defn pack (records:Collection<ClassTableRecord>, class-table:StableByteAr
     val i = index(r)
     if i < current-num-class-entries :
       ensure-class-entry-deleted(class-table, i)
-  
+
   ;Enlarge the table if necessary.
   val size-required = num-bytes-required(maximum(-1, seq(index, records)))
-  val new-class-table = 
+  val new-class-table =
     if length(class-table) < size-required :
       enlarge(class-table, size-required, 0Y)
     else :
       class-table
-  
+
   ;Pack and store the records
   for r in records do :
     val i = index(r)
-    pack-and-store(new-class-table, i, fast-layout-descriptor(r), pack(r))
+    pack-and-store(new-class-table, i, fast-layout-descriptor(r), r)
 
   ;Return the potentially enlarged table.
   new-class-table
@@ -118,11 +157,11 @@ public defn pack (records:Collection<ClassTableRecord>, class-table:StableByteAr
 ;Call free on the entry at index i in the given table.
 ;Set the entry to null.
 lostanza defn ensure-class-entry-deleted (table:ref<StableByteArray>, index:ref<Int>) -> ref<False> :
-  val i = index.value
   val descriptors = table.data as ptr<ClassDescriptor>
-  val p = descriptors[i].full-layout
-  if p != null : call-c clib/free(p)
-  descriptors[i] = ClassDescriptor{0, 0, null}
+  val p = addr(descriptors[index.value])
+  call-c clib/free(p.full-layout)
+  call-c clib/free(p.field-names)
+  [p] = ClassDescriptor{0, 0, null, null}
   return false
 
 ;Pack the given record into bytes, and then store the entry
@@ -130,14 +169,17 @@ lostanza defn ensure-class-entry-deleted (table:ref<StableByteArray>, index:ref<
 lostanza defn pack-and-store (table:ref<StableByteArray>,
                               index:ref<Int>,
                               descriptor:ref<FastLayoutDescriptor>,
-                              record:ref<PackedClassRecord>) -> ref<False> :
+                              record:ref<ClassTableRecord>
+                              ) -> ref<False> :
   val i = index.value
   val data = table.data as ptr<ClassDescriptor>
-  val packed-rec = pack(record)
+  val packed-record = pack(pack(record))
+  val packed-field-names = pack-field-names(record)
   data[i] = ClassDescriptor{
               case(descriptor).value,
               num-base-bytes(descriptor).value,
-              packed-rec}
+              packed-record,
+              packed-field-names}
   return false
 
 ;============================================================
@@ -146,6 +188,7 @@ lostanza defn pack-and-store (table:ref<StableByteArray>,
 
 deftype Packer
 defmulti pack (p:Packer, x:Int) -> False
+defmulti pack (p:Packer, x:Long) -> False
 defmulti pack (p:Packer, s:String) -> False
 
 ;============================================================
@@ -206,11 +249,11 @@ defn pack (r:ClassTableRecord, packer:Packer) -> False :
   defn pack (x:String) : /pack(packer, x)
   match(r) :
     (r:LeafClassRecord) :
-      val num-ints = 1                ;num-bytes
-                   + 1                ;size
-                   + 1                ;0
-                   + 1                ;length(roots)
-                   + length(roots(r)) ;roots
+      val num-ints = 1                      ;num-bytes
+                   + 1                      ;size
+                   + 1                      ;0
+                   + 1                      ;length(roots)
+                   + length(roots(r))       ;roots
       pack(num-ints * 4)
       pack(size(r))
       pack(0)
@@ -218,13 +261,13 @@ defn pack (r:ClassTableRecord, packer:Packer) -> False :
       do(pack, roots(r))
       pack(name(r))
     (r:ArrayClassRecord) :
-      val num-ints = 1                     ;num-bytes
-                   + 1                     ;base-size
-                   + 1                     ;item-size
-                   + 1                     ;length(base-roots)
-                   + 1                     ;length(item-roots)
-                   + length(base-roots(r)) ;base-roots
-                   + length(item-roots(r)) ;item-roots
+      val num-ints = 1                            ;num-bytes
+                   + 1                            ;base-size
+                   + 1                            ;item-size
+                   + 1                            ;length(base-roots)
+                   + 1                            ;length(item-roots)
+                   + length(base-roots(r))        ;base-roots
+                   + length(item-roots(r))        ;item-roots
       pack(num-ints * 4)
       pack(base-size(r))
       pack(item-size(r))
@@ -253,7 +296,7 @@ defn pack (r:ClassTableRecord) -> PackedClassRecord :
       name = s
   pack(r, packer)
   PackedClassRecord(to-tuple(ints), name as String)
-  
+
 ;============================================================
 ;=================== Pack into Bits =========================
 ;============================================================
@@ -266,19 +309,64 @@ lostanza defn pack (r:ref<PackedClassRecord>) -> ptr<?> :
   val num-bytes = num-bytes(r).value
   val record:ptr<?> = call-c clib/malloc(num-bytes)
   var p:ptr<?> = record
-  
+
   ;Store ints
   val ints = ints(r)
   for (var i:long = 0, i < ints.length, i = i + 1) :
     [p as ptr<int>] = ints.items[i].value
     p = p + sizeof(int)
-  
+
   ;Store bytes
   val name = name(r)
   for (var i:long = 0, i < name.length, i = i + 1) :
     [p as ptr<byte>] = name.chars[i]
     p = p + sizeof(byte)
-  
+
   ;Return the allocated memory.
   return record
 
+;Return number of bytes occupied by string (includes null terminator.)
+defn num-bytes (s:String) : length(s) + 1
+
+;Return total number of bytes for storing all the field names
+;in the record, one after the other.
+defn num-bytes-for-field-names (r:ClassTableRecord) -> Int :
+  sum(seq(num-bytes{name(_)}, field-names(r)))
+
+;Return the number of field names in the record.
+defn num-field-names (r:ClassTableRecord) -> Int :
+  length(field-names(r))
+
+;Holds the packing progress when packing the field names.
+;- fields: The write pointer for the string addresses.
+;- names: The write pointer for the string contents.
+lostanza deftype FieldNamePacker :
+  var fields:ptr<ptr<byte>>
+  var names:ptr<byte>
+
+;Write another string into the FieldNamePacker.
+lostanza defn append (packer:ref<FieldNamePacker>, s:ref<String>) -> ref<False> :
+  ;Write the next string address, and increment ".fields".
+  [packer.fields] = packer.names
+  packer.fields = packer.fields + sizeof(ptr<ptr<byte>>)
+  
+  ;Write the next string contents, and increment ".names".
+  val size = num-bytes(s).value
+  call-c clib/memcpy(packer.names, addr!(s.chars), size)
+  packer.names = packer.names + size
+  
+  return false
+
+;Pack all field names into the FieldNamePacker.
+defn pack (packer:FieldNamePacker, r:ClassTableRecord) -> False :
+  for n in field-names(r) do : append(packer, name(n))
+
+;Pack all the field names and return a pointer to the packed fields.
+lostanza defn pack-field-names (r:ref<ClassTableRecord>) -> ptr<?> :
+  val num-fields = num-field-names(r).value
+  val num-bytes = num-fields * sizeof(ptr<?>) + num-bytes-for-field-names(r).value
+  val packed-fields:ptr<ptr<byte>> = call-c clib/malloc(num-bytes)
+  val packed-names:ptr<byte> = addr(packed-fields[num-fields]) as ptr<byte>
+  val packer = new FieldNamePacker{packed-fields, packed-names}
+  pack(packer, r)
+  return packed-fields
