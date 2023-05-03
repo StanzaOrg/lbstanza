@@ -236,7 +236,7 @@ defn compile (e:EDefStruct, global-table:GlobalTable, iotable:IOTable, progbuffe
     (items:EDefField) :
       val item-size = size(global-table, type(items))
       val item-roots = roots(global-table, type(items))
-      val item-root-names = root-names(global-table, type(items))
+      val item-root-names = item-root-names(global-table, n(e))
       VMArrayClass(n(e), class-name, [n(e)], parents, base-size, item-size, base-roots, item-roots, base-root-names, item-root-names)
   add(progbuffer, class)
 
@@ -1509,17 +1509,15 @@ defn Compiler (gt:GlobalTable,
         val xs* = seq-cat(imms!, xs(ins))
         emit(LiveIns(to-tuple(xs*)))
       (ins:ESafepoint) :
-      
-        defn* make-safepoint (info:AbsoluteFileInfo) :
-          val entry = SafepointEntry(base(info), filename(info), line(info), column(info), group-id(ins))
+        ;Create and emit a SafepointIns instruction.
+        defn* make-safepoint (info:StackTraceInfo) :
+          val entry = SafepointEntry(info, group-id(ins))
           val ins = add(progbuffer, entry)
           emit(ins)
-          
+        ;Create a safepoint if we have the file information.
         match(stack-trace-info(ins)) :
-          (info:StackTraceInfo) :
-            match(/info(info)) :
-              (info:AbsoluteFileInfo) : make-safepoint(info)
-              (f:False) : false
+          (info:StackTraceInfo) :            
+            make-safepoint(info) when /info(info) is-not False
           (f:False) : false
 
   ;---------------------------------------------------------
@@ -1770,6 +1768,10 @@ defmulti length (gt:GlobalTable, n:Int) -> Int
 defmulti vmtypes (gt:GlobalTable, t:EType) -> Tuple<VMType>
 defmulti vmtypes (gt:GlobalTable, n:Int) -> Tuple<VMType>
 
+;Returns the names and types of the item field in the given struct.
+defmulti item-field-names (gt:GlobalTable, n:Int) -> Seqable<Symbol>
+defmulti item-types (gt:GlobalTable, n:Int) -> Tuple<VMType>
+
 defmulti alignment (gt:GlobalTable, t:EType) -> Int
 defmulti field-index (gt:GlobalTable, n:Int, index:Int) -> Int
 defmulti field-offset (gt:GlobalTable, n:Int, index:Int) -> Int
@@ -1783,6 +1785,19 @@ defstruct VarEntry <: GlobalEntry :
   extern?: True|False
 defstruct FnEntry <: GlobalEntry :
   type: FnType
+
+;- alignment: The overall alignment of the struct.
+;- vmtypes: The primitive types that make up the struct.
+;  (Does not include rest field.)
+;- offsets: The offsets of each primitive type that makes up
+;  the struct. (Does not include the rest field.)
+;- size: The overall size of the struct (including alignment padding.)
+;- length: The number of primitive types that make up the struct.
+;- field-indices: The index of each field in the type.
+;- field-offsets: The offset of each field in the type.
+;- field-names: The name of each field in the type.
+;  (field-indices, field-offsets, field-names do not include
+;   the rest field.)
 defstruct StructEntry <: GlobalEntry :
   base: Tuple<EDefField>
   items: False|EDefField
@@ -1865,6 +1880,15 @@ defn GlobalTable (io:PackageIO, epackage:EPackage) :
       (e) :
         false
 
+  ;Given field named 'field-name' with type 'field-type', return the names
+  ;of all nested fields.
+  defn dotted-field-names (this:GlobalTable, field-name:Symbol, field-type:EType) -> Seqable<Symbol> :
+    match(field-type:EStructT) :
+      for fname in field-names(this,field-type) seq :
+        to-symbol("%_.%_" % [field-name, fname])
+    else :
+      [field-name]
+
   ;Compute struct properties
   defn compute-struct-properties (this:GlobalTable) :
     ;Compute the properties for struct n and all
@@ -1901,13 +1925,7 @@ defn GlobalTable (io:PackageIO, epackage:EPackage) :
         val aln = alignment(this,t)
         val size = size(this,t)
         val len = length(this,t)
-
-        ;Add names to field-names-list.
-        match(t:EStructT) :
-          for fname in field-names(this,t) do :
-            add(field-names-list, to-symbol("%_.%_" % [name(f), fname]))
-        else :
-          add(field-names-list, name(f))
+        val nested-fields = dotted-field-names(this, name(f), t)
 
         ;Pad to appropriate alignment (assumes aln is power of 2)
         size-accum = (size-accum + aln - 1) & (- aln)
@@ -1917,6 +1935,7 @@ defn GlobalTable (io:PackageIO, epackage:EPackage) :
         add(field-indices-list, length-accum)
         add-all(offsets-list, seq({size-accum + _}, os))
         add-all(vmtypes-list, vmts)
+        add-all(field-names-list, nested-fields)
         size-accum = size-accum + size
         length-accum = length-accum + len
         alignment-accum = max(alignment-accum, aln)
@@ -2024,6 +2043,14 @@ defn GlobalTable (io:PackageIO, epackage:EPackage) :
         fatal("Type '%_' has no field-names." % [object-type(t)])
     defmethod field-names (this, n:Int) :
       field-names(table[n] as StructEntry)
+    defmethod item-field-names (this, n:Int) :
+      val s = table[n] as StructEntry
+      val items = items(s) as EDefField
+      dotted-field-names(this, name(items), type(items))
+    defmethod item-types (this, n:Int) :
+      val s = table[n] as StructEntry
+      val items = items(s) as EDefField
+      vmtypes(this, type(items))
     defmethod field-index (this, n:Int, index:Int) :
       val e = table[n] as StructEntry
       if index < length(field-indices(e)) :
@@ -2086,6 +2113,11 @@ defn root-names (gt:GlobalTable, t:EType) -> Tuple<Symbol> :
 defn root-names (gt:GlobalTable, n:Int) -> Tuple<Symbol> :
   root-names(field-names(gt,n), vmtypes(gt,n))
 
+;Returns the corresponding field names of all roots in the rest
+;field in the given struct.
+defn item-root-names (gt:GlobalTable, n:Int) -> Tuple<Symbol> :
+  root-names(item-field-names(gt,n), item-types(gt,n))
+
 ;Helper: Compute the field names of all roots in an object.
 ;- field-names: The listing of all field names in the object.
 ;- field-types: The listing of all field types in the object.
@@ -2093,5 +2125,5 @@ defn root-names (gt:GlobalTable, n:Int) -> Tuple<Symbol> :
 ;   struct-typed fields are expanded down to their primitives.)
 defn root-names (field-names:Seqable<Symbol>,
                  field-types:Seqable<VMType>) -> Tuple<Symbol> :
-  val root-names = for (n in field-names, t in types) filter : t is VMRef
+  val root-names = for (n in field-names, t in field-types) filter : t is VMRef
   to-tuple(root-names)

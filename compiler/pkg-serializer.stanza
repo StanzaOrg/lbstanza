@@ -742,7 +742,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     asm-LoadGoto: (x:imm)
     asm-Break: (type:asm-type, x:imm, op:op, y:imm, z:imm)
     asm-Label: (n:int, trace-entry:opt(trace-entry))
-    asm-Safepoint: (id:int)
+    asm-Safepoint: (id:int, trace-entry:trace-entry)
     asm-LinkLabel: (id:int)
     asm-ExLabel: (name:symbol)
     asm-Match: (xs:list(imm), branches:list(branch), no-branch:imm)
