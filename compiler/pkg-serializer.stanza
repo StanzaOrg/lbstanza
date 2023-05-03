@@ -303,7 +303,11 @@ defserializer PkgSerializer (include-asm?:True|False) :
 
   deftype efntarg (EFnTArg) : (n:int, debug-name:opt(string))
 
-  deftype elocal (ELocal) : (n:int, type:etype, mutable?:bool)
+  deftype elocal (ELocal) :
+    n:int
+    type:etype
+    mutable?:bool
+    debug-name:opt(string)
 
   deftype elocaltype (ELocalType) : (n:int)
 

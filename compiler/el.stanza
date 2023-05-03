@@ -26,6 +26,7 @@ defpackage stz/el :
   import stz/absolute-info
   import stz/trace-info
   import stz/el-trace-info
+  import stz/dump-to-log
 
 ;============================================================
 ;==================== Drivers ===============================
@@ -1001,7 +1002,7 @@ defn insert-guards (epackage:EPackage, gvt:VarTable) :
                     (_:False) :
                       if not bottom?(a2) :
                         val n = uniqueid()
-                        emit(buffer, ELocal(n, a2, false))
+                        emit(buffer, ELocal(n, a2, false, false))
                         EVarLoc(n)
                   ;Check this variable if it is not false
                   val x* = if not bottom?(a2) :
@@ -1340,7 +1341,7 @@ defn box-mutables (epackage:EPackage, gvt:VarTable) -> EPackage :
           match(e:EVar) :
             if boxed[n(e)] :
               val x = uniqueid()
-              emit(buffer, ELocal(x, type(vt, n(e)), false))
+              emit(buffer, ELocal(x, type(vt, n(e)), false, debug-name(vt,n(e))))
               emit(buffer, EBoxGet(EVarLoc(x), e))
               EVar(x)
             else : e
@@ -1365,7 +1366,8 @@ defn box-mutables (epackage:EPackage, gvt:VarTable) -> EPackage :
         ;Change local types
         defn change-to-box-type (e:EBody) :
           val locals* = for x in locals(e) map :
-            if boxed[n(x)] : ELocal(n(x), EOf(n(iotable(vt),CORE-BOX-ID)), false)
+            if boxed[n(x)] :
+              ELocal(n(x), EOf(n(iotable(vt),CORE-BOX-ID)), false, debug-name(vt, n(x)))
             else : x
           sub-locals(e, locals*)
 
@@ -1437,12 +1439,12 @@ defn detect-loops (epackage:EPackage) -> EPackage :
         EFnArg(uniqueid(), type(a), debug-name(a))
       val loop-lbl = uniqueid()
       for arg in args(e) do :
-        emit(buffer, ELocal(n(arg), type(arg), false))
+        emit(buffer, ELocal(n(arg), type(arg), false, debug-name(arg)))
 
       ;Create dummy locals for handling parallel assignment.
       val parallel-args = map(uniqueid{}, args(e))
       for (a in parallel-args, arg in args(e)) do :
-        emit(buffer, ELocal(a, type(arg), false))
+        emit(buffer, ELocal(a, type(arg), false, debug-name(arg)))
 
       ;Emit loop start and entry prologue
       for (a0 in args0, a in args(e)) do :
@@ -1659,7 +1661,7 @@ defn inline-call (buffer:BodyBuffer,
     ;Define locals for arguments
     for a in args(f) do :
       val t* = substitute-targs(type(a)) as EType
-      emit(buffer, ELocal(n(a), t*, false))
+      emit(buffer, ELocal(n(a), t*, false, debug-name(a)))
     ;Add all locals from function
     do(emit{buffer, substitute-targs(_) as ELocal}, locals(body(f)))
     do(emit{buffer, _}, localtypes(body(f)))
@@ -2842,7 +2844,7 @@ defn lift-objects (epackage:EPackage, gvt:VarTable) -> EPackage :
       match(i:Int) :
         val v* = rename-var(v)
         val t = type(vt, v)
-        emit(buffer, ELocal(v*, t, false))
+        emit(buffer, ELocal(v*, t, false, debug-name(vt,v)))
         emit(buffer, EObjectGet(EVarLoc(v*), EVar(thisn(m)), obj-n, i))
     ;Emit freetypes
     for v in tvars(free(func(m))) do :
@@ -3670,7 +3672,7 @@ defn remove-boxes (epackage:EPackage, gvt:VarTable) -> EPackage :
     ;the contents of the local box.
     defn convert-local-box-to-var (local:ELocal) -> ELocal :
       match(local-box?(n(local))) :
-        (b:EBox) : ELocal(n(local), type(b), true)
+        (b:EBox) : ELocal(n(local), type(b), true, debug-name(vt,n(local)))
         (f:False) : local
 
     ;Launch!
@@ -3881,7 +3883,7 @@ defn lift-closures (epackage:EPackage, gvt:VarTable) -> EPackage :
           match(i:Int) :
             val v* = rename-var(v)
             val t = type(vt,v)
-            emit(buffer, ELocal(v*, t, false))
+            emit(buffer, ELocal(v*, t, false, debug-name(vt,v)))
             emit(buffer, EClosureGet(EVarLoc(v*), EVar(closure), fid, i))
 
         ;Retrieve type variables from closure argument
@@ -3960,7 +3962,7 @@ defn lift-closures (epackage:EPackage, gvt:VarTable) -> EPackage :
               val ys = map(EVar, vars(free))
               add(xs*, x)
               add(closures*, EClosure(closureid, targs, ys))
-            emit(buffer, ELocal(n(x), EOf(n(iotable(vt),CORE-FN-ID)), false))
+            emit(buffer, ELocal(n(x), EOf(n(iotable(vt),CORE-FN-ID)), false, debug-name(vt,n(x))))
           if not empty?(xs*) :
             emit(buffer, ELetRec(to-tuple(xs*), to-tuple(closures*), info(i)))
         (i) :
