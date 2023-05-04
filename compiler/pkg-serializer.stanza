@@ -27,7 +27,7 @@ defpackage stz/pkg-serializer :
            DualOp, Load, Store, Call, Return, Goto, Break, Label, LinkLabel,
            ExLabel, Match, Dispatch, MethodDispatch, DefData, DefText, DefDirectives, DefExportLabel, DefByte,
            DefInt, DefLong, DefFloat, DefDouble, DefString, DefBytes, DefSpace, DefLabel, Comment,
-           NoOp, LoadGoto, Safepoint) => asm-
+           NoOp, LoadGoto, Safepoint, VarContext, NamedVar, VarMap) => asm-
   import stz/absolute-info
   import stz/trace-info
   import stz/el-trace-info
@@ -303,7 +303,11 @@ defserializer PkgSerializer (include-asm?:True|False) :
 
   deftype efntarg (EFnTArg) : (n:int, debug-name:opt(string))
 
-  deftype elocal (ELocal) : (n:int, type:etype, mutable?:bool)
+  deftype elocal (ELocal) :
+    n:int
+    type:etype
+    mutable?:bool
+    debug-name:opt(string)
 
   deftype elocaltype (ELocalType) : (n:int)
 
@@ -725,6 +729,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
   ;================ Assembly Instructions ===================
   ;==========================================================
   defunion ins (Ins) :
+    asm-VarContext: (id:int, entries:tuple(named-var))
     asm-XchgIns: (x:loc, y:loc)
     asm-SetIns: (type:asm-type, x:loc, y:imm)
     asm-ConvertIns: (xtype:asm-type, x:loc, ytype:asm-type, y:imm)
@@ -742,7 +747,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     asm-LoadGoto: (x:imm)
     asm-Break: (type:asm-type, x:imm, op:op, y:imm, z:imm)
     asm-Label: (n:int, trace-entry:opt(trace-entry))
-    asm-Safepoint: (id:int, trace-entry:trace-entry)
+    asm-Safepoint: (id:int, trace-entry:trace-entry, varmap:var-map)
     asm-LinkLabel: (id:int)
     asm-ExLabel: (name:symbol)
     asm-Match: (xs:list(imm), branches:list(branch), no-branch:imm)
@@ -762,6 +767,12 @@ defserializer PkgSerializer (include-asm?:True|False) :
     asm-DefSpace: (size:int)
     asm-DefLabel: (n:int)
     asm-Comment: (msg:string)
+
+  defunion named-var (asm-NamedVar) :
+    asm-NamedVar: (stack-offset:int, name:string)
+
+  defunion var-map (asm-VarMap) :
+    asm-VarMap: (context:int, vars:tuple(int))
 
   deftype branch (Branch) : (tags:list(typeset), dst:imm)
 
