@@ -201,8 +201,9 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
   val id-indices = HashTable<RecId,Int>()
   val package-ids = HashTable<Symbol,PackageIds>()
 
-  ;Collect global info
+  ;Collect global and local info
   val global-table = GlobalTable(stubs)
+  val local-table = LocalTable()
 
   ;Add a new global record
   defn add-global-record (r:Rec) -> Int :
@@ -446,6 +447,7 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
   ;Create a function-local emitter
   defn emitter (package:Symbol, code-emitter:CodeEmitter) :
     val package-safepoints = package-safepoints(safepoints, package)
+    val package-locals = package-locals(local-table, package)
     val pkgids = package-ids[package]
     val label-table = IntTable-init<Int>(unique-id{stubs})
 
@@ -731,12 +733,15 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
     new StitchEmitter :
       defmethod emit (this, i:Ins) :
         match(map(link,i)) :
+          (i:VarContext) :
+            save-var-context(package-locals, i)
           (i:Safepoint) :
             val label-id = unique-label(code-emitter)
             E $ Label(label-id)
             E $ NoOp()
             add-trace-entry(label-id, trace-entry(i))
             record-safepoint(package-safepoints, id(i), label-id)
+            save-varmap(package-locals, label-id, varmap(i))
           (i:LinkLabel) :
             val gid = global-id!(pkgids, id(i))
             match(global-props[gid]) :
@@ -753,6 +758,9 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
             match(trace-entry(i)) :
               (entry:StackTraceInfo) : add-trace-entry(n*, entry)
               (entry:False) : false
+            match(varmap(i)) :
+              (vmap:VarMap) : save-varmap(package-locals, n*, vmap)
+              (f:False) : false
           (i:Match) :
             val branches* = map(resolve-branch, branches(i))
             val dag = to-dag(seq(tags,branches*), false)

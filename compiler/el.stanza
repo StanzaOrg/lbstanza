@@ -26,7 +26,6 @@ defpackage stz/el :
   import stz/absolute-info
   import stz/trace-info
   import stz/el-trace-info
-  import stz/dump-to-log
 
 ;============================================================
 ;==================== Drivers ===============================
