@@ -1126,21 +1126,21 @@ defn conv-calls (body:EBody, iotable:IOTable) -> EBody :
   defn wrap-one (x:EImm) -> EImm :
     val one-n = n(iotable, CORE-ONE-ID)
     val n = uniqueid()
-    emit(buffer, ELocal(n, EOf(one-n), false))
+    emit(buffer, ELocal(n, EOf(one-n), false, false))
     emit(buffer, EObject(EVarLoc(n), one-n, [x], false))
     EVar(n)
     
   defn wrap-none () -> EImm :
     val none-n = n(iotable, CORE-NONE-ID)
     val n = uniqueid()
-    emit(buffer, ELocal(n, EOf(none-n), false))
+    emit(buffer, ELocal(n, EOf(none-n), false, false))
     emit(buffer, EObject(EVarLoc(n), none-n, [], false))
     EVar(n)
     
   defn wrap-tuple (xs:Tuple<EImm>) -> EImm :
     val tuple-n = n(iotable, CORE-TUPLE-ID)
     val n = uniqueid()
-    emit(buffer, ELocal(n, EOf(tuple-n), false))
+    emit(buffer, ELocal(n, EOf(tuple-n), false, false))
     emit(buffer, ETuple(EVarLoc(n), xs, false))
     EVar(n)
 
