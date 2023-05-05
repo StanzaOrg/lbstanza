@@ -565,7 +565,7 @@ defn add-entries (b:StackTraceBuilder, es:Seqable<StackTraceInfo>) :
       ;The existing stack trace representation uses FileInfo instead of AbsoluteFileInfo.
       add-entry(b, StackTraceEntry(package(e), signature(e), info?(info(e))))
     #else :
-      add-entry(b, StackTraceEntry(0L, package(e), signature(e), info(e)))
+      add-entry(b, StackTraceEntry(0L, 0L, package(e), signature(e), info(e)))
 
 ;------------------------------------------------------------
 ;-------------------- Common Utilities ----------------------
