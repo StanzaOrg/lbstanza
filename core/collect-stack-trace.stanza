@@ -9,43 +9,94 @@ public lostanza defn collect-stack-trace (vms:ptr<core/VMState>,
                                           frames:ptr<StackFrame>,
                                           last-frame:ptr<StackFrame>,
                                           pc:long) -> ptr<PackedStackTrace> :
+  val builder = StackTraceBuilder()
+  collect-stack-trace(builder, vms, frames, last-frame, pc)
+  return pack(builder)
+
+;Collect the stack trace for a single contiguous stack starting from
+;'frames' and ending with 'last-frame'.
+;- frames: The start of the contiguous stack frames.
+;- last-frame: The frame pointed to by the active stack pointer.
+;- pc: The currently active pc.
+;Returns the RET address of the stack frame stored in 'frames'.
+;For the main program, this will be 0. For a coroutine, this will be
+;return address of the coroutine yield.
+lostanza defn collect-stack-trace (builder:ref<StackTraceBuilder>,
+                                   vms:ptr<core/VMState>,
+                                   frames:ptr<StackFrame>,
+                                   last-frame:ptr<StackFrame>,
+                                   pc:long) -> long :
   ;Collect the addresses of all the stack frames.
   val frame-addresses = stack-trace-frames(vms, frames, last-frame)
-
-  ;Pack them using the StackTraceBuilder.
-  val builder = StackTraceBuilder()
-    
-  ;Include the last pc if desired.
-  if pc :
-    val entry = stack-trace-entry-from-pc(pc, vms.stack-trace-table)
-    if entry != null :
-      add-entry(builder, entry)
+  val stack-trace-table = vms.stack-trace-table
 
   ;Add the records from the stack frames on the stack.
   ;Look up stack trace records using the saved RETURN address.
+  var instruction-pointer:long = pc
   for (var i:long = frame-addresses.length - 1, i >= 0, i = i - 1) :
     val frame = frame-addresses.items[i] as ptr<StackFrame>
-    val entry = stack-trace-entry(frame, vms.stack-trace-table)
+    val entry = stack-trace-entry(instruction-pointer, stack-trace-table)
     if entry != null :
-      add-entry(builder, entry)
-
-  ;Pack stack trace into stable memory.
-  val trace = pack(builder)
+      add-entry(builder, entry, frame)
+    instruction-pointer = frame.return
 
   ;Free the buffer holding the collected frames.
   free(frame-addresses)
 
   ;Return the packed trace.
-  return trace
-  
+  return instruction-pointer
+
+;Collect the stack trace for the current coroutine stack.
+;Must be provided the current stack pointer (last-frame) and current
+;instruction pointer (pc). 
+public lostanza defn collect-current-stack-trace (vms:ptr<core/VMState>,
+                                                  last-frame:ptr<StackFrame>,
+                                                  pc:long) -> ptr<PackedStackTrace> :
+  ;Accumulate all stack trace frames into one builder.
+  val builder = StackTraceBuilder()
+
+  ;Collect stack trace from top-most coroutine (whose stack pointer and instruction pointer
+  ;is provided explicitly).
+  var instruction-pointer:long = collect-stack-trace(builder, vms, current-stack-frames(vms), last-frame, pc)
+
+  ;Then iterate through all parents of the current coroutine, and collect their traces.
+  ;[TODO] The current-coroutine-ptr needs to be changed in core.stanza to be a 'long'.
+  ;Revisit this code when that is done.
+  if (vms.current-coroutine-ptr != null) :
+    labels :
+      begin :
+        goto next(untag-coroutine([vms.current-coroutine-ptr]))
+      next (co:ptr<core/RawCoroutine>) :
+        match(co.parent) :
+          (p:ref<core/RawCoroutine>) : goto loop(untag-coroutine(p as long))
+          (p:ref<False>) : ()
+      loop (co:ptr<core/RawCoroutine>) :
+        val stack:ptr<Stack> = addr!([co.stack])
+        instruction-pointer = collect-stack-trace(builder, vms, stack.frames, stack.stack-pointer, instruction-pointer)
+        goto next(co)
+        
+  ;All entries are added, pack them using the builder.
+  return pack(builder)
 
 ;Helper: Call stack-trace-frames by pulling out the first frame in the
 ;current stack.
-public lostanza defn current-stack-frames (vms:ptr<core/VMState>) -> ptr<StackFrame> :
+lostanza defn current-stack-frames (vms:ptr<core/VMState>) -> ptr<StackFrame> :
   val stack = untag-stack(vms.heap.current-stack)
   return stack.frames
 
-;Scan through the given frames from start to last, and
+;Retrieve a pointer to the memory of a Stack.
+;Temporarily casts x to a ref<Stack> (even though it is not in the
+;same heap.)
+lostanza defn untag-stack (x:long) -> ptr<Stack> :
+  return addr!([x as ref<Stack>])
+
+;Retrieve a pointer to the memory of a RawCoroutine.
+;Temporarily casts x to a ref<RawCoroutine> (even though it is not in the
+;same heap.)
+lostanza defn untag-coroutine (x:long) -> ptr<core/RawCoroutine> :
+  return addr!([x as ref<core/RawCoroutine>])
+
+;Scan through the given frames from start to last (inclusive), and
 ;accumulate the ptr<StackFrame> into a LSLongVector.
 ;The VMState is necessary for looking up the stackmap table.
 lostanza defn stack-trace-frames (vms:ptr<core/VMState>,
@@ -69,26 +120,16 @@ lostanza defn stack-trace-frames (vms:ptr<core/VMState>,
   ;Return the buffer
   return buffer
 
-;Given a pointer to a stack frame return the StackTraceRecord
-;associated with that frame.
+;Given an instruction address return the StackTraceRecord
+;associated with that address. Note that this address
+;may correspond to safepoint addresses, or also return
+;addresses from function calls.
+;- pc: The instruction address.
 ;- trace-table: The table as defined in VMState.
-lostanza defn stack-trace-entry (frame:ptr<StackFrame>,
-                                 trace-table:ptr<core/StackTraceTable>) -> ptr<core/StackTraceTableEntry> :
-  return stack-trace-entry-from-pc(frame.return, trace-table)
-
-;Given an instruction pointer return the StackTraceRecord
-;associated with that frame.
-;- trace-table: The table as defined in VMState.
-lostanza defn stack-trace-entry-from-pc (pc:long,
-                                         trace-table:ptr<core/StackTraceTable>) -> ptr<core/StackTraceTableEntry> :
+;Guaranteed to return null if pc == 0.
+lostanza defn stack-trace-entry (pc:long, trace-table:ptr<core/StackTraceTable>) -> ptr<core/StackTraceTableEntry> :
   for (var i:int = 0, i < trace-table.length, i = i + 1) :
     val entry = addr(trace-table.entries[i])
     if pc == (entry.lbl as long) :
       return entry
-  return null  
-
-;Retrieve a pointer to the memory of a Stack.
-;Temporarily casts x to a ref<Stack> (even though it is not in the
-;same heap.)
-lostanza defn untag-stack (x:long) -> ptr<Stack> :
-  return addr!([x as ref<Stack>])
+  return null

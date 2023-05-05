@@ -456,11 +456,11 @@ public defn LocalVarTable (gvt:VarTable, e:ETExp) -> VarTable :
       ;are not allowed in LoStanza. They are sometimes created automatically for
       ;first-class references to global functions.
       for e in localfns(e) do :
-        emit-record(n(e), false, FnEntry(func(e), false))
+        emit-record(n(e), debug-name(e), FnEntry(func(e), false))
 
       ;Local variable records
       for e in locals(e) do :
-        emit-record(n(e), false, VarEntry(mutable?(e), type(e), lostanza-context?))
+        emit-record(n(e), debug-name(e), VarEntry(mutable?(e), type(e), lostanza-context?))
 
     ;Recursively analyze all functions and bodies.
     let loop (e:ELBigItem = e) :
