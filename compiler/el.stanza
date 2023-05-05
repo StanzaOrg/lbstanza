@@ -162,16 +162,32 @@ defstruct FunctionContext <: StackTraceContext:
   n:Int
   package:Symbol with: (as-method => true)
 
+;Represents that we are within a local named function with the given identifier.
+defstruct LocalFunctionContext <: StackTraceContext:
+  debug-name:String
+  package:Symbol with: (as-method => true)
+  parent:StackTraceContext
+
 ;Fill all TraceInfo objects with context information.
 defn fill-stack-trace-entries (epackage:EPackage) -> EPackage :
   ;Build the IOTable to build signatures of functions.
   val iotable = IOTable(packageio(epackage))
+
+  ;Compute a human-readable representation of the signature
+  ;portion of the context.
   defn signature? (c:StackTraceContext) -> String|False :
-    match(c:FunctionContext) :
-      if key?(iotable, n(c)) :
-        val rec-id = id(iotable[n(c)])
-        match(rec-id:FnId) :
-          to-string(name(rec-id))
+    match(c) :
+      (c:FunctionContext) :
+        if key?(iotable, n(c)) :
+          val rec-id = id(iotable[n(c)])
+          match(rec-id:FnId) :
+            to-string(name(rec-id))
+      (c:LocalFunctionContext) :
+        val parent-sig = signature?(parent(c))
+        match(parent-sig:String) : string-join $ [parent-sig "/" debug-name(c)]
+        else : debug-name(c)
+      (c) :
+        false
 
   ;Recursively compute stack trace contexts for all items.
   defn fill-entry (item:ELItem, context:StackTraceContext) -> ELItem :
@@ -193,6 +209,10 @@ defn fill-stack-trace-entries (epackage:EPackage) -> EPackage :
       (context:TopLevel, item:EDefn) : FunctionContext(n(item), package(context))
       (context:TopLevel, item:EDefmethod) : FunctionContext(multi(item), package(context))
       (context:TopLevel, item:EExternFn) : FunctionContext(n(item), package(context))
+      (context:StackTraceContext, item:ELocalFn) :
+        match(debug-name(item)) :
+          (name:String) : LocalFunctionContext(name, package(context), context)
+          (name:False)  : context
       (context, item) : context
 
   ;Compute the new trace info after adding the context.
@@ -622,7 +642,7 @@ defn create-closures (epackage:EPackage, gvt:VarTable) -> EPackage :
               val info = match(x) :
                 (x:EMix) : info(funcs(x)[0])
                 (x:EInstFn) : info(x)
-              emit(buffer, ELocalFn(v, trampoline-fn(x)))
+              emit(buffer, ELocalFn(v, trampoline-fn(x), false))
               emit(buffer, EInitClosures([EVarLoc(v)], info))
               EVar(v)
             else :
@@ -696,7 +716,7 @@ defstruct TrampolineTable :
 defn make-trampoline (t:TrampolineTable, f:EInstFn) -> True|False :
   if not key?(table(t), n(f)) :
     val func = uni-arity-trampoline-fn(f)
-    table(t)[n(f)] = ELocalFn(uniqueid(), func)
+    table(t)[n(f)] = ELocalFn(uniqueid(), func, false)
     true
 
 ;Retrieve a previously created trampoline.
@@ -1075,7 +1095,7 @@ defn insert-guards (epackage:EPackage, gvt:VarTable) :
     result as T&ELBigItem
 
   defn guard-localfn (f:ELocalFn, vt:VarTable, uninitialized-vars:IntSet) :
-    ELocalFn(n(f), map-fns(guard-fn{_, vt, false, uninitialized-vars}, func(f)))
+    ELocalFn(n(f), map-fns(guard-fn{_, vt, false, uninitialized-vars}, func(f)), debug-name(f))
 
   defn guard-localobj (o:ELocalObj, vt:VarTable, uninitialized-vars:IntSet) :
     val methods* = for m in methods(o) map :
@@ -1366,7 +1386,7 @@ defn box-mutables (epackage:EPackage, gvt:VarTable) -> EPackage :
         defn change-to-box-type (e:EBody) :
           val locals* = for x in locals(e) map :
             if boxed[n(x)] :
-              ELocal(n(x), EOf(n(iotable(vt),CORE-BOX-ID)), false, debug-name(vt, n(x)))
+              ELocal(n(x), EOf(n(iotable(vt),CORE-BOX-ID)), false, debug-name(x))
             else : x
           sub-locals(e, locals*)
 
@@ -1626,7 +1646,7 @@ defn inlining-order (return:ELocalFn -> ?, e:ELBigItem) :
         for f in ordered-fns do :
           val func = func(fn-recs[f])
           loop(func)
-          return(ELocalFn(f, func))
+          return(ELocalFn(f, func, false))
         ;Recurse on non-inlined items
         for f in localfns(e) do :
           loop(f) when not inlined?[n(f)]
@@ -1640,14 +1660,24 @@ defn inlining-order (return:ELocalFn -> ?, e:ELBigItem) :
   compute-inlined()
   compute-inlining-order()
 
+;Inline a call to f<call-targs ...>(call-args ...) at call-info.
+;- tail?: True if it is a tail call to f.
+;This function looks up the body of 'f' and emits it into the
+;given buffer.
 defn inline-call (buffer:BodyBuffer,
                   ret:EVarLoc|False, f:EFn, call-targs:Tuple<EType>, call-args:Tuple<EImm>,
+                  call-info:TraceInfo,
                   tail?:True|False) :
-  ;Utilities for substituting type arguments
+                  
+  ;Create table for mapping type args as defined
+  ;in the body of 'f' to 'call-targs'.
   val targ-table = IntTable<EType>()
   for (ta in targs(f), v in call-targs) do :
     targ-table[n(ta)] = v
-  defn substitute-targs (x:ELItem) :
+    
+  ;Substitute all type args in 'x' with the mapping held
+  ;in targ-table.
+  defn substitute-targs (x:ELItem) -> ELItem :
     if empty?(call-targs) :
       x
     else :
@@ -1693,6 +1723,16 @@ defn inline-call (buffer:BodyBuffer,
             match(ret:EVarLoc) :
               emit(buffer, ECall(ret, /f(i), ys(i), calltype(i), info(i)))
             emit(buffer, EGoto(end-lbl))
+        (i:ESafepoint) :
+          ;If the calling-info is known, then replace the package and signature
+          ;with the calling-info, but keep the line number information of the
+          ;original safepoint.
+          match(call-info, info?(i)) :
+            (call-info:StackTraceInfo, instruction-info:StackTraceInfo):
+              val info = StackTraceInfo(package(call-info), signature(call-info), info(instruction-info))
+              emit(buffer, ESafepoint(group-id(i), info))
+            (call-info, instruction-info):
+              emit(buffer, i)
         (i) :
           emit(buffer, i)
 
@@ -1737,7 +1777,7 @@ defn simple-inline (epackage:EPackage) :
                     val [ret, tail?] = match(i) :
                       (i:ECall) : [x(i), false]
                       (i:ETCall) : [false, true]
-                    inline-call(buffer, ret, func, targs, ys(i), tail?)
+                    inline-call(buffer, ret, func, targs, ys(i), info(i), tail?)
                   (_:False) :
                     emit(buffer, i)
             (i:EInitClosures) :
@@ -1910,7 +1950,7 @@ defn within-package-inline (epackage:EPackage, force-inline:Tuple<Int>) :
                     (i:ETCall) : [false, true]
                   ;Inline all of the instruction in the function body
                   ;into the current buffer.
-                  inline-call(buffer, ret, rename-fn(func), targs, ys(i), tail?)
+                  inline-call(buffer, ret, rename-fn(func), targs, ys(i), info(i), tail?)
                 (_:False) :
                   emit(buffer, i)
           else :

@@ -311,7 +311,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
 
   deftype elocaltype (ELocalType) : (n:int)
 
-  deftype elocalfn (ELocalFn) : (n:int, func:efunction)
+  deftype elocalfn (ELocalFn) : (n:int, func:efunction, debug-name:opt(string))
 
   deftype elocalobj (ELocalObj) : (n:int, type:etype, methods:tuple(emethod))
 
