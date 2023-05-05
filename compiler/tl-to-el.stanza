@@ -46,7 +46,7 @@ public defn to-el (p:TProg, transient-package?:True|False) -> Tuple<EPackage> :
       val struct-table = StructTable(packages(p), environment(p))
       to-tuple $ for package in packages(p) seq :
         within log-time(TL-TO-EL, suffix(name(package))) :
-          val compiled = compile(package, struct-table, namemap(p), hierarchy(p))
+          val compiled = compile(package, struct-table, namemap(p))
           val io = analyze-imports(compiled, export-table, transient-package?)
           sub-packageio(compiled, io)
 

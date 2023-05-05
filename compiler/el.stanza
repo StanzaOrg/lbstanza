@@ -642,7 +642,7 @@ defn create-closures (epackage:EPackage, gvt:VarTable) -> EPackage :
               val info = match(x) :
                 (x:EMix) : info(funcs(x)[0])
                 (x:EInstFn) : info(x)
-              emit(buffer, ELocalFn(v, trampoline-fn(x)))
+              emit(buffer, ELocalFn(v, trampoline-fn(x), false))
               emit(buffer, EInitClosures([EVarLoc(v)], info))
               EVar(v)
             else :
@@ -716,7 +716,7 @@ defstruct TrampolineTable :
 defn make-trampoline (t:TrampolineTable, f:EInstFn) -> True|False :
   if not key?(table(t), n(f)) :
     val func = uni-arity-trampoline-fn(f)
-    table(t)[n(f)] = ELocalFn(uniqueid(), func)
+    table(t)[n(f)] = ELocalFn(uniqueid(), func, false)
     true
 
 ;Retrieve a previously created trampoline.

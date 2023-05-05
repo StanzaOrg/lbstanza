@@ -198,6 +198,7 @@ public defstruct ELocalType :
 public defstruct ELocalFn :
   n: Int with: (updater => sub-n)
   func: EFunction with: (updater => sub-func)
+  debug-name:String|False
 
 public defstruct ELocalObj :
   n: Int with: (updater => sub-n)
