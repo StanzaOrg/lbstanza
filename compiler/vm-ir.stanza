@@ -6,7 +6,9 @@ defpackage stz/vm-ir :
   import stz/utils
   import stz/basic-ops
   import stz/typeset
-  import core/stack-trace
+  import stz/absolute-info
+  import stz/base-dir
+  import stz/trace-info
 
 ;============================================================
 ;=================== Special Identifiers ====================
@@ -47,7 +49,9 @@ public defstruct VMPackage :
   methods: Tuple<VMMethod>
   externs: Tuple<VMExtern>
   extern-defns: Tuple<VMExternDefn>
+  debug-name-table: VMDebugNameTable
   debug-table: VMDebugInfoTable
+  safepoint-table: VMSafepointTable
 
 ;A value that can be accessed directly within an instruction.
 public deftype VMImm
@@ -64,10 +68,10 @@ public defstruct Marker <: VMImm :
   typeid: Int
 public defstruct Tag <: VMImm :
   typeid: Int
-;Identifier of a piece of code. 
+;Identifier of a piece of code.
 public defstruct CodeId <: VMImm :
   id: Int
-;Identifier of a foreign memory location. 
+;Identifier of a foreign memory location.
 public defstruct ExternId <: VMImm :
   id: Int
 ;Identifier of a piece of foreign code.
@@ -106,6 +110,7 @@ public defstruct VMFunc <: VMFunction :
   args: Tuple<Local|VMType>
   defs: Tuple<VMDef> with: (updater => sub-defs)
   ins: Tuple<VMIns> with: (updater => sub-ins)
+  debug-name-table: VMDebugNameTable
 
 public defstruct VMExtern :
   id: Int
@@ -169,6 +174,8 @@ public defstruct VMArrayClass <: VMClass :
   item-size: Int
   base-roots: Tuple<Int>
   item-roots: Tuple<Int>
+  base-root-names: Tuple<Symbol>
+  item-root-names: Tuple<Symbol>
 public defstruct VMLeafClass <: VMClass :
   id: Int with: (updater => sub-id, as-method => true)
   name: String
@@ -176,13 +183,14 @@ public defstruct VMLeafClass <: VMClass :
   parents: Tuple<Int> with: (updater => sub-parents, as-method => true)
   size: Int
   roots: Tuple<Int>
+  root-names: Tuple<Symbol>
 public defstruct VMAbstractClass <: VMClass :
   id: Int with: (updater => sub-id, as-method => true)
   parents: Tuple<Int> with: (as-method => true)
   children: Tuple<Int>
 
 public deftype VMIns
-public defmulti trace-entry (ins:VMIns) -> StackTraceEntry|False
+public defmulti trace-entry (ins:VMIns) -> StackTraceInfo|False
 defmethod trace-entry (ins:VMIns) :
   fatal("Instruction %_ does not support stack trace information." % [ins])
 
@@ -190,12 +198,12 @@ public defstruct CallIns <: VMIns :
   xs: Tuple<Local|VMType>
   f: VMImm
   ys: Tuple<VMImm>
-  trace-entry: StackTraceEntry|False with: (as-method => true)
+  trace-entry: StackTraceInfo|False with: (as-method => true)
 public defstruct CallClosureIns <: VMIns :
   xs: Tuple<Local|VMType>
   f: VMImm
   ys: Tuple<VMImm>
-  trace-entry: StackTraceEntry|False with: (as-method => true)
+  trace-entry: StackTraceInfo|False with: (as-method => true)
 public defstruct TCallIns <: VMIns :
   f: VMImm
   ys: Tuple<VMImm>
@@ -206,13 +214,13 @@ public defstruct CallCIns <: VMIns :
   xs: Tuple<Local|VMType>
   f: VMImm
   ys: Tuple<VMImm>
-  trace-entry: StackTraceEntry|False with: (as-method => true)
+  trace-entry: StackTraceInfo|False with: (as-method => true)
 public defstruct YieldIns <: VMIns :
   enter?: True|False
   xs: Tuple<Local|VMType>
   f: VMImm
   ys: Tuple<VMImm>
-  trace-entry: StackTraceEntry|False with: (as-method => true)
+  trace-entry: StackTraceInfo|False with: (as-method => true)
 public defstruct SetIns <: VMIns :
   x: Local
   y: VMImm
@@ -266,7 +274,7 @@ public defstruct AllocIns <: VMIns :
   xs: Tuple<Local>
   types: Tuple<Int>
   sizes: Tuple<VMImm>
-  trace-entry: StackTraceEntry|False with: (as-method => true)
+  trace-entry: StackTraceInfo|False with: (as-method => true)
 ;Represents x[y + offset] = z
 ;- class, if given, is the identifier of the object type of 'x'.
 ;- class is false if x does not represent a heap object.
@@ -275,7 +283,7 @@ public defstruct StoreIns <: VMIns :
   y: VMImm|False with: (default => false)
   offset: Int
   z: VMImm
-  class: Int|False with: (default => false)  
+  class: Int|False with: (default => false)
 ;Represents x[y + offset] = z
 ;- class is the identifier of the object type of 'x'.
 public defstruct StoreWithBarrierIns <: VMIns :
@@ -301,6 +309,12 @@ public defstruct LiveIns <: VMIns :
 public defstruct CommentIns <: VMIns :
   message: String
 public defstruct UnreachableIns <: VMIns
+public defstruct SafepointIns <: VMIns :
+  id:Int
+  trace-entry: StackTraceInfo with: (as-method => true)
+
+public defn trace-entry! (ins:SafepointIns) -> StackTraceInfo :
+  trace-entry(ins) as StackTraceInfo
 
 public deftype VMValue :
   Char <: VMValue
@@ -335,6 +349,21 @@ public defstruct InterpretOp <: VMOp
 public defstruct DerefOp <: VMOp
 
 ;------------------------------------------------------------
+;------------------- VM Debug Names  ------------------------
+;------------------------------------------------------------
+
+;Represents a table of human-readable names for use by
+;the debugger.
+public defstruct VMDebugNameTable :
+  entries: Tuple<VMDebugName>
+
+;Represents a human-readable name for the given
+;identifier.
+public defstruct VMDebugName :
+  id:Int
+  name:String
+
+;------------------------------------------------------------
 ;------------------- VM Debug Info --------------------------
 ;------------------------------------------------------------
 
@@ -347,7 +376,25 @@ public defstruct VMDebugInfoTable :
 public defstruct VMDebugInfo :
   id:Int
   name:String|False
-  info:FileInfo|False
+  info:AbsoluteFileInfo|False
+
+;------------------------------------------------------------
+;--------------------- Safepoint Table ----------------------
+;------------------------------------------------------------
+
+public defstruct VMSafepointTable :
+  files:Tuple<VMFileSafepoints>
+
+public defstruct VMFileSafepoints :
+  base:String
+  filename:String
+  entries:Tuple<VMSafepointInfo>
+
+public defstruct VMSafepointInfo :
+  id:Int
+  line:Int
+  column:Int
+  group:Int
 
 ;============================================================
 ;==================== Convenience ===========================
@@ -463,8 +510,15 @@ public deftype VMItem :
   VMExtern <: VMItem
   VMExternDefn <: VMItem
   VMFunction <: VMItem
-  
-;Maps 'mapf' over all immediate VMItem fields in the given VMItem. 
+  VMDebugInfoTable <: VMItem
+  VMDebugInfo <: VMItem
+  VMSafepointTable <: VMItem
+  VMFileSafepoints <: VMItem
+  VMSafepointInfo <: VMItem
+  VMDebugNameTable <: VMItem
+  VMDebugName <: VMItem
+
+;Maps 'mapf' over all immediate VMItem fields in the given VMItem.
 public defn vm-map<?T> (mapf:VMItem -> VMItem, item:VMItem&?T) -> T :
   defn h<?T> (x:VMItem&?T) : mapf(x) as VMItem&T
   defn h<?T> (x:KeyValue<Int,VMItem&?T>) : key(x) => h(value(x))
@@ -496,7 +550,7 @@ public defn vm-map<?T> (mapf:VMItem -> VMItem, item:VMItem&?T) -> T :
     (x:VMExtern) : x
     (x:VMExternDefn) : VMExternDefn(lbl(x), fid(x), h(a1(x)), h(a2(x)))
     (x:VMMultifn) : VMMultifn(arg(x), h(funcs(x)), h(default(x)))
-    (x:VMFunc) : VMFunc(h(args(x)), h(defs(x)), h(ins(x)))
+    (x:VMFunc) : VMFunc(h(args(x)), h(defs(x)), h(ins(x)), h(debug-name-table(x)))
     ;Instructions
     (x:CallIns) : CallIns(h(xs(x)), h(f(x)), h(ys(x)), trace-entry(x))
     (x:CallClosureIns) : CallClosureIns(h(xs(x)), h(f(x)), h(ys(x)), trace-entry(x))
@@ -522,6 +576,11 @@ public defn vm-map<?T> (mapf:VMItem -> VMItem, item:VMItem&?T) -> T :
     (x:DumpIns) : DumpIns(h(xs(x)))
     (x:RecordLiveIns) : RecordLiveIns(h(live(x)))
     (x:LiveIns) : LiveIns(h(xs(x)))
+    (x:VMDebugInfoTable) : VMDebugInfoTable(h(entries(x)))
+    (x:VMDebugInfo) : x
+    (x:VMSafepointTable) : VMSafepointTable(h(files(x)))
+    (x:VMFileSafepoints) : VMFileSafepoints(base(x), filename(x), h(entries(x)))
+    (x:VMSafepointInfo) : x
     (x:VMIns) : x
 
 ;Maps f over any immediate "global identifiers" contained within the given VMItem.
@@ -561,8 +620,8 @@ public defn map-id<?T> (f:Int -> Int, item:VMItem&?T) -> T :
     (x:VMGlobal) : VMGlobal(h(id(x)), size(x), roots(x))
     (x:VMData) : VMData(h(id(x)), data(x))
     (x:VMConst) : VMConst(h(id(x)), value(x))
-    (x:VMArrayClass) : VMArrayClass(h(id(x)), name(x), h(dependencies(x)), h(parents(x)), base-size(x), item-size(x), base-roots(x), item-roots(x))
-    (x:VMLeafClass) : VMLeafClass(h(id(x)), name(x), h(dependencies(x)), h(parents(x)), size(x), roots(x))
+    (x:VMArrayClass) : VMArrayClass(h(id(x)), name(x), h(dependencies(x)), h(parents(x)), base-size(x), item-size(x), base-roots(x), item-roots(x), base-root-names(x), item-root-names(x))
+    (x:VMLeafClass) : VMLeafClass(h(id(x)), name(x), h(dependencies(x)), h(parents(x)), size(x), roots(x), root-names(x))
     (x:VMAbstractClass) : VMAbstractClass(h(id(x)), h(parents(x)), h(children(x)))
     (x:VMDefn) : VMDefn(h(id(x)), h(dependencies(x)), func(x))
     (x:VMMethod) : VMMethod(instance?(x), h(multi(x)), types(x), h(fid(x)))
@@ -573,7 +632,14 @@ public defn map-id<?T> (f:Int -> Int, item:VMItem&?T) -> T :
     (x:AllocIns) : AllocIns(xs(x), h(types(x)), sizes(x), trace-entry(x))
     (x:StoreIns) : StoreIns(/x(x), y(x), offset(x), z(x), h(class(x)))
     (x:LoadIns) : LoadIns(/x(x), y(x), z(x), offset(x), h(class(x)))
+    (x:SafepointIns) : SafepointIns(h(id(x)), trace-entry(x) as StackTraceInfo)
     (x:VMIns) : x
+    ;Tables
+    (x:VMDebugInfoTable) : x
+    (x:VMDebugInfo) : x
+    (x:VMSafepointTable) : x
+    (x:VMFileSafepoints) : x
+    (x:VMSafepointInfo) : VMSafepointInfo(h(id(x)), line(x), column(x), h(group(x)))
 
 public defn map-label<?T> (f:Int -> Int, ins:VMIns&?T) -> T :
   defn h (x:Int) : f(x)
@@ -617,7 +683,9 @@ defmethod print (o:OutputStream, p:VMPackage) :
     funcs(p)
     methods(p)
     extern-defns(p)
-    entries(debug-table(p))]
+    entries(debug-table(p))
+    [debug-name-table(p)
+     safepoint-table(p)]]
   do(lnprint{o2, _}, xs)
 
 defmethod print (o:OutputStream, d:VMDef) :
@@ -672,6 +740,7 @@ defn print-func (o:OutputStream, f:VMFunc, indent:Int) :
   val o2 = IndentedStream(o, indent)
   do(lnprint{o2, _}, defs(f))
   do(lnprint{o2, _}, ins(f))
+  lnprint(o2, debug-name-table(f))
 
 defmethod print (o:OutputStream, c:VMAbstractClass) :
   print(o, "class %_ (%,) (children = (%,))" % [id(c), parents(c), children(c)])
@@ -679,13 +748,13 @@ defmethod print (o:OutputStream, c:VMAbstractClass) :
 defmethod print (o:OutputStream, c:VMLeafClass) :
   val dstr = "" when empty?(dependencies(c))
         else ", depends-on (%,)" % [dependencies(c)]
-  print(o, "class %_ (%,) (name = %~, size = %_, roots = (%,)%_)" % [id(c), parents(c), name(c), size(c), roots(c), dstr])
+  print(o, "class %_ (%,) (name = %~, size = %_, roots = (%,), root-names = (%,)%_)" % [id(c), parents(c), name(c), size(c), roots(c), root-names(c), dstr])
 
 defmethod print (o:OutputStream, c:VMArrayClass) :
   val dstr = "" when empty?(dependencies(c))
         else ", depends-on (%,)" % [dependencies(c)]
-  print(o, "class %_ (%,) (name = %~, base-size = %_, item-size = %_, base-roots = (%,), item-roots = (%,)%_)" % [
-    id(c), parents(c), name(c), base-size(c), item-size(c), base-roots(c), item-roots(c), dstr])
+  print(o, "class %_ (%,) (name = %~, base-size = %_, item-size = %_, base-roots = (%,), item-roots = (%,), base-root-names = (%,), item-root-names = (%,)%_)" % [
+    id(c), parents(c), name(c), base-size(c), item-size(c), base-roots(c), item-roots(c), base-root-names(c), item-root-names(c), dstr])
 
 defmethod print (o:OutputStream, x:VMImm) :
   print{o, _} $ match(x) :
@@ -701,10 +770,37 @@ defmethod print (o:OutputStream, x:VMImm) :
     (x:DataId) : "D%_" % [id(x)]
     (x:ConstId) : "C%_" % [id(x)]
 
-defmethod print (o:OutputStream, x:VMDebugInfoTable) :
+defmethod print (o:OutputStream, t:VMSafepointTable) :
   val o2 = IndentedStream(o)
-  print(o, "debuginfo table :")
-  do(lnprint{o2, _}, entries(x))
+  print(o, "safepoint table :")
+  do(lnprint{o2, _}, files(t))
+
+defmethod print (o:OutputStream, f:VMFileSafepoints) :
+  val o2 = IndentedStream(o)
+  print(o, "file %~ (base %~) :" % [filename(f), base(f)])
+  do(lnprint{o2, _}, entries(f))
+
+defmethod print (o:OutputStream, e:VMSafepointInfo) :
+  print(o, "safepoint %_ (line = %_, column = %_, group = %_)" % [id(e), line(e), column(e), group(e)])
+
+defmethod print (o:OutputStream, t:VMDebugNameTable) :
+  if empty?(entries(t)) :
+    print(o, "debugname table : ()")
+  else :
+    val o2 = IndentedStream(o)
+    print(o, "debugname table :")
+    do(lnprint{o2, _}, entries(t))
+
+defmethod print (o:OutputStream, e:VMDebugName) :
+  print(o, "debugname L%_ (name = %~)" % [id(e), name(e)])
+
+defmethod print (o:OutputStream, x:VMDebugInfoTable) :
+  if empty?(entries(x)) :
+    print(o, "debuginfo table : ()")
+  else :
+    val o2 = IndentedStream(o)
+    print(o, "debuginfo table :")
+    do(lnprint{o2, _}, entries(x))
 
 defmethod print (o:OutputStream, x:VMDebugInfo) :
   print(o, "debuginfo %_ (name = %~)" % [id(x), name(x)])
@@ -746,7 +842,7 @@ defmethod print (o:OutputStream, i:VMIns) :
     (i:StoreWithBarrierIns) :
       val ystr = "" when y(i) is False
             else "%_ + " % [y(i)]
-      P $ "%_[%_%_] = %_ (with write-barrier, class = %_)" % [x(i), ystr, offset(i), z(i), class(i)]      
+      P $ "%_[%_%_] = %_ (with write-barrier, class = %_)" % [x(i), ystr, offset(i), z(i), class(i)]
     (i:LoadIns) :
       val zstr = "" when z(i) is False
             else "%_ + " % [z(i)]
@@ -756,6 +852,7 @@ defmethod print (o:OutputStream, i:VMIns) :
     (i:RecordLiveIns) : P $ "live (%,)" % [live(i)]
     (i:LiveIns) : P $ "mark-live (%,)" % [xs(i)]
     (i:CommentIns) : P $ "comment: %~" % [message(i)]
+    (i:SafepointIns) : P $ "safepoint %_ at %_" % [id(i), trace-entry(i)]
     (i:MatchIns) :
       print(o, "match(%,) :" % [ys(i)])
       val o2 = IndentedStream(o)
@@ -883,11 +980,11 @@ defsyntax vmcode :
   defrule imm = (?x:#codeid) : x
 
   defproduction ins : VMIns
-  defrule ins = (?xs:#args = call ?f:#imm! (?ys:#imm! ...)) : CallIns(xs, f, to-tuple(ys), StackTraceEntry(`nopackage, false, closest-info()))
-  defrule ins = (?xs:#args = call-c ?f:#imm! (?ys:#imm! ...)) : CallCIns(xs, f, to-tuple(ys), StackTraceEntry(`nopackage, false, closest-info()))
-  defrule ins = (?xs:#args = call-closure ?f:#imm! (?ys:#imm! ...)) : CallClosureIns(xs, f, to-tuple(ys), StackTraceEntry(`nopackage, false, closest-info()))
-  defrule ins = (?xs:#args = yield ?e:#enter? ?f:#imm! (?ys:#imm! ...)) : YieldIns(e, xs, f, to-tuple(ys), StackTraceEntry(`nopackage, false, closest-info()))
-  defrule ins = ((?xs:#local ...) = alloc<?ts:#int! ...> (?sizes:#imm! ...)) : AllocIns(to-tuple(xs), to-tuple(ts), to-tuple(sizes), StackTraceEntry(`nopackage, false, closest-info()))
+  defrule ins = (?xs:#args = call ?f:#imm! (?ys:#imm! ...)) : CallIns(xs, f, to-tuple(ys), StackTraceInfo(`nopackage, false, add-base-dir(closest-info())))
+  defrule ins = (?xs:#args = call-c ?f:#imm! (?ys:#imm! ...)) : CallCIns(xs, f, to-tuple(ys), StackTraceInfo(`nopackage, false, add-base-dir(closest-info())))
+  defrule ins = (?xs:#args = call-closure ?f:#imm! (?ys:#imm! ...)) : CallClosureIns(xs, f, to-tuple(ys), StackTraceInfo(`nopackage, false, add-base-dir(closest-info())))
+  defrule ins = (?xs:#args = yield ?e:#enter? ?f:#imm! (?ys:#imm! ...)) : YieldIns(e, xs, f, to-tuple(ys), StackTraceInfo(`nopackage, false, add-base-dir(closest-info())))
+  defrule ins = ((?xs:#local ...) = alloc<?ts:#int! ...> (?sizes:#imm! ...)) : AllocIns(to-tuple(xs), to-tuple(ts), to-tuple(sizes), StackTraceInfo(`nopackage, false, add-base-dir(closest-info())))
   defrule ins = (?x:#local = ?y:#imm[?z:#offset? ?o:#int!] ?c:#class?) : LoadIns(x, y, z, o, c)
   defrule ins = (?x:#imm[?y:#offset? ?o:#int!] = ?z:#imm! ?c:#class?) : StoreIns(x, y, o, z, c)
   defrule ins = (?x:#local = ?o:#op0) : Op0Ins(x, o)
@@ -911,6 +1008,7 @@ defsyntax vmcode :
   defrule ins = (live (?xs:#local ...)) : RecordLiveIns(to-tuple(xs))
   defrule ins = (mark-live (?xs:#imm! ...)) : LiveIns(to-tuple(xs))
   defrule ins = (comment: ?x:#string!) : CommentIns(x)
+  defrule ins = (safepoint ?id:#int!) : SafepointIns(id, StackTraceInfo(`nopackage, false, add-base-dir(closest-info())))
   defrule ins = (match(?ys:#imm! ...) : (?bs:#vmbranch ... ?d:#defaultbranch)) : MatchIns(to-tuple(ys), to-tuple(bs), d)
   defrule ins = (dispatch(?ys:#imm! ...) : (?bs:#vmbranch ... ?d:#defaultbranch ?a:#ambbranch)) :
     DispatchIns(to-tuple(ys), to-tuple(bs), d, a)
@@ -988,8 +1086,9 @@ defsyntax vmcode :
   defproduction func1 : VMFunc
   defrule func1 = (func ?args:#args :
                      ?defs:#def ...
-                     ?ins:#ins! ...) :
-    VMFunc(args, to-tuple(defs), to-tuple(ins))
+                     ?ins:#ins! ...
+                     ?debug-table:#vmdebug-name-table) :
+    VMFunc(args, to-tuple(defs), to-tuple(ins), debug-table)
 
   defproduction vmdefn : VMDefn
   defrule vmdefn = (defn ?x:#codeid ?deps:#dependencies ?f:#func!) :
@@ -1013,14 +1112,17 @@ defsyntax vmcode :
                      item-size = ?item:#int!,
                      base-roots = (?brs:#int! ...),
                      item-roots = (?irs:#int! ...),
+                     base-root-names = (?brns:#symbol! ...),
+                     item-root-names = (?irns:#symbol! ...)
                      ?deps:#dependencies)) :
-    VMArrayClass(id, name, deps, to-tuple(parents), base, item, to-tuple(brs), to-tuple(irs))
+    VMArrayClass(id, name, deps, to-tuple(parents), base, item, to-tuple(brs), to-tuple(irs), to-tuple(brns), to-tuple(irns))
   defrule class = (class ?id:#int! (?parents:#int! ...) (
                      name = ?name:#string!
                      size = ?size:#int!,
                      roots = (?rs:#int! ...),
+                     root-names = (?rns:#symbol! ...)
                      ?deps:#dependencies)) :
-    VMLeafClass(id, name, deps, to-tuple(parents), size, to-tuple(rs))
+    VMLeafClass(id, name, deps, to-tuple(parents), size, to-tuple(rs), to-tuple(rns))
   defrule class = (class ?id:#int! (?parents:#int! ...) (children = (?cs:#int! ...))) :
     VMAbstractClass(id, to-tuple(parents), to-tuple(cs))
 
@@ -1030,9 +1132,25 @@ defsyntax vmcode :
   defrule vmmethod = (method ?multi:#int (?types:#typeset ...) : goto ?fid:#int) :
     VMMethod(false, multi, to-tuple(types), fid)
 
+  defproduction vmdebug-name-table: VMDebugNameTable
+  defrule vmdebug-name-table = (debugname table : (?es:#vmdebug-name ...)) :
+    VMDebugNameTable(to-tuple(es))
+
+  defproduction vmdebug-name: VMDebugName
+  defrule vmdebug-name = (debugname ?l:#local (name = ?name:#string!)) :
+    VMDebugName(index(l), name)
+
+  defproduction vmsafepoint-info : VMSafepointInfo
+  defrule vmsafepoint-info = (safepoint ?id:#int! (line = ?line:#int!, column = ?col:#int!, group = ?group:#int!)) :
+    VMSafepointInfo(id, line, col, group)
+
+  defproduction vmfile-safepoints : VMFileSafepoints
+  defrule vmfile-safepoints = (file ?filename:#string (base ?base:#string) : (?infos:#vmsafepoint-info ...)) :
+    VMFileSafepoints(base, filename, to-tuple(infos))
+
   defproduction debuginfo : VMDebugInfo
   defrule debuginfo = (debuginfo ?id:#int! (name = ?name:#string-or-false)) :
-    VMDebugInfo(id, name, closest-info())
+    VMDebugInfo(id, name, add-base-dir(closest-info()))
 
   import (import export) from dl-ir
   public defproduction vmpackage : VMPackage
@@ -1050,15 +1168,23 @@ defsyntax vmcode :
     val es = to-tuple(filter-by<VMExtern>(stmts))
     val efs = to-tuple(filter-by<VMExternDefn>(stmts))
     val ms = to-tuple(filter-by<VMMethod>(stmts))
+    val debug-name-table = find-by<VMDebugNameTable>(stmts)
     val dbg = to-tuple(filter-by<VMDebugInfo>(stmts))
-    VMPackage(io, init, gs, ds, cts, cs, fs, ms, es, efs, VMDebugInfoTable(dbg))
+    val sptable = find-by<VMSafepointTable>(stmts)
+    throw(VME(closest-info(), "No safepoint table")) when sptable is False
+    throw(VME(closest-info(), "No debug name table")) when debug-name-table is False
+    VMPackage(io, init, gs, ds, cts, cs, fs, ms, es, efs,
+              debug-name-table as VMDebugNameTable
+              VMDebugInfoTable(dbg),
+              sptable as VMSafepointTable)
 
   defproduction init? : Int|False
   defrule init? = (init = ?n:#int) : n
   defrule init? = () : false
 
   defproduction tstmt : VMGlobal|VMClass|VMDefn|VMExtern|VMExternDefn|VMData|
-                        VMConst|VMMethod|Import|Export|VMDebugInfo
+                        VMConst|VMMethod|Import|Export|VMDebugInfo|
+                        VMSafepointTable|VMDebugNameTable
   defrule tstmt = (?x:#global) : x
   defrule tstmt = (?x:#data) : x
   defrule tstmt = (?x:#const) : x
@@ -1069,7 +1195,10 @@ defsyntax vmcode :
   defrule tstmt = (?x:#vmmethod) : x
   defrule tstmt = (?x:#import) : x
   defrule tstmt = (?x:#export) : x
+  defrule tstmt = (?x:#vmdebug-name-table) : x
   defrule tstmt = (?x:#debuginfo) : x
+  defrule tstmt = (safepoint table : (?files:#vmfile-safepoints ...)) :
+    VMSafepointTable(to-tuple(files))
   fail-if tstmt = () : VME(closest-info(), "Expected a top-level statement here.")
 
   ;===== Primitives =====
@@ -1121,7 +1250,6 @@ defsyntax vmcode :
   defrule symbol! = (?x:#symbol) : x
   fail-if symbol! = () : VME(closest-info(), "Expected a symbol here.")
 
-
 ;============================================================
 ;====================== Errors ==============================
 ;============================================================
@@ -1142,14 +1270,15 @@ defmethod print (o:OutputStream, e:VMError) :
 ;============================================================
 
 public defn read-vm-package (filename:String) :
-  val forms = read-file(filename)
-  parse-syntax[vmcode / #vmpackage](forms)
+  within with-base-dir() :
+    val forms = read-file(filename)
+    parse-syntax[vmcode / #vmpackage](forms)
 
 public defn read-vm-packages (filename:String) :
-  val forms = read-file(filename)
-  to-tuple(parse-syntax[vmcode / #vmpackage ...](forms))
+  within with-base-dir() :
+    val forms = read-file(filename)
+    to-tuple(parse-syntax[vmcode / #vmpackage ...](forms))
 
 ;Information for dumping to log.
 defmethod stz/dump-to-log/object-log-name (p:VMPackage) : name(p)
 defmethod stz/dump-to-log/object-extension (p:VMPackage) : "vm"
-

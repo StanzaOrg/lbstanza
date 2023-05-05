@@ -13,29 +13,33 @@ defpackage stz/optimistic-file-analysis :
 ;Scan through the given file for any IPackage structures.
 public defn identify-ipackages-in-file (filename:String) -> Tuple<IPackage> :
   try :
+    val base-dir = try : resolve-path(".")
+                   catch (e:Exception) : false
     filename $> read-file-optimistic
-             $> identify-ipackages-in-tokens
+             $> identify-ipackages-in-tokens{base-dir, _}
   catch (e) :
     []
 
 ;Scan through the given text for any IPackage structures.
 public defn identify-ipackages-in-text (text:String) -> Tuple<IPackage> :
+  val base-dir = try : resolve-path(".")
+                 catch (e:Exception) : false
   StringInputStream(text) $> read-optimistic
-                          $> identify-ipackages-in-tokens
+                          $> identify-ipackages-in-tokens{base-dir, _}
 
 ;============================================================
 ;================== Common Entry Point ======================
 ;============================================================
 
 ;Scan through the list of tokens for any IPackage structures.
-defn identify-ipackages-in-tokens (tokens:List<Token>) -> Tuple<IPackage> :
+defn identify-ipackages-in-tokens (base-dir:String|False, tokens:List<Token>) -> Tuple<IPackage> :
   ;Identify the defpackage patterns.
   val patterns = identify-defpackage-patterns(tokens)
   ;For each pattern expand them to core forms and convert to ipackage.
   to-tuple $ for pat in patterns seq? :
     val expanded = expand-to-core-forms(pat)
     if empty?(expanded) : None()
-    else : to-ipackage(value!(expanded))  
+    else : to-ipackage(base-dir, value!(expanded))  
 
 ;============================================================
 ;================== Helpers =================================
@@ -77,9 +81,9 @@ defn expand-to-core-forms (p:DefPackagePattern) -> Maybe<?> :
   catch (e) : None()
 
 ;Analyze the given core form and return the IPackage.
-defn to-ipackage (core-form) -> Maybe<IPackage> :
+defn to-ipackage (base-dir:String|False, core-form) -> Maybe<IPackage> :
   try :
-    val packages = to-ipackages(core-form, [])
+    val packages = to-ipackages(core-form, base-dir, [])
     One(packages[0]) when length(packages) == 1 else None()
   catch (e) :
     None()

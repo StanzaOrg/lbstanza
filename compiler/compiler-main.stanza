@@ -139,6 +139,7 @@ defpackage stz/compiler-main :
   import stz/compiler-result
   import stz/file-stamps
   import stz/dir-utils
+  import stz/absolute-info
 
 ;============================================================
 ;============== Main Compilation Algorithm ==================
@@ -255,6 +256,7 @@ public defn compile (proj-manager:ProjManager,
       else : p as StdPkg
     val stitcher = Stitcher(map(collapse,npkgs), bindings, stubs)
     defn compile (filestream:OutputStream) :
+      emit-text-section-markers(filestream, stubs, `stanza_text_section_start)
       for (pkg in packages, npkg in npkgs) do :
         match(npkg) :
           (npkg:NormVMPackage) :
@@ -263,6 +265,7 @@ public defn compile (proj-manager:ProjManager,
           (std-pkg:StdPkg) :
             compile-stdpkg(filestream, std-pkg, stitcher)
       emit-all-system-stubs(filestream, stitcher, stubs, includes-stz-vm?)
+      emit-text-section-markers(filestream, stubs, `stanza_text_section_end)
       
     ;Create filestream and compile to it.
     ensure-containing-directory-exists(filename)
@@ -273,6 +276,13 @@ public defn compile (proj-manager:ProjManager,
   defn compile-stdpkg (filestream:OutputStream, pkg:StdPkg, stitcher:Stitcher) :
     val emitter = emitter(stitcher, name(pkg), file-emitter(filestream, stubs(stitcher)))
     for ins in asm(pkg) do : emit(emitter, ins)
+
+  ;Emit labeled markers at the extents of the text section so that
+  ;debugger knows where code starts/stops.
+  defn emit-text-section-markers (filestream:OutputStream, stubs:AsmStubs, label-name:Symbol) :
+    val emitter = file-emitter(filestream, stubs)
+    emit(emitter, DefText())
+    emit(emitter, ExLabel(label-name))
 
   defn compile-normalized-vmpackage (filestream:OutputStream, npkg:NormVMPackage, stitcher:Stitcher, stubs:AsmStubs, return-instructions?:True|False) :
     if return-instructions? :
@@ -306,7 +316,7 @@ public defn compile (proj-manager:ProjManager,
             (name:String) : name
             (f:False) : "Unnamed function"
           val info-str = match(info(dbg)) :
-            (info:FileInfo) : " at %_" % [info]
+            (info:AbsoluteFileInfo) : " at %_" % [/info(info)]
             (f:False) : ""
           string-join([name info-str])
         (f:False) :
@@ -319,7 +329,7 @@ public defn compile (proj-manager:ProjManager,
       vprintln("[Function %_ of %_] Allocating registers for function %_ (%_)" % [index + 1, num-funcs, id(f), fcomment])
       emit(emitter, fcomment)
       emit(emitter, LinkLabel(id(f)))
-      allocate-registers(func(f), emitter, backend, stubs, false)
+      allocate-registers(id(f), func(f), emitter, backend, stubs, false)
 
   defn emit-all-system-stubs (filestream:OutputStream, stitcher:Stitcher, stubs:AsmStubs, vm-stubs?:True|False) :
     val emitter = file-emitter(filestream, stubs)
@@ -373,4 +383,6 @@ defn collapse (p:NormVMPackage|StdPkg) :
     defmethod externs (this) : externs(vmp)
     defmethod extern-defns (this) : extern-defns(vmp)
     defmethod debug-table (this) : debug-table(vmp)
+    defmethod safepoint-table (this) : safepoint-table(vmp)
+    defmethod debug-name-table (this): debug-name-table(vmp)
 

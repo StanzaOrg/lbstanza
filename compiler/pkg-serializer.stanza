@@ -26,7 +26,11 @@ defpackage stz/pkg-serializer :
            TypeofOp, XchgIns, SetIns, ConvertIns, InterpretIns, UnaOp, BinOp, VoidBinOp,
            DualOp, Load, Store, Call, Return, Goto, Break, Label, LinkLabel,
            ExLabel, Match, Dispatch, MethodDispatch, DefData, DefText, DefDirectives, DefExportLabel, DefByte,
-           DefInt, DefLong, DefFloat, DefDouble, DefString, DefBytes, DefSpace, DefLabel, Comment) => asm-
+           DefInt, DefLong, DefFloat, DefDouble, DefString, DefBytes, DefSpace, DefLabel, Comment,
+           NoOp, LoadGoto, Safepoint, VarContext, NamedVar, VarMap) => asm-
+  import stz/absolute-info
+  import stz/trace-info
+  import stz/el-trace-info
 
   ;Pkg imports
   import stz/pkg-ir
@@ -146,7 +150,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     n:int
     visibility:visibility
     rec:drec
-    info:opt(info)
+    info:opt(absinfo)
     documentation?:opt(string)
 
   deftype dimport (Import) : (n:int, rec:drec, transient?:bool)
@@ -258,7 +262,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     EDefGlobal: (n:int, type:etype, mutable?:bool, lostanza?:bool)
     EDefn: (n:int, func:efunction, lostanza?:bool)
     EDefClosure: (n:int, closure:int, ntargs:int, nargs:int, func:efunction)
-    EDefmulti: (n:int, targs:tuple(int), a1-args:tuple(farg(etype)), a2:etype, dispatch:opt(dispatchmask), info:traceinfo)
+    EDefmulti: (n:int, targs:tuple(efntarg), args:tuple(efnarg), ret:etype, dispatch:opt(dispatchmask), info:traceinfo)
     EDefmethod: (n:int, multi:int, targs:tuple(etype), func:efunction as EFn, lostanza?:bool, dispatch:opt(dispatchmask))
     EDefStruct: (n:int, parent:opt(etype), base:tuple(efield), items:opt(efield))
     EExternFn: (n:int, lbl:opt(symbol), func:efunction as EFn)
@@ -289,17 +293,25 @@ defserializer PkgSerializer (include-asm?:True|False) :
     ETop: ()
     EBot: ()
 
-  deftype efield (EDefField) : (mutable?:bool, type:etype)
+  deftype efield (EDefField) : (mutable?:bool, name:symbol, type:etype)
 
   defunion efunction (EFunction) :
     EMultifn: (funcs:tuple(efunction as EFn))
-    EFn: (tail?:bool, targs:tuple(int), args:tuple(int), a1-args:tuple(farg(etype)), a2:etype, body:ebody, info:traceinfo)
+    EFn: (tail?:bool, targs:tuple(efntarg), args:tuple(efnarg), ret:etype, body:ebody, info:traceinfo)
 
-  deftype elocal (ELocal) : (n:int, type:etype, mutable?:bool)
+  deftype efnarg (EFnArg) : (n:int, arg:farg(etype), debug-name:opt(string))
+
+  deftype efntarg (EFnTArg) : (n:int, debug-name:opt(string))
+
+  deftype elocal (ELocal) :
+    n:int
+    type:etype
+    mutable?:bool
+    debug-name:opt(string)
 
   deftype elocaltype (ELocalType) : (n:int)
 
-  deftype elocalfn (ELocalFn) : (n:int, func:efunction)
+  deftype elocalfn (ELocalFn) : (n:int, func:efunction, debug-name:opt(string))
 
   deftype elocalobj (ELocalObj) : (n:int, type:etype, methods:tuple(emethod))
 
@@ -367,7 +379,8 @@ defserializer PkgSerializer (include-asm?:True|False) :
     ECheck: (y:eimm, type:etype, ctxt:error-ctxt, info:traceinfo)
     ECheckSet: (y:eimm, name:opt(string), info:traceinfo)
     EReturn: (y:eimm)
-    ETDef: (x:etvarloc, y:eimm)
+    ETDef: (x:etvarloc, y:union(eimm,etype))
+    ESafepoint: (group-id:int, info:traceinfo)
     EEnd: (info:traceinfo)
     ETypeof: (n1:int, n2:int, type:etype, y:eimm)
 
@@ -461,7 +474,30 @@ defserializer PkgSerializer (include-asm?:True|False) :
     methods:tuple(vmmethod)
     externs:tuple(vmextern)
     extern-defns:tuple(vmexterndefn)
+    debug-name-table:debug-name-table
     debug-table:debug-info-table
+    safepoint-table:safepoint-table
+
+  deftype debug-name-table (VMDebugNameTable) :
+    entries: tuple(debug-name)
+
+  deftype debug-name (VMDebugName) :
+    id:int
+    name:string
+
+  deftype safepoint-table (VMSafepointTable) :
+    files:tuple(file-safepoints)
+    
+  deftype file-safepoints (VMFileSafepoints) :
+    base:string
+    filename:string
+    entries:tuple(safepoint-info)
+
+  deftype safepoint-info (VMSafepointInfo) :
+    id:int
+    line:int
+    column:int
+    group:int
 
   deftype debug-info-table (VMDebugInfoTable) :
     entries:tuple(debug-info)
@@ -469,7 +505,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
   deftype debug-info (VMDebugInfo) :
     id:int
     name:opt(string)
-    info:opt(info)
+    info:opt(absinfo)
 
   defunion vmimm (VMImm) :
     Local: (index:int)
@@ -494,7 +530,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
 
   defunion vmfunc (VMFunction) :
     VMMultifn: (arg:int, funcs:tuple(func-entry), default:vmfunc as VMFunc)
-    VMFunc: (args:tuple(func-arg), defs:tuple(vmdef), ins:tuple(vmins))
+    VMFunc: (args:tuple(func-arg), defs:tuple(vmdef), ins:tuple(vmins), debug-name-table:debug-name-table)
 
   defunion func-arg (Local|VMType) :
     Local: vmimm as Local
@@ -520,8 +556,10 @@ defserializer PkgSerializer (include-asm?:True|False) :
 
   defunion vmclass (VMClass) :
     VMArrayClass: (id:int, name:string, dependencies:tuple(int), parents:tuple(int),
-                   base-size:int, item-size:int, base-roots:tuple(int), item-roots:tuple(int))
-    VMLeafClass: (id:int, name:string, dependencies:tuple(int), parents:tuple(int), size:int, roots:tuple(int))
+                   base-size:int, item-size:int, base-roots:tuple(int), item-roots:tuple(int),
+                   base-root-names:tuple(symbol), item-root-names:tuple(symbol))
+    VMLeafClass: (id:int, name:string, dependencies:tuple(int), parents:tuple(int), size:int,
+                  roots:tuple(int), root-names:tuple(symbol))
     VMAbstractClass: (id:int, parents:tuple(int), children:tuple(int))
 
   defunion vmins (VMIns) :
@@ -553,6 +591,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     LiveIns: (xs:tuple(vmimm))
     CommentIns: (message:string)
     UnreachableIns: ()
+    SafepointIns: (id:int, trace-entry!:trace-entry)
 
   deftype vmbranch (VMBranch) : (types:tuple(typeset), n:int)
 
@@ -617,7 +656,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     DerefOp: ()
     CRSPOp: ()
 
-  deftype trace-entry (StackTraceEntry) : (package:symbol, signature:opt(string), info:opt(info))
+  deftype trace-entry (StackTraceInfo) : (package:symbol, signature:opt(string), info:opt(absinfo))
 
   ;==========================================================
   ;================== Assembly Types ========================
@@ -690,10 +729,12 @@ defserializer PkgSerializer (include-asm?:True|False) :
   ;================ Assembly Instructions ===================
   ;==========================================================
   defunion ins (Ins) :
+    asm-VarContext: (id:int, entries:tuple(named-var))
     asm-XchgIns: (x:loc, y:loc)
     asm-SetIns: (type:asm-type, x:loc, y:imm)
     asm-ConvertIns: (xtype:asm-type, x:loc, ytype:asm-type, y:imm)
     asm-InterpretIns: (xtype:asm-type, x:loc, ytype:asm-type, y:imm)
+    asm-NoOp: ()
     asm-UnaOp: (type:asm-type, x:loc, op:op, y:imm)
     asm-BinOp: (type:asm-type, x:loc, op:op, y:imm, z:imm)
     asm-VoidBinOp: (type:asm-type, op:op, y:imm, z:imm)
@@ -703,8 +744,10 @@ defserializer PkgSerializer (include-asm?:True|False) :
     asm-Call: (x:imm)
     asm-Return: ()
     asm-Goto: (x:imm)
+    asm-LoadGoto: (x:imm)
     asm-Break: (type:asm-type, x:imm, op:op, y:imm, z:imm)
     asm-Label: (n:int, trace-entry:opt(trace-entry))
+    asm-Safepoint: (id:int, trace-entry:trace-entry, varmap:var-map)
     asm-LinkLabel: (id:int)
     asm-ExLabel: (name:symbol)
     asm-Match: (xs:list(imm), branches:list(branch), no-branch:imm)
@@ -724,6 +767,12 @@ defserializer PkgSerializer (include-asm?:True|False) :
     asm-DefSpace: (size:int)
     asm-DefLabel: (n:int)
     asm-Comment: (msg:string)
+
+  defunion named-var (asm-NamedVar) :
+    asm-NamedVar: (stack-offset:int, name:string)
+
+  defunion var-map (asm-VarMap) :
+    asm-VarMap: (context:int, vars:tuple(int))
 
   deftype branch (Branch) : (tags:list(typeset), dst:imm)
 
@@ -756,7 +805,12 @@ defserializer PkgSerializer (include-asm?:True|False) :
   ;===================== Atoms ==============================
   ;==========================================================
 
+  deftype absinfo (AbsoluteFileInfo) :
+    base:string
+    filename:string
+    line:int
+    column:int
+
   defunion traceinfo (TraceInfo) :
-    FileInfo: info
-    StackTraceEntry: trace-entry
+    StackTraceInfo: trace-entry
     False: bool as False

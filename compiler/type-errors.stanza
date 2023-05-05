@@ -4,6 +4,7 @@ defpackage stz/type-errors :
   import collections
   import stz/tl-ir
   import stz/types
+  import stz/absolute-info
 
 ;============================================================
 ;==================== Type Definition =======================
@@ -52,7 +53,7 @@ public defmessages TypeError :
   ;Occurs when the wrong number of type arguments is used
   ;to parameterize a class.
   defmessage WrongTypeArity :
-    info:FileInfo|False
+    info:AbsoluteFileInfo|False
     name:Symbol
     targs:Tuple<String>
     arity:Int
@@ -65,7 +66,7 @@ public defmessages TypeError :
   ;Occurs when a captured type variable occurs in both covariant and
   ;contravariant positions.
   defmessage BivariantCapture :
-    info:FileInfo|False
+    info:AbsoluteFileInfo|False
     name:Symbol
   with:
     format:
@@ -74,11 +75,11 @@ public defmessages TypeError :
 
 ;Format an error location
 public defmessage DefLoc <: Formatted :
-  location:FileInfo|PackageName
+  location:AbsoluteFileInfo|PackageName
 with:
   format:
     match(location) :
-      (l:FileInfo) : "at %_" % [l]
+      (l:AbsoluteFileInfo) : "at %_" % [/info(l)]
       (l:PackageName) : "in package %~" % [name(l)]
 
 ;Format a type defined at some location.
@@ -274,5 +275,5 @@ public defmessages TypeError :
 defn quotes (x) : "'%_'" % [x]
 
 ;Format the FileInfo for the beginning of an error message.
-defn info-str (info:FileInfo|False) :
-  "" when info is False else "%_: " % [info]
+defn info-str (info:AbsoluteFileInfo|False) :
+  "" when info is False else "%_: " % [/info(info as AbsoluteFileInfo)]

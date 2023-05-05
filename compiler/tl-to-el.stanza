@@ -22,6 +22,7 @@ defpackage stz/tl-to-el :
     prefix(Field) => TH
   import stz/type-instfns
   import stz/type-fargs
+  import stz/absolute-info
 
 ;============================================================
 ;====================== Timers ==============================
@@ -45,14 +46,16 @@ public defn to-el (p:TProg, transient-package?:True|False) -> Tuple<EPackage> :
       val struct-table = StructTable(packages(p), environment(p))
       to-tuple $ for package in packages(p) seq :
         within log-time(TL-TO-EL, suffix(name(package))) :
-          val compiled = compile(package, struct-table, namemap(p), hierarchy(p))
+          val compiled = compile(package, struct-table, namemap(p))
           val io = analyze-imports(compiled, export-table, transient-package?)
           sub-packageio(compiled, io)
 
-defn compile (p:TPackage,
-              struct-table:StructTable,
-              namemap:NameMap,
-              hier:TypeHierarchy) :
+defn compile (p:TPackage, struct-table:StructTable, namemap:NameMap) :
+
+  ;Determine whether p is a non-system-package, so that safepoints
+  ;can be emitted.
+  val not-system-package = not system-package?(p)
+  
   val texps = Vector<ETExp>()
   defn emit (e:ETExp) : add(texps, e)
 
@@ -67,7 +70,7 @@ defn compile (p:TPackage,
         
       (c:TLDefType) :
         defn conv-field (f:Field) -> EDefField :
-          EDefField(mutable?(f), to-etype(type(f)))
+          EDefField(mutable?(f), name(f), to-etype(type(f)))
         val [fs, lf] = split-rest-field(fields(c))
         val base = map(conv-field, fs)
         val items = match(lf:Field) :
@@ -78,18 +81,20 @@ defn compile (p:TPackage,
       (c:TDef) :
         val etype = to-etype(type(c) as Type)
         emit(EDefGlobal(n(c), etype, false, false))
-        val compiler = Compiler(struct-table, namemap)
+        val compiler = Compiler(struct-table, namemap, not-system-package)
         val result = compile(compiler, value(c))
+        /emit(compiler, ESafepoint(fresh-id(), info(c)))
         /emit(compiler, EStore(EVarLoc(n(c)), result, info(c)))
         emit(EInit(body(compiler), false))
       (c:TDefTuple) :
-        val compiler = Compiler(struct-table, namemap)
+        val compiler = Compiler(struct-table, namemap, not-system-package)
         val tuple = compile(compiler, value(c))
         /emit(compiler, ECheckLength(tuple, length(ns(c)), info(c)))
+        /emit(compiler, ESafepoint(fresh-id(), info(c)))
         for (n in ns(c), t in types(c), i in 0 to false) do :
           emit(EDefGlobal(n, to-etype(t as Type), false, false))
           val tmp = fresh-id()
-          /emit(compiler, ELocal(tmp, ETop(), false))
+          /emit(compiler, ELocal(tmp, ETop(), false, false))
           /emit(compiler, ETupleGet(EVarLoc(tmp), tuple, i, info(c)))
           /emit(compiler, EStore(EVarLoc(n), EVar(tmp,info(c)), info(c)))
         emit(EInit(body(compiler), false))
@@ -98,33 +103,39 @@ defn compile (p:TPackage,
         val v = value(c)
         emit(EDefGlobal(n(c), etype, true, false))
         match(v:TExp) :
-          val compiler = Compiler(struct-table, namemap)
+          val compiler = Compiler(struct-table, namemap, not-system-package)
           val result = compile(compiler, v)
+          /emit(compiler, ESafepoint(fresh-id(), info(c)))
           /emit(compiler, EStore(EVarLoc(n(c)), result, info(c)))
           emit(EInit(body(compiler), false))
       (c:TDefn) :
-        emit(EDefn(n(c), compile-function(c,struct-table,namemap), false))
-        
+        emit(EDefn(n(c), compile-function(c,struct-table,namemap, not-system-package), false))
       (c:TDefmulti) :
-        val targs* = to-tuple(cat(targs(c), cargs(c)))
-        val a1* = map(to-earg, a1(c))
-        val a2* = to-etype(a2(c) as Type)
-        emit(EDefmulti(n(c), targs*, a1*, a2*, false, info(c)))
+        val targs* = to-tuple $
+          for v in cat(targs(c), cargs(c)) seq :
+            EFnTArg(v, debug-name?(namemap,v))
+        val args* = 
+          for arg in a1(c) map :
+            EFnArg(fresh-id(), to-earg(arg), false)
+        val ret* = to-etype(a2(c) as Type)
+        emit(EDefmulti(n(c), targs*, args*, ret*, false, info(c)))
         
       (c:TDefmethod) :
-        val func = compile-function(c,struct-table,namemap)
+        val func = compile-function(c,struct-table, namemap, not-system-package)
         val [multi, capargs] = multi-args(multi(c))
         val targs = to-tuple(cat(seq(ETVar,targs(c)), seq(to-etype,capargs)))
         emit(EDefmethod(n(c), multi, targs, func, false, false))
       (c:TInit) :
-        val compiler = Compiler(struct-table, namemap)
+        val compiler = Compiler(struct-table, namemap, not-system-package)
+        /emit(compiler, ESafepoint(fresh-id(), info(c)))
         compile(compiler, exp(c))
         emit(EInit(body(compiler), false))
       (c:TLDef) :
         val etype = to-etype(type(c))
         emit(EDefGlobal(n(c), etype, false, true))
-        val compiler = Compiler(struct-table, namemap)
+        val compiler = Compiler(struct-table, namemap, not-system-package)
         val result = compile-upcast(compiler, value(c), type(c))
+        /emit(compiler, ESafepoint(fresh-id(), info(c)))
         /emit(compiler, EStore(EVarLoc(n(c)), result, etype, info(c)))
         emit(EInit(body(compiler), true))
       (c:TLDefVar) :
@@ -132,27 +143,28 @@ defn compile (p:TPackage,
         val v = value(c)
         emit(EDefGlobal(n(c), etype, true, true))
         match(v:LSExp) :
-          val compiler = Compiler(struct-table, namemap)
+          val compiler = Compiler(struct-table, namemap, not-system-package)
           val result = compile-upcast(compiler, v, type(c))
+          /emit(compiler, ESafepoint(fresh-id(), info(c)))
           /emit(compiler, EStore(EVarLoc(n(c)), result, etype, info(c)))
           emit(EInit(body(compiler), true))
       (c:TLDefn) :
-        val func = compile-function(c,struct-table,namemap)
+        val func = compile-function(c, struct-table, namemap, not-system-package)
         emit(EDefn(n(c), func, true))
       (c:TLExternFn) :
-        val func = compile-function(c,struct-table,namemap)
+        val func = compile-function(c,struct-table,namemap,not-system-package)
         val ventry = namemap[n(c)]
         val exposed-lbl = lbl(c) when visibility(ventry) is-not Private
         emit(EExternFn(n(c), exposed-lbl, func))
       (c:TLDefmethod) :
-        val func = compile-function(c,struct-table,namemap)
+        val func = compile-function(c,struct-table,namemap,not-system-package)
         val [multi, capargs] = multi-args(multi(c))
         val targs = to-tuple(cat(seq(ETVar,targs(c)), seq(to-etype,capargs)))
         emit(EDefmethod(n(c), multi, targs, func, true, false))
       (c:TExtern) :
         emit(EExtern(n(c), lbl(c), to-etype(type(c))))
       (c:TLInit) :
-        val compiler = Compiler(struct-table, namemap)
+        val compiler = Compiler(struct-table, namemap, not-system-package)
         compile(compiler, comm(c), false)
         emit(EInit(body(compiler), true))
 
@@ -162,53 +174,68 @@ defn compile (p:TPackage,
 ;============================================================
 ;=================== Function Compilation ===================
 ;============================================================
-defn compile-function (e:TDefn, struct-table:StructTable, namemap:NameMap) :
-  compile-function(targs(e), cargs(e), args(e), a1(e), a2(e), tail?(e), body(e), info(e), struct-table, namemap)
+defn compile-function (e:TDefn, struct-table:StructTable, namemap:NameMap, emit-safepoints?:True|False) :
+  compile-function(targs(e), cargs(e), args(e), a1(e), a2(e), tail?(e), body(e), info(e), struct-table, namemap, emit-safepoints?)
 
-defn compile-function (e:TDefmethod, struct-table:StructTable, namemap:NameMap) :
-  compile-function(targs(e), cargs(e), args(e), a1(e), a2(e), tail?(e), body(e), info(e), struct-table, namemap)
+defn compile-function (e:TDefmethod, struct-table:StructTable, namemap:NameMap, emit-safepoints?:True|False) :
+  compile-function(targs(e), cargs(e), args(e), a1(e), a2(e), tail?(e), body(e), info(e), struct-table, namemap, emit-safepoints?)
 
-defn compile-function (e:TFn, struct-table:StructTable, namemap:NameMap) :
+defn compile-function (e:TFn, struct-table:StructTable, namemap:NameMap, emit-safepoints?:True|False) :
   val eargs = map(PositionalArg<Type|False>{false, _}, a1(e))
-  compile-function([], [], args(e), eargs, a2(e), tail?(e), body(e), info(e), struct-table, namemap)
+  compile-function([], [], args(e), eargs, a2(e), tail?(e), body(e), info(e), struct-table, namemap, emit-safepoints?)
 
-defn compile-function (e:TMulti, struct-table:StructTable, namemap:NameMap) :
-  EMultifn(to-tuple(seq(compile-function{_, struct-table, namemap}, funcs(e))))
+defn compile-function (e:TMulti, struct-table:StructTable, namemap:NameMap, emit-safepoints?:True|False) :
+  EMultifn(to-tuple(seq(compile-function{_, struct-table, namemap, emit-safepoints?}, funcs(e))))
 
-defn compile-function (e:TLDefn, struct-table:StructTable, namemap:NameMap) :
+defn compile-function (e:TLDefn, struct-table:StructTable, namemap:NameMap, emit-safepoints?:True|False) :
   compile-function(targs(e), cargs(e), args(e),
                    a1(e), a2(e), tail?(e), body(e), info(e),
-                   struct-table, namemap)
+                   struct-table, namemap, emit-safepoints?)
 
-defn compile-function (e:TLExternFn, struct-table:StructTable, namemap:NameMap) :
+defn compile-function (e:TLExternFn, struct-table:StructTable, namemap:NameMap, emit-safepoints?:True|False) :
   val a1-args = map(PositionalArg<LSType>{false, _}, a1(e))
-  compile-function([], [], args(e), a1-args, a2(e), false, body(e), info(e), struct-table, namemap)
+  compile-function([], [], args(e), a1-args, a2(e), false, body(e), info(e), struct-table, namemap, emit-safepoints?)
 
-defn compile-function (e:TLDefmethod, struct-table:StructTable, namemap:NameMap) :
-  compile-function(targs(e), cargs(e), args(e), a1(e), a2(e), tail?(e), body(e), info(e), struct-table, namemap)
+defn compile-function (e:TLDefmethod, struct-table:StructTable, namemap:NameMap, emit-safepoints?:True|False) :
+  compile-function(targs(e), cargs(e), args(e), a1(e), a2(e), tail?(e), body(e), info(e), struct-table, namemap, emit-safepoints?)
+
+;------------------------------------------------------------
+;------------ Compilation of HiStanza Functions -------------
+;------------------------------------------------------------
 
 defn compile-function (targs:Seqable<Int>, cargs:Seqable<Int>, args:Seqable<Int>,
-                       a1:Tuple<FArg<Type|False>>, a2:False|Type, tail?:True|False, fbody:TExp, info:False|FileInfo
-                       struct-table:StructTable, namemap:NameMap) :
-  val targs* = to-tuple(cat(targs, cargs))
-  val args* = to-tuple(args)
-  val a1* = map(to-earg, a1)
-  val a2* = to-etype(a2 as Type)
-
-  val c = Compiler(struct-table, namemap)
+                       a1:Tuple<FArg<Type|False>>, a2:False|Type, tail?:True|False, fbody:TExp, info:False|AbsoluteFileInfo
+                       struct-table:StructTable, namemap:NameMap, emit-safepoints?:True|False) :
+  val targs* = to-tuple $
+    for v in cat(targs, cargs) seq :
+      EFnTArg(v, debug-name?(namemap,v))
+  val args* = to-tuple $
+    for (v in args, t in a1) seq :
+      EFnArg(v, to-earg(t), debug-name?(namemap,v))
+  val ret* = to-etype(a2 as Type)
+  val c = Compiler(struct-table, namemap, emit-safepoints?)
+  emit-safepoint(c, /info(fbody))
   return(c, fbody, tail?)
-  EFn(tail?, targs*, args*, a1*, a2*, body(c), info)
+  EFn(tail?, targs*, args*, ret*, body(c), info)
+
+;------------------------------------------------------------
+;------------ Compilation of LoStanza Functions -------------
+;------------------------------------------------------------
 
 defn compile-function (targs:Tuple<Int>, cargs:Tuple<Int>, args:Tuple<Int>,
-                       a1:Tuple<FArg<LSType>>, a2:LSType, tail?:True|False, fbody:LSComm, info:False|FileInfo
-                       struct-table:StructTable, namemap:NameMap) :
-  val targs* = to-tuple(cat(targs, cargs))
-  val a1* = map(to-earg, a1)
-  val a2* = to-etype(a2)
-
-  val c = Compiler(struct-table, namemap)
+                       a1:Tuple<FArg<LSType>>, a2:LSType, tail?:True|False, fbody:LSComm, info:False|AbsoluteFileInfo
+                       struct-table:StructTable, namemap:NameMap, emit-safepoints?:True|False) :
+  val targs* = to-tuple $
+    for v in cat(targs, cargs) seq :
+      EFnTArg(v, debug-name?(namemap,v))
+  val args* = to-tuple $
+    for (v in args, t in a1) seq :
+      EFnArg(v, to-earg(t), debug-name?(namemap,v))
+  val ret* = to-etype(a2)
+  val c = Compiler(struct-table, namemap, emit-safepoints?)
+  emit-safepoint(c, /info(fbody))
   compile(c, fbody, tail?)
-  EFn(tail?, targs*, args, a1*, a2*, body(c), info)
+  EFn(tail?, targs*, args*, ret*, body(c), info)
 
 ;============================================================
 ;=============== Expression Compilation =====================
@@ -219,24 +246,49 @@ defmulti compile (c:Compiler, e:TExp) -> EImm
 defmulti compile (c:Compiler, e:LSExp) -> EImm
 defmulti compile-upcast (c:Compiler, e:LSExp, t:LSType) -> EImm
 defmulti compile (compiler:Compiler, c:LSComm, tail?:True|False) -> False
+
+;The given expression is the last expression in a HiStanza function.
+;Generate the code to evaluate the expression and return the result.
 defmulti return (c:Compiler, e:TExp, tail?:True|False) -> False
 defmulti body (c:Compiler) -> EBody
 defmulti emit (c:Compiler, l:ELocal) -> False
 defmulti emit (c:Compiler, l:ELocalType) -> False
 defmulti emit (c:Compiler, i:EIns) -> False
+defmulti emit-safepoint (c:Compiler, info:False|AbsoluteFileInfo) -> False
 
-defn Compiler (struct-table:StructTable, namemap:NameMap) :
+;- emit-safepoints?: Safepoints are emitted only when true. Otherwise,
+;  they are discarded.
+defn Compiler (struct-table:StructTable,
+               namemap:NameMap,
+               emit-safepoints?:True|False) :
+
   ;Buffers
   val locals = Vector<ELocal>()
   val localtypes = Vector<ELocalType>()
   val localfns = Vector<ELocalFn>()
   val localobjs = Vector<ELocalObj>()
   val ins = Vector<EIns>()
+
+  ;Use this as the id of the group for this particular compile session.
+  ;It is assumed that each function is compiled using a new Compiler object.
+  val safepoint-group = fresh-id()
+  
+  ;Determine whether safepoints are enabled.
+  val safepoints-enabled? = contains?(stz/params/EXPERIMENTAL-FEATURES, `safepoints)
+
+  ;Add a new instruction to the instruction buffer.
+  ;For safepoints specifically, add them only if the feature is turned-on.
+  defn emit (l:EIns) :
+    match(l:ESafepoint) :
+      add(ins, l) when emit-safepoints? and safepoints-enabled?
+    else : add(ins, l)
+
+  ;Emit new locals, types, functions, and objects to their
+  ;respective buffers.
   defn emit (l:ELocal) : add(locals, l)
   defn emit (l:ELocalType) : add(localtypes, l)
   defn emit (l:ELocalFn) : add(localfns, l)
   defn emit (l:ELocalObj) : add(localobjs, l)
-  defn emit (l:EIns) : add(ins, l)
 
   ;Retrieve name (if any) of identifier
   defn name? (n:Int) :
@@ -248,7 +300,7 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
   ;Utilities
   defn to-local (f:EVarLoc -> False, t:EType) -> EVar :
     val tmp = fresh-id()
-    emit(ELocal(tmp, t, false))
+    emit(ELocal(tmp, t, false, false))
     f(EVarLoc(tmp))
     EVar(tmp)
   defn to-local (f:EVarLoc -> EIns, t:EType) -> EVar :
@@ -273,9 +325,13 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
           val args* = map(compile{type(_)},args(e))
           emit(ETCall(func*, args*, CallGuarded(e-a1, e-a2), info(e)))
         else :
-          emit(EReturn(compile(e)))
+          val result = compile(e)
+          emit(ESafepoint(safepoint-group, info(e)))
+          emit(EReturn(result))
       (e) :
-        emit(EReturn(compile(e)))
+        val result = compile(e)
+        emit(ESafepoint(safepoint-group, info(e)))
+        emit(EReturn(result))
 
   defn compile (e:TExp) -> EImm :
     match(e) :
@@ -283,25 +339,25 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
         compile-body(compile, e)
       (e:TMatch) :
         val tmp = fresh-id()
-        emit(ELocal(tmp, ETop(), false))
+        emit(ELocal(tmp, ETop(), false, false))
         within body = compile-match(e, false) :
           emit(EDef(EVarLoc(tmp), compile(body)))
         EVar(tmp,info(e))
       (e:TFn|TMulti) :
         val tmp = fresh-id()
-        emit(ELocalFn(tmp, compile-function(e,struct-table,namemap)))
+        emit(ELocalFn(tmp, compile-function(e,struct-table,namemap, emit-safepoints?), false))
         emit(EInitClosures([EVarLoc(tmp)], info(e)))
         EVar(tmp,info(e))
       (e:TNew) :
         val methods = to-tuple $ for m in methods(e) seq :
-          val func = compile-function(m,struct-table,namemap)
+          val func = compile-function(m,struct-table,namemap,emit-safepoints?)
           val [multi, capargs] = multi-args(multi(m))
           val targs = to-tuple(cat(seq(ETVar,targs(m)), seq(to-etype,capargs)))
           EMethod(n(m), multi, targs, thisn(m) as Int, func, false)
         val obj = fresh-id()
         emit(ELocalObj(obj, to-etype(class(e)), methods))
         val tmp = fresh-id()
-        emit(ELocal(tmp, to-etype(class(e)), false))
+        emit(ELocal(tmp, to-etype(class(e)), false, false))
         emit(ENew(EVarLoc(tmp), obj, info(e)))
         EVar(tmp,info(e))
       (e:TRef) :
@@ -327,7 +383,7 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
         val args* = map(compile{type(_)},args(e))
         ;Make instruction.
         val ret = fresh-id()
-        emit(ELocal(ret, e-a2, false))
+        emit(ELocal(ret, e-a2, false, false))
         emit(ECall(EVarLoc(ret), func*, args*, CallGuarded(e-a1, e-a2), info(e)))
         EVar(ret,info(e))
         
@@ -335,14 +391,14 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
         val ys = to-tuple(seq(compile, args(e)))
         val [op, type] = to-eop(op(e))
         val ret = fresh-id()
-        emit(ELocal(ret, type, false))
+        emit(ELocal(ret, type, false, false))
         emit(EPrim(EVarLoc(ret), op, ys, info(e)))
         EVar(ret,info(e))
       (e:TLiteral) :
         ELiteral(value(e))
       (e:TTupleExp) :
         val ret = fresh-id()
-        emit(ELocal(ret, EOf(env-id(CORE-TUPLE-ID)), false))
+        emit(ELocal(ret, EOf(env-id(CORE-TUPLE-ID)), false, false))
         val num-items = length(exps(e))
         val large-tuple? = num-items > 8
         if large-tuple? :
@@ -379,8 +435,9 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
     for (b in branches(e), eb in ebranches) do :
       emit(ELabel(n(eb)))
       for (a in args(b), t in types(eb), y in ys) do :
-        emit(ELocal(a, t, false))
+        emit(ELocal(a, t, false, debug-name?(namemap, a)))
         emit(EDef(EVarLoc(a), y, info(e)))
+      emit(ESafepoint(safepoint-group, info(body(b))))
       f(body(b))
       emit(EGoto(end)) when not end?
     emit(ELabel(end)) when not end?
@@ -388,28 +445,34 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
   defn compile-body<?T> (kont:TExp -> ?T, e:TExp) -> T :
     match(e) :
       (e:TLet) :
-        emit(ELocal(n(e), to-etype(ntype(e) as Type), false))
+        emit(ELocal(n(e), to-etype(ntype(e) as Type), false, debug-name?(namemap,n(e))))
         emit(EDef(EVarLoc(n(e)), compile(value(e)), info(e)))
+        emit(ESafepoint(safepoint-group, info(body(e))))
         kont(body(e))
       (e:TLetVar) :
-        emit(ELocal(n(e), to-etype(ntype(e) as Type), true))
+        emit(ELocal(n(e), to-etype(ntype(e) as Type), true, debug-name?(namemap, n(e))))
         emit(EDef(EVarLoc(n(e)), compile?(value(e)), info(e)))
+        emit(ESafepoint(safepoint-group, info(body(e))))
         kont(body(e))
       (e:TLetTuple) :
         val tuple = compile(value(e))
         emit(ECheckLength(tuple, length(ns(e)), info(e)))
         for (n in ns(e), t in ntypes(e), i in 0 to false) do :
-          emit(ELocal(n, to-etype(t as Type), false))
+          emit(ELocal(n, to-etype(t as Type), false, debug-name?(namemap, n)))
           emit(ETupleGet(EVarLoc(n), tuple, i, info(e)))
+        emit(ESafepoint(safepoint-group, info(body(e))))
         kont(body(e))
       (e:TLetRec) :
         for d in defns(e) do :
-          emit(ELocalFn(n(d), compile-function(d,struct-table,namemap)))
+          val compiled-f = compile-function(d,struct-table,namemap,emit-safepoints?)
+          emit(ELocalFn(n(d), compiled-f, debug-name?(namemap,n(d))))
         val closures = to-tuple(seq(EVarLoc{n(_)}, defns(e)))
         emit(EInitClosures(closures, info(e)))
+        emit(ESafepoint(safepoint-group, info(body(e))))
         kont(body(e))
       (e:TSeq) :
         compile(a(e))
+        emit(ESafepoint(safepoint-group, info(b(e))))
         kont(b(e))
 
   defn compile-loc (e:LSExp) -> ELoc :
@@ -434,7 +497,7 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
       (e) :
         val etype = to-etype(type(e) as LSType)
         val tmp = fresh-id()
-        emit(ELocal(tmp, etype, false))
+        emit(ELocal(tmp, etype, false, false))
         emit(EDef(EVarLoc(tmp), compile(e), info(e)))
         EVarLoc(tmp)
 
@@ -455,7 +518,7 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
           for b in blocks(c) do :
             val dsts = to-tuple(seq(fresh-id{}, args(b)))
             for (dst in dsts, t in atypes(b)) do :
-              emit(ELocal(dst, to-etype(t), false))
+              emit(ELocal(dst, to-etype(t), false, false))
             block-args[n(b)] = [dsts, to-tuple(atypes(b))]
           ;Compile blocks
           val end = fresh-id()
@@ -463,7 +526,7 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
             val [dsts, types] = block-args[n(b)]
             emit(ELabel(n(b)))
             for (arg in args(b), dst in dsts, t in types) do :
-              emit(ELocal(arg, to-etype(t), false))
+              emit(ELocal(arg, to-etype(t), false, debug-name?(namemap,arg)))
               emit(EDef(EVarLoc(arg), EVar(dst,info(b))))
             loop(body(b))
             emit(EGoto(end))
@@ -475,58 +538,61 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
             emit(EDef(EVarLoc(dst), result))
           emit(EGoto(n(c)))
         (c:LSReturn) :
-          let :
+          defn driver () :
             if tail? :
               match(exp(c)) :
                 (e:LSDo) : tail-call(e)
                 (e) : std-return()
             else : std-return()
-          where :
-            defn std-return () :
-              emit(EReturn(compile-upcast(exp(c))))
-            defn tail-call (e:LSDo) :
-              ;Get types.
-              val a1 = arg-types(func(e))
-              val a2 = type!(e)
-              val e-a1 = map(to-etype, a1)
-              val e-a2 = to-etype(a2)
+          defn std-return () :
+            val result = compile-upcast(exp(c))
+            emit(ESafepoint(safepoint-group, info(c)))
+            emit(EReturn(result))
+          defn tail-call (e:LSDo) :
+            ;Get types.
+            val a1 = arg-types(func(e))
+            val a2 = type!(e)
+            val e-a1 = map(to-etype, a1)
+            val e-a2 = to-etype(a2)
 
-              ;Sanity check
-              val ret-type = expected(ctxt(e) as LSExpCtxt)
-              if primitive-size(a2) != primitive-size(ret-type) :
-                fatal("Tail call return type (%_) does not match declared return type (%_)!" % [a2, ret-type])
+            ;Sanity check
+            val ret-type = expected(ctxt(e) as LSExpCtxt)
+            if primitive-size(a2) != primitive-size(ret-type) :
+              fatal("Tail call return type (%_) does not match declared return type (%_)!" % [a2, ret-type])
 
-              ;Compile arguments.
-              val args* = to-tuple $
-                for (arg in args(e), t in a1) seq :
-                  compile-upcast(type(arg), t)
+            ;Compile arguments.
+            val args* = to-tuple $
+              for (arg in args(e), t in a1) seq :
+                compile-upcast(type(arg), t)
 
-              ;Compile function.
-              match(deref-all(func(e))) :
-                (f*:LSDeref) :
-                  match(compile-loc(f*)) :
-                    (f*:EDeref) : call-stanza(y(f*))
-                    (f*:EDeptr) : call-ptr(y(f*))
-                (f*:LSExp) : call-stanza(compile(f*))
-              where :
-                defn call-stanza (f:EImm) :
-                  emit(ETCall(f, args*, CallGuarded(e-a1,e-a2), info(e)))
-                defn call-ptr (f:EImm) :
-                  emit(ETCall(f, args*, CallPtr(), info(e)))
+            ;Compile function.
+            match(deref-all(func(e))) :
+              (f*:LSDeref) :
+                match(compile-loc(f*)) :
+                  (f*:EDeref) : call-stanza(y(f*))
+                  (f*:EDeptr) : call-ptr(y(f*))
+              (f*:LSExp) : call-stanza(compile(f*))
+            where :
+              defn call-stanza (f:EImm) :
+                emit(ETCall(f, args*, CallGuarded(e-a1,e-a2), info(e)))
+              defn call-ptr (f:EImm) :
+                emit(ETCall(f, args*, CallPtr(), info(e)))
+          driver()
                   
         (c:LSDef) :
           val type = type(c) as LSType
-          emit(ELocal(n(c), to-etype(type), false))
+          emit(ELocal(n(c), to-etype(type), false, debug-name?(namemap,n(c))))
           emit(EDef(EVarLoc(n(c)), compile-upcast(value(c), type)))
         (c:LSDefVar) :
           val type = type(c) as LSType
-          emit(ELocal(n(c), to-etype(type), true))
+          emit(ELocal(n(c), to-etype(type), true, debug-name?(namemap,n(c))))
           val v = match(value(c)) :
             (v:LSExp) : compile-upcast(v, type)
             (v:False) : false
           emit(EDef(EVarLoc(n(c)), v))
         (c:LSSeq) :
           loop(a(c))
+          emit(ESafepoint(safepoint-group, info(b(c))))
           loop(b(c))
         (c:LSIf) :
           ;TODO: More efficient predicate compilation
@@ -552,7 +618,7 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
           for (b in branches(c), eb in ebranches) do :
             emit(ELabel(n(eb)))
             for (a in args(b), y in ys) do :
-              emit(ELocal(a, ETop(), false))
+              emit(ELocal(a, ETop(), false, false))
               emit(EDef(EVarLoc(a), y))
             loop(body(b))
             emit(EGoto(end))
@@ -937,6 +1003,8 @@ defn Compiler (struct-table:StructTable, namemap:NameMap) :
       emit(l)
     defmethod emit (this, l:EIns) :
       emit(l)
+    defmethod emit-safepoint (this, info:False|AbsoluteFileInfo) :
+      emit(ESafepoint(safepoint-group, info))
 
 ;Helper: Add type arguments to the given function immediate.
 defn add-targs (f:EImm, targs:Tuple<EType>) -> EImm :
@@ -962,6 +1030,25 @@ defn arg-types (func:TExp) -> Tuple<Type> :
 defn arg-types (func:LSExp) -> Tuple<LSType> :
   val ctxt = ctxt(func) as LSCallCtxt
   check-args(ctxt)
+
+;============================================================
+;============== System Package Classification ===============
+;============================================================
+
+;Returns true if the package is classified as a "system-package".
+;[HEURISTIC] We do not generate safepoints for system packages.
+defn system-package? (p:TPackage) -> True|False :
+  name(p) == `core
+
+;============================================================
+;================== Local Debug Names========================
+;============================================================
+
+;If the variable b exists in the namemap, then retrieve
+;a human-readable name from it to use during debugging.
+defn debug-name? (namemap:NameMap, v:Int) -> String|False :
+  if key?(namemap, v) :
+    to-string(name(namemap[v]))
 
 ;============================================================
 ;==================== Primitives ============================

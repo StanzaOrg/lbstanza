@@ -1,0 +1,27 @@
+;<doc>=======================================================
+;=================== Documentation ==========================
+;============================================================
+
+This package implements the function for reading the stack trace
+from a user Stanza program loaded using dlopen.
+
+;============================================================
+;=======================================================<doc>
+
+defpackage core/debug/read-stack-trace :
+  import core
+  import core/collect-stack-trace
+  import core/sighandler
+  import core/stack-trace
+  import core/debug/system-types
+
+;This function returns the current stack trace of the running program
+;in the dynamic library. It assumes that the program is suspended, and its
+;register contents are saved in stanza_sighandler_context.
+public lostanza defn read-stack-trace (vms:ptr<core/VMState>) -> ref<SingleStackTrace> :
+  val last-frame = get-sighandler-stack-pointer().value as ptr<StackFrame>
+  val safepoint-pc = get-sighandler-instruction-address().value
+
+  ;Return the collected stack trace.
+  val packed-trace = collect-current-stack-trace(vms, last-frame, safepoint-pc)
+  return StackTrace(packed-trace)
