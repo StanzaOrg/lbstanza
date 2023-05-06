@@ -54,7 +54,4 @@ ${STANZA} compile-macros \
   compiler/reader-lang.stanza \
   -o bootstrap.macros 
 
-${STANZA} compiler/stanza.proj stz/driver -o stanzatemp1 -macros bootstrap.macros -flags BOOTSTRAP_STAGE1 BOOTSTRAP
-./stanzatemp1 clean
-./stanzatemp1 build-stanza.proj stz/driver -o stanzatemp -macros bootstrap.macros -flags BOOTSTRAP
-
+${STANZA} compiler/stanza.proj stz/driver -o stanzatemp -macros bootstrap.macros -flags BOOTSTRAP
