@@ -31,7 +31,7 @@ public defn to-ipackages (form, base-dir:String|False, default-imports:Tuple<IIm
     within log-time(CHECK-IL) :
       check(e,false)
     val packages = split-packages(process-nodocs(e), default-imports)
-    do(dump{_, "logs"}, packages)
+    ;do(dump{_, "logs"}, packages)
     packages
 
 public defn to-il (form, allow-pure-expressions?:True|False) -> IExp :
