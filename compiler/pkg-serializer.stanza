@@ -813,4 +813,5 @@ defserializer PkgSerializer (include-asm?:True|False) :
 
   defunion traceinfo (TraceInfo) :
     StackTraceInfo: trace-entry
+    AbsoluteFileInfo: absinfo
     False: bool as False
