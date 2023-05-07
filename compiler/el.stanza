@@ -229,8 +229,15 @@ defn fill-stack-trace-entries (epackage:EPackage) -> EPackage :
 ;============================================================
 ;===================== Collapsing ===========================
 ;============================================================
-defn collapse (epackages:Tuple<EPackage>) :
+
+;Collapse all the packages into a single EPackage, named
+;'prog' by default.
+defn collapse (epackages:Tuple<EPackage>) -> EPackage :
+
   ;Create global rec ids for everything
+  ;Each entry, RID => N, means that the record 'RID' is
+  ;assigned the freshly created id 'N' in the collapsed
+  ;package.
   val global-rec-ids = HashTable<RecId,Int>()
 
   ;Driver
@@ -240,14 +247,16 @@ defn collapse (epackages:Tuple<EPackage>) :
     val exps* = to-tuple(seq-cat(renamed-exps, epackages))
     EPackage(pio, exps*)
 
-  ;Create global ids
-  defn create-global-rec-ids () :
+  ;Populate the 'global-rec-ids' table.
+  defn create-global-rec-ids () -> False :
     for e in epackages do :
       for ex in exports(packageio(e)) do :
         global-rec-ids[id(rec(ex))] = uniqueid()
 
-  ;Create new packageio
-  defn new-packageio () :
+  ;Create a new PackageIO containing only the
+  ;combined exports of all input packages.
+  ;The exports now use the freshly created ids.
+  defn new-packageio () -> PackageIO :
     val exports* = to-tuple $
       for e in epackages seq-cat :
         for ex in exports(packageio(e)) seq :
@@ -275,6 +284,7 @@ defn collapse (epackages:Tuple<EPackage>) :
         ;ETExps
         (e:EDefGlobal) : sub-n(e, new-id(n(e)))
         (e:EDefn) : sub-n(e, new-id(n(e)))
+        (e:EDefmulti) : sub-n(e, new-id(n(e)))
         (e:EDefmethod) : sub-multi(sub-n(e, new-id(n(e))), new-id(multi(e)))
         (e:EDefStruct) : sub-n(e, new-id(n(e)))
         (e:EExternFn) : sub-n(e, new-id(n(e)))
@@ -4023,27 +4033,59 @@ defn lift-closures (epackage:EPackage, gvt:VarTable) -> EPackage :
 ;=============== Force Remove Type Objects ==================
 ;============================================================
 
-defn force-remove-types (epackage:EPackage) :
-  defn remove-from (e:ELItem) :
-    match(map(remove-from,e)) :
-      ;Top-level expressions
-      (e:EDefmulti) : sub-targs(e, [])
-      ;Small expressions
-      (e:EFn) : sub-targs(e, [])
-      (e:ECurry) : x(e)
-      (e:EMethod) : sub-targs(e, [])
-      (e:ETVar) : ETop()
-      ;Unexpected expressions
-      (e:EDefClosure) : fatal("Unexpected")
-      (e:EDefObject) : fatal("Unexpected")
-      (e:ENewObject) : fatal("Unexpected")
-      (e:EClosureTGet) : fatal("Unexpected")
-      (e:EObjectTGet) : fatal("Unexpected")
-      (e:EClosure) : fatal("Unexpected")
-      (e:ETypeObject) : fatal("Unexpected")
-      (e:EDefTypeObject) : fatal("Unexpected")
-      ;Default
-      (e) : e
+;In optimized mode, we do not reify types, and forcibly
+;remove them. So no definitions take type arguments after
+;this pass, and calls never pass type arguments.
+
+defn force-remove-types (epackage:EPackage) -> EPackage :
+
+  ;Remove type usages from the given ELItem.  
+  defn remove-from (e:ELItem) -> ELItem :
+    ;Most items are recursively preprocessed first
+    ;except for EBody, which is given its own control
+    ;over when to call 'remove-from'.
+    match(e) :
+      (e:EBody) :
+        remove-from-body(e)
+      (e) :
+        match(map(remove-from,e)) :
+          ;Top-level expressions
+          (e:EDefmulti) : sub-targs(e, [])
+          ;Small expressions
+          (e:EFn) : sub-targs(e, [])
+          (e:ECurry) : x(e)
+          (e:EMethod) : sub-targs(e, [])
+          (e:ETVar) : ETop()
+          ;Unexpected expressions
+          (e:EInstFn) : fatal("Unexpected")
+          (e:EDefClosure) : fatal("Unexpected")
+          (e:EDefObject) : fatal("Unexpected")
+          (e:ENewObject) : fatal("Unexpected")
+          (e:EClosureTGet) : fatal("Unexpected")
+          (e:EObjectTGet) : fatal("Unexpected")
+          (e:EClosure) : fatal("Unexpected")
+          (e:ETypeObject) : fatal("Unexpected")
+          (e:EDefTypeObject) : fatal("Unexpected")
+          ;Default
+          (e) : e
+
+  ;Remove type usages from the body.
+  defn remove-from-body (b:EBody) -> EBody :
+    ;Translate each of the local definitions.
+    val new-locals = map({remove-from(_) as ELocal}, locals(b))
+    val new-localfns = map({remove-from(_) as ELocalFn}, localfns(b))
+    val new-localobjs = map({remove-from(_) as ELocalObj}, localobjs(b))
+
+    ;Translate instructions: discard ETDef.
+    val new-ins = to-tuple $
+      for i in ins(b) seq? :
+        match(i:ETDef) : None()
+        else : One(remove-from(i) as EIns)
+
+    ;Return the new body.
+    EBody(new-locals, [], new-localfns, new-localobjs, new-ins)
+    
+  ;Process!
   remove-from(epackage) as EPackage
 
 ;============================================================
