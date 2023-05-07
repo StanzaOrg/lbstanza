@@ -483,6 +483,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
 
   deftype debug-name (VMDebugName) :
     id:int
+    global?:bool
     name:string
 
   deftype safepoint-table (VMSafepointTable) :

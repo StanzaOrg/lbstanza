@@ -1047,7 +1047,7 @@ defn rename-ids (f:VMMultifn) -> VMMultifn :
       map-label({label-table[_]}, vm-map(rename-local, i))
     val debug-name-table* = VMDebugNameTable $
       for e in entries(debug-name-table(f)) map :
-        VMDebugName(id-table[id(e)], name(e))
+        VMDebugName(id-table[id(e)], global?(e), name(e))
     VMFunc(args*, defs*, ins*, debug-name-table*)
 
   val funcs* = for f in funcs(f) map : key(f) => rename(value(f))

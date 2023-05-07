@@ -210,7 +210,7 @@ defn compile (e:EDefGlobal, global-table:GlobalTable, iotable:IOTable, progbuffe
       val rec = iotable[n]
       to-string(name(id(rec)))
   match(name?(n(e)), type(e)) :
-    (str:String, t:HiEType) : add(progbuffer, VMDebugName(n(e), str))
+    (str:String, t:HiEType) : add(progbuffer, VMDebugName(n(e), true, str))
     (str,t) : false
 
 defn parent-ids (t:EType|False) :
@@ -699,7 +699,7 @@ defn Compiler (gt:GlobalTable,
   ;If a name is given for the local, then record it.
   defn record-debug-name? (l:Local, name:String|False) :
     match(name:String) :
-      add(debug-names, VMDebugName(index(l),name))
+      add(debug-names, VMDebugName(index(l),false,name))
 
   ;---------------------------------------------------------
   ;--------------- Instruction Buffer ----------------------
