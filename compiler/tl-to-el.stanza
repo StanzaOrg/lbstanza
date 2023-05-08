@@ -274,7 +274,7 @@ defn Compiler (struct-table:StructTable,
   val safepoint-group = fresh-id()
   
   ;Determine whether safepoints are enabled.
-  val safepoints-enabled? = contains?(stz/params/EXPERIMENTAL-FEATURES, `safepoints)
+  val safepoints-enabled? = true ;contains?(stz/params/EXPERIMENTAL-FEATURES, `safepoints)
 
   ;Add a new instruction to the instruction buffer.
   ;For safepoints specifically, add them only if the feature is turned-on.
