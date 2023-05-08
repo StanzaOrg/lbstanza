@@ -674,6 +674,9 @@ typedef struct{
 typedef struct{
   uint64_t* global_offsets;    //(Permanent State)
   char* global_mem;            //(Permanent State)
+  uint64_t sig_handler;        //(Variable State)
+  uint64_t* current_coroutine_ptr;  //[TODO] Change to long to represent reference.
+  uint64_t* stepping_coroutine_ptr; //[TODO] Change to long to represent reference.
   uint64_t* const_table;       //(Permanent State)
   char* const_mem;             //(Permanent State)
   uint32_t* data_offsets;      //(Permanent State)
@@ -682,6 +685,9 @@ typedef struct{
   uint64_t* registers;         //(Permanent State)
   uint64_t* system_registers;  //(Permanent State)
   Heap heap;
+  void* safepoint_table;
+  void* debug_table;
+  void* local_var_table;
   uint64_t* class_table;       //(Permanent State)
   //Interpreted Mode Tables
   char* instructions;          //(Permanent State)

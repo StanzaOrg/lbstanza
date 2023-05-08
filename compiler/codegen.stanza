@@ -300,6 +300,8 @@ public defn compile-entry-function (emitter:CodeEmitter, stubs:AsmStubs) :
     #L(vmstate)                #long()                        ;global-offsets: ptr<long>
                                #label(globals)                ;global-mem: ptr<byte>
                                #false()                       ;sig-handler: ref<?>
+                               #long()                        ;current-coroutine-ptr: ptr<long>  ;[TODO] Change to false()
+                               #long()                        ;stepping-coroutine-ptr: ptr<long> ;[TODO] Change to false()
                                #label(const-table)            ;const-table: ptr<long>
                                #label(const-mem)              ;const-mem: ptr<byte>
                                #long()                        ;data-offsets: ptr<int>
@@ -338,8 +340,6 @@ public defn compile-entry-function (emitter:CodeEmitter, stubs:AsmStubs) :
                                #label(stack-trace-table)      ;stack-trace-table: ptr<?>
                                #label(extern-table)           ;extern-table: ptr<?>
                                #label(extern-defn-table)      ;extern-defn-table: ptr<?>
-                               #long()                        ;current-coroutine-ptr: ptr<long>  ;[TODO] Change to false()
-                               #long()                        ;stepping-coroutine-ptr: ptr<long> ;[TODO] Change to false()
     #L(registers)              #space(8 * 256)                ;space for registers
     #L(system-registers-space) #space(8 * 256)                ;space for system registers
     E $ DefText()

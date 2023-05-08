@@ -368,6 +368,9 @@ public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend
   heap.iterate-roots = addr(vm-iterate-roots)
   heap.iterate-references-in-stack-frames = addr(vm-iterate-references-in-stack-frames)
 
+  ;Initialize sighandler to false to indicate no handler on initialization.
+  vmstate.sig-handler = false-marker()
+
   ;Initialize extern trampoline
   initialize-extern-trampoline(addr(call_extern), vmstate.registers)
 

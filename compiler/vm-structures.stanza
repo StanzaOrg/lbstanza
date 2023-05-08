@@ -17,6 +17,9 @@ public lostanza deftype VMState :
   ;Compiled and Interpreted Mode
   var global-offsets: ptr<long>    ;(Permanent State)
   var global-mem: ptr<byte>        ;(Permanent State)
+  var sig-handler: long            ;(Variable State)
+  var current-coroutine-ptr: ptr<long>  ;[TODO] Change to long to represent reference.
+  var stepping-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
   var const-table: ptr<long>       ;(Permanent State)
   var const-mem: ptr<byte>         ;(Permanent State)
   var data-offsets: ptr<int>       ;(Permanent State)
@@ -25,6 +28,9 @@ public lostanza deftype VMState :
   var registers: ptr<long>         ;(Permanent State)
   var system-registers: ptr<long>  ;(Permanent State)
   heap: core/Heap                  ;(Variable State)
+  var safepoint-table: ptr<?>      ;(Permanent State)
+  var debug-table: ptr<?>          ;(Permanent State)
+  var local-var-table: ptr<?>      ;(Permanent State)
   var class-table: ptr<?>          ;(Permanent State)
   ;Interpreted Mode Tables
   var instructions: ptr<byte>      ;(Permanent State)
