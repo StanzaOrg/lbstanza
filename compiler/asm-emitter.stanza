@@ -24,7 +24,7 @@ Given this instruction:
 Here are the flag results:
 
                 | ZF  PF  CF
-  --------------------------              
+  --------------------------
   A or B is nan |  1   1   1
   A > B         |  0   0   0
   A < B         |  0   0   1
@@ -304,7 +304,7 @@ defn check-restriction (ins:Ins, backend:Backend) :
          #RM!(x(ins))
       (ins:LoadGoto) :
          #nExM!(x(ins))
-         #M!(x(ins))         
+         #M!(x(ins))
       (ins:Break) :
          val [t, x, op, y, z] = [type(ins), x(ins), op(ins), y(ins), z(ins)]
          #nExM!(x)
@@ -361,9 +361,9 @@ defn temp-label () -> ? :
 defn gen (os:OutputStream, ins:Ins, backend:Backend) :
    ;     Utilities
    ;     ---------
-   defn chars (s:String) :
+   defn padded-chars (s:String) :
       val n = length(s) + 1
-      val rem = ((n + 3) & -4) - n
+      val rem = ((n + 7) & -8) - n
       cat(seq(to-int, s), repeat(0, 1 + rem))
    defn #lbl (n:Int) : "__L%_" % [n]
    defn #lbl (i:Mem) : #lbl(n(i))
@@ -665,7 +665,7 @@ defn gen (os:OutputStream, ins:Ins, backend:Backend) :
             val z = z as FReg
             #println(os, "   ucomis%_ %_, %_" % [sz, #imm(t,z), #imm(t,y)])
             #println(os, "   movq $0, %_" % [#imm(LongT(), x)])
-            #println(os, "   set%_ %_" % [comm, #imm(ByteT(), x)])            
+            #println(os, "   set%_ %_" % [comm, #imm(ByteT(), x)])
          (op:LeOp|LtOp) :
             #fcmp(t, x, z, swap(op), y)
 
@@ -695,14 +695,14 @@ defn gen (os:OutputStream, ins:Ins, backend:Backend) :
             val sz = size-suffix(t)
             #println(os, "   ucomis%_ %_, %_" % [sz, #imm(t,z), #imm(t,y)])
             #println(os, "   jne %_ + %_" % [#lbl(x), offset(x)])
-            #println(os, "   jp %_ + %_" % [#lbl(x), offset(x)])            
+            #println(os, "   jp %_ + %_" % [#lbl(x), offset(x)])
          (op:EqOp) :
             val x = x as Mem|ExMem
             val sz = size-suffix(t)
             val tmp-label = temp-label()
             #println(os, "   ucomis%_ %_, %_" % [sz, #imm(t,z), #imm(t,y)])
             #println(os, "   jp %_" % [tmp-label])
-            #println(os, "   je %_ + %_" % [#lbl(x), offset(x)])            
+            #println(os, "   je %_ + %_" % [#lbl(x), offset(x)])
             #println(os, "%_:" % [tmp-label])
 
    ;     Dual Divide Operator
@@ -843,7 +843,7 @@ defn gen (os:OutputStream, ins:Ins, backend:Backend) :
       (ins:DefLong) : #println(os, "   .quad %_" % [value(ins)])
       (ins:DefFloat) : #println(os, "   .long %_" % [bits(value(ins))])
       (ins:DefDouble) : #println(os, "   .quad %_" % [bits(value(ins))])
-      (ins:DefString) : println(os, "   .byte %," % [chars(value(ins))])
+      (ins:DefString) : println(os, "   .byte %," % [padded-chars(value(ins))])
       (ins:DefBytes) : println(os, "   .byte %," % [value(ins)])
       (ins:DefSpace) : #println(os, "   .space %_" % [size(ins)]) when size(ins) > 0
       (ins:DefLabel) : #println(os, "   .quad %_" % [#lbl(n(ins))])
