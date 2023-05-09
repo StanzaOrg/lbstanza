@@ -1,9 +1,3 @@
-//Platform-specific defines.
-#if defined(PLATFORM_LINUX)
-  //Needs to be defined to access REG_RIP.
-  #define _GNU_SOURCE
-#endif
-
 #include<ucontext.h>
 #include<signal.h>
 #include<stdint.h>

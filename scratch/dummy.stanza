@@ -114,11 +114,11 @@ defn create-stack-trace (include-all:True|False) :
           append(instruction-pointer(entry), stack-pointer(entry), function-name(signature(entry)),
                  absolute-file-path(base(info), filename(info)), line(info), column(info))
         (info) : false
-extern defn create_stack_trace (format:long) -> int :
+public extern defn create_stack_trace (format:long) -> int :
   create-stack-trace(include-all?(format))
   return 0
 
-extern defn number_of_globals () -> int :
+public extern defn number_of_globals () -> int :
   return count-globals().value
 defn count-globals () -> Int :
   var count:Int = 0
@@ -126,7 +126,7 @@ defn count-globals () -> Int :
   for-all-globals(inc)
   count
 
-extern defn number_of_locals (pc:long) -> int :
+public extern defn number_of_locals (pc:long) -> int :
   return count-locals(new Long{pc}).value
 defn count-locals (pc:Long) -> Int :
   val ctxt = local-context(pc)
@@ -177,15 +177,15 @@ lostanza defn array-field-name (i:long, field-names:ptr<ptr<byte>>, field-index:
   return array-field-name(index)
 lostanza defn append-array-field (p:ptr<long>, i:long, field-names:ptr<ptr<byte>>, field-index:int) -> ref<False> :
   return append-variable(array-field-name(i, field-names, field-index), p)
-extern defn create_globals (hex:long) -> int :
+public extern defn create_globals (hex:long) -> int :
   /hex = to-bool(hex)
   append-global-variables()
   return 0
-extern defn create_locals (pc:long, sp:long, hex:long) -> int :
+public extern defn create_locals (pc:long, sp:long, hex:long) -> int :
   /hex = to-bool(hex)
   append-local-variables(new Long{pc}, new Long{sp})
   return 0
-extern defn create_fields (ref:ptr<long>, name:ptr<byte>, hex:long) -> int :
+public extern defn create_fields (ref:ptr<long>, name:ptr<byte>, hex:long) -> int :
   /hex = to-bool(hex)
   val v = [ref]
   val tag = type-id(v)

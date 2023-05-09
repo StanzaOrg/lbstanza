@@ -5,5 +5,5 @@
 
 ../stanza ../core/stanza.proj ../compiler/stanza.proj dummy.stanza -s dummy.s
 STANZADIR="/home/opliss/Work/lbstanza"
-cc dummy.s $STANZADIR/runtime/driver.c $STANZADIR/runtime/debug.c $STANZADIR/core/sighandler.c $STANZADIR/runtime/linenoise.c -DBUILD_DEBUG -std=gnu99 -lm -lpthread -ldl -fPIC -DPLATFORM_LINUX -I/home/opliss/Work/lbstanza/include -o dummy
+cc dummy.s $STANZADIR/runtime/driver.c $STANZADIR/runtime/debug.c $STANZADIR/core/sighandler.c $STANZADIR/runtime/linenoise.c -DBUILD_DEBUG -std=gnu99 -lm -lpthread -ldl -fPIC -DPLATFORM_LINUX  -D_GNU_SOURCE -I/home/opliss/Work/lbstanza/include -o dummy
 cp dummy /home/opliss/Work/lbstanza/runtime/debug
