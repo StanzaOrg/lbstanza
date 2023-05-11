@@ -1,3 +1,118 @@
+/*=========================================================
+===========================================================
+===========================================================
+
+Threads:
+
+  Communication thread (Main thread):
+
+    Continuously reads and processes messages from VSCode.
+
+  Stdout and Stderr redirection threads:
+
+    Created by main thread on startup.
+    
+    Continuously reads from a pipe and writes out data
+    to VSCode.
+
+  Stanza thread:
+
+    Created during processing of launch request message.
+
+    Executes the Stanza program.
+
+Start up sequence:
+
+  1) Force stdout/stderr into line buffering mode.
+     If this is not done, then program output will not display
+     in VSCode until buffer is flushed.
+
+  2) Initialize system facilities:
+     - Low-level I/O Interface
+     - Mutexes
+
+     NOTE: Any output to stdout/stderr during this phase
+     still prints normally.
+
+     This is unavoidable, because if this setup is required
+     for proper communication with VSCode. So if this cannot
+     complete successfully, then we can either the messages
+     or print them out normally.   
+
+  3) Redirect output (stdout, stderr) to VSCode targets.
+
+  4) Start the main communication loop.
+
+  5) When the communication loop ends (via an exit message or
+     if there's an error during communication, etc.) wait
+     for the output redirection threads to finish their work. 
+
+Low-Level I/O Interface:
+
+  The 'debug_adapter_read' and 'debug_adapter_write' functions
+  form an interface with two implementations: one for communicating
+  over sockets, and one over files.
+
+  'debug_adapter_write' will write raw bytes to the IDE (e.g. VSCode).
+  'debug_adapter_read' will read raw bytes from IDE (e.g. VSCode).
+
+  Currently, we use the 'files' implementation:
+
+  'debug_adapter_write' will write to 'fileno(stdout)'.
+  'debug_adapter_read' will read from 'fileno(stdin)'.
+
+Handled Messages:
+
+  See FOR_EACH_REQUEST macro for listing of all supported
+  requests.
+
+  On Startup:
+
+    initialize (Single message)
+    launch (Single message)
+    setBreakpoints (One per file)
+    setExceptionBreakpoints (Currently unused, but must be supported.)
+
+  VSCode Information Retrieval:
+  
+    threads -- Request list of active threads. 
+    stackTrace -- Request stack trace for current thread.
+    scopes -- Request variables visible from specific stack frame.
+    variables -- Request subvariables (locals, fields) of a "variable" (frame, or local).
+
+    (Note order is crucial.)
+
+  Finding Files:
+
+    source -- Used to locate a file if VSCode cannot locate it itself. (Currently unused.)
+
+  Debugger Controls:
+  
+    continue -- The play button.
+    pause -- The pause button.
+    next -- Step over.
+    stepIn -- Step into function.
+    stepOut -- Step out of function.
+
+  Program termination:
+
+    disconnect
+
+Startup Messages:
+
+  initialize:
+    - Report capabilities.
+    
+  launch:
+    - Call Stanza main, which dlopens the program-to-debug.
+    - Does not yet start the program.
+
+  setBreakpoints:
+    - Write INT3 breakpoints to the right places.
+
+===========================================================
+=========================================================*/
+
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -1357,6 +1472,8 @@ static inline const char* output_category(const OutputType type) {
   return names[type];
 }
 
+//Send out bytes 'data' to the specified VSCode target 'out' using
+//the DAP protocol.
 static void send_output(const OutputType out, const char* data, size_t length) {
   assert(length > 0);
   JSBuilder builder;
@@ -1367,6 +1484,9 @@ static void send_output(const OutputType out, const char* data, size_t length) {
   JSBuilder_send_and_destroy_event(&builder);
 }
 
+//Thread body for output redirection.
+//Continuously reads from the given pip (in args[0]) and
+//writes out bytes using DAP protocol.
 static void* redirect_output_loop(void* args) {
   const int read_fd = ((int*)args)[0];
   const OutputType out = ((int*)args)[1];
@@ -1380,7 +1500,13 @@ static void* redirect_output_loop(void* args) {
   }
   return NULL;
 }
-static const char* redirect_fd(int fd, const OutputType out) {
+
+//Redirects output from a file descriptor to a VSCode target.
+//- fd: The file descriptor that we want to redirect from (e.g. stdout or stderr).
+//- out: The target we want to redirect to (e.g. VSCode output, console, stderr, etc.).
+//Creates a pipe, and a thread that continuously reads from the pipe and writes
+//the data out to VSCode using DAP protocol.
+static const char* redirect_fd (int fd, const OutputType out) {
   static char error_buffer[256];
   int new_fd[2];
 #ifdef PLATFORM_WINDOWS
@@ -3339,7 +3465,44 @@ static bool (*request_handlers[])(const JSObject*) = {
 };
 #undef FOR_EACH_REQUEST
 
+
+#define FOR_EACH_REQUEST(def) \
+  def(continue)               \
+  def(disconnect)             \
+  def(initialize)             \
+  def(launch)                 \
+  def(pause)                  \
+  def(next)                   \
+  def(scopes)                 \
+  def(setBreakpoints)         \
+  def(setExceptionBreakpoints)\
+  def(source)                 \
+  def(stackTrace)             \
+  def(stepIn)                 \
+  def(stepOut)                \
+  def(threads)                \
+  def(variables)
+
+static const char* const request_names[] = {
+  #define DEFINE_REQUEST_NAME(name) #name,
+    FOR_EACH_REQUEST(DEFINE_REQUEST_NAME)
+  #undef DEFINE_REQUEST_NAME
+  NULL
+};
+ 
+// Array of request handlers:
+//   e.g. { request_continue, request_disconnect, ..., request_variables }
+// Every request handler, in case of malformed request, should log the error and return false.
+static bool (*request_handlers[])(const JSObject*) = {
+  #define DEFINE_REQUEST_HANDLER(name) request_##name,
+    FOR_EACH_REQUEST(DEFINE_REQUEST_HANDLER)
+  #undef DEFINE_REQUEST_HANDLER
+};
+#undef FOR_EACH_REQUEST
+
 static inline bool parse_request(JSValue* value, const char* data, size_t length) {
+  //Parse a 'request' message from VSCode.
+  //Returns false if it cannot be parsed as a wellformed request.
   JSParser parser;
   JSParser_initialize(&parser, data, length);
   if (JSParser_parse_value(&parser, value) && JSParser_skip_spaces(&parser) != parser.limit)
@@ -3363,13 +3526,20 @@ static inline bool parse_request(JSValue* value, const char* data, size_t length
     log_printf("error: 'command' field of 'string' type expected\n");
     return false;
   }
+  
+  //Look for a request handler with name 'command'.
+  //And execute it.
   for (const char* const* p = request_names; *p; p++)
     if (!strcmp(*p, command))                             // request name matches the command?
       return request_handlers[p - request_names](object); // call the request handler, return the result
+
+  //There is no request handler with the name 'command'.
   log_printf("error: unhandled command '%s'\n");
   return false;
 }
 
+//Given the name of a request, return the name unchanged if it is
+//one of the registered request handlers. Otherwise return null.
 static const char* canonicalize_request_name(const char* name) {
   assert(name);
   for (const char* const* p = request_names; *p; p++)
@@ -3424,7 +3594,7 @@ int main(int argc, char** argv) {
   setvbuf(stderr, NULL, _IONBF, 0);
 
   // Allocate and compute absolute path to the adapter
-  debug_adapter_path = get_absolute_path(argv[0]);
+  debug_adapter_path = get_absolute_path(argv[0]); //[TODO] Doesn't seem to be used.
   Args args = {argc, argv};
   next_arg(&args);// Remove adapter from the args
 
@@ -3446,6 +3616,10 @@ int main(int argc, char** argv) {
     }
     break;
   }
+
+  //The following block is used to support attaching to a running process,
+  //which is supported by VSCode.
+  //Note that our backend does not yet support this.
 
 #if 0 // Currently unused
   int launch_target_pos = find_last_arg_with_value("launch-target", argc, argv);
@@ -3470,6 +3644,10 @@ int main(int argc, char** argv) {
 #endif
 #endif
 
+  //Set up logging facilities.
+  //Mutex is required because both communication thread and Stanza thread
+  //uses logging.
+
   if (log_path) {
     debug_adapter_log = fopen(log_path, "wt");
     if (!debug_adapter_log) {
@@ -3486,6 +3664,7 @@ int main(int argc, char** argv) {
     }
   }
 
+  //Currently communication over ports is not used by us.
   if (port_arg) {
     char* remainder;
     int port = strtoul(port_arg, &remainder, 0); // Ordinary C notation
@@ -3528,6 +3707,7 @@ int main(int argc, char** argv) {
     debug_adapter_read = &read_from_socket;
     debug_adapter_write = &write_to_socket;
   } else {
+    //Set up 'files' implementation of low-level I/O interface.
     debug_adapter_input_fd = dup(fileno(stdin));
     debug_adapter_output_fd = dup(fileno(stdout));
     debug_adapter_read = &read_from_file;
@@ -3544,6 +3724,9 @@ int main(int argc, char** argv) {
   redirect_output(stdout, STDOUT);
   redirect_output(stderr, STDERR);
 
+  // Start the communication loop.
+  // Continuously read the next message from VSCode, and then
+  // process the message.
   for (char* data; run_mode != RUN_MODE_TERMINATED; free(data)) {
     const ssize_t length = read_packet(&data);
     if (!length) break;
@@ -3553,8 +3736,7 @@ int main(int argc, char** argv) {
     JSValue_destroy(&received);
   }
 
-  // Terminate debugger
-
+  // Wait for redirection threads to finish their work.
   sleep(1);
 
   // free_path(debug_adapter_path); // OS will release the process memory

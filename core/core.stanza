@@ -218,8 +218,10 @@ protected lostanza deftype VMState :
   global-offsets: ptr<long>   ;(Permanent State)
   global-mem: ptr<byte>       ;(Permanent State)
   var sig-handler: long       ;(Permanent State)
-  var current-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
-  var stepping-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
+  var current-coroutine-ptr: ptr<long>  ;[TODO] Currently, it's a pointer to a global variable.
+                                        ;Addresses of global variables are stable.
+                                        ;Future: Remove current-coroutine variable. Just go through VMState.
+  var stepping-coroutine-ptr: ptr<long> ;[TODO] Same as above.
   const-table: ptr<long>      ;(Permanent State)
   const-mem: ptr<byte>        ;(Permanent State)
   data-offsets: ptr<int>      ;(Permanent State)
