@@ -8,6 +8,9 @@ defpackage stz/el-ir :
   import core/stack-trace
   import stz/type-instfns
   import stz/type-fargs
+  import stz/absolute-info
+  import stz/el-trace-info
+  import stz/base-dir
 
 ;============================================================
 ;========================= Types ============================
@@ -57,7 +60,7 @@ public defstruct EDefGlobal <: ETExp :
   type: EType
   mutable?: True|False
   lostanza?: True|False
-  
+
 public defstruct EDefn <: ETExp :
   n: Int with: (updater => sub-n)
   func: EFunction with: (updater => sub-func)
@@ -72,9 +75,9 @@ public defstruct EDefClosure <: ETExp & GeneratedDuringCompilation :
 
 public defstruct EDefmulti <: ETExp :
   n: Int with: (updater => sub-n)
-  targs: Tuple<Int> with: (updater => sub-targs)  
-  a1-args: Tuple<FArg<EType>> with: (updater => sub-a1-args)
-  a2: EType
+  targs: Tuple<EFnTArg> with: (updater => sub-targs)  
+  args: Tuple<EFnArg> with: (updater => sub-args)
+  ret: EType
   dispatch:DispatchMask|False with: (updater => sub-dispatch)
   info?: TraceInfo with: (as-method => true, updater => sub-info)  
 
@@ -104,6 +107,7 @@ public defstruct EDefStruct <: ETExp :
 
 public defstruct EDefField :
   mutable?: True|False
+  name: Symbol
   type:EType
 
 public defstruct EExternFn <: ETExp :
@@ -115,7 +119,7 @@ public defstruct EExtern <: ETExp :
   n: Int with: (updater => sub-n)
   lbl: Symbol
   type: EType
-  
+
 public defstruct EInit <: ETExp :
   body: EBody with: (updater => sub-body)
   lostanza?: True|False
@@ -127,7 +131,7 @@ public defstruct EDefType <: ETExp :
 
 public defstruct EDefObject <: ETExp & GeneratedDuringCompilation :
   n: Int with: (updater => sub-n)
-  parent: EType 
+  parent: EType
   ntargs: Int with: (updater => sub-ntargs)
   nargs: Int
   methods: Tuple<Int> with: (updater => sub-n)
@@ -138,7 +142,7 @@ public defstruct EDefTypeObject <: ETExp & GeneratedDuringCompilation :
   type: EType
 
 ;============================================================
-;======================= Ge==================================
+;============ Nodes Generated During Compilation ============
 ;============================================================
 
 ;This type is used to tag any EItem that is generated during
@@ -148,7 +152,7 @@ deftype GeneratedDuringCompilation
 ;Returns true if the given EItem is generated during
 ;compilation and is not present when EL is first created.
 public defn generated-during-compilation? (e:ELItem) -> True|False :
-  e is ELItem&GeneratedDuringCompilation  
+  e is ELItem&GeneratedDuringCompilation
 
 ;============================================================
 ;======================== Functions =========================
@@ -161,13 +165,21 @@ public defstruct EMultifn <: EFunction :
 
 public defstruct EFn <: EFunction :
   tail?: True|False
-  targs: Tuple<Int> with: (updater => sub-targs)
-  args: Tuple<Int> with: (updater => sub-args)
-  a1-args: Tuple<FArg<EType>> with: (updater => sub-a1-args)
-  a2: EType with: (updater => sub-a2)
+  targs: Tuple<EFnTArg> with: (updater => sub-targs)
+  args: Tuple<EFnArg> with: (updater => sub-args)
+  ret: EType with: (updater => sub-ret)
   body: EBody with: (updater => sub-body)
   info?: TraceInfo with: (as-method => true, updater => sub-info)
-  free?: Free|False with: (default => false, updater => sub-free)  
+  free?: Free|False with: (default => false, updater => sub-free)
+
+public defstruct EFnArg :
+  n:Int with: (updater => sub-n)
+  arg:FArg<EType> with: (updater => sub-arg)
+  debug-name:String|False
+
+public defstruct EFnTArg :
+  n:Int with: (updater => sub-n)
+  debug-name:String|False
 
 public defn free (e:EFn) :
   match(free?(e)) :
@@ -178,6 +190,7 @@ public defstruct ELocal :
   n: Int with: (updater => sub-n)
   type: EType
   mutable?: True|False with: (updater => sub-mutable?)
+  debug-name:String|False
 
 public defstruct ELocalType :
   n: Int with: (updater => sub-n)
@@ -185,6 +198,7 @@ public defstruct ELocalType :
 public defstruct ELocalFn :
   n: Int with: (updater => sub-n)
   func: EFunction with: (updater => sub-func)
+  debug-name:String|False
 
 public defstruct ELocalObj :
   n: Int with: (updater => sub-n)
@@ -218,41 +232,29 @@ public defn empty? (f:Free) :
 ;====================== Accessors ===========================
 ;============================================================
 
-;Retrieve the wrapped types of all of the arguments.
-;Meant to be used after all arguments are converted to
-;simple positional arguments.
-public defn a1 (f:EFn) -> Tuple<EType> :
-  do(ensure-required-pos-arg!, a1-args(f))
-  map(type, a1-args(f))
+;Helper: Retrieve the wrapped type within an FArg.
+;Assumes that it is a simple positional arg.
+defn pos-arg-type!<?T> (a:FArg<?T>) -> T :
+  match(a:PositionalArg<T>) :
+    fatal("Not a simple positional arg.") when optional?(a)
+    type(a)
+  else :
+    fatal("Not a simple positional arg.")
 
-;Retrieve the wrapped types of all of the arguments.
-;Meant to be used after all arguments are converted to
-;simple positional arguments.
-public defn a1 (f:EDefmulti) -> Tuple<EType> :
-  do(ensure-required-pos-arg!, a1-args(f))
-  map(type, a1-args(f))
+;Retrieve the EType of a function argument.
+;(Assume post-conversion to positional args.)
+public defn type (a:EFnArg) -> EType :
+  pos-arg-type!(arg(a))
 
-;Substitute the argument types in the function.
-public defn sub-a1 (f:EFn, types:Tuple<EType>) -> EFn :
-  do(ensure-required-pos-arg!, a1-args(f))
-  sub-a1-args(f, map(PositionalArg<EType>{false, _}, types))
+;Substitute the EType of a function argument.
+;(Assume post-conversion to positional args.)
+public defn sub-type (a:EFnArg, t:EType) -> EFnArg :
+  pos-arg-type!(arg(a))
+  sub-arg(a, PositionalArg<EType>(false,t))
 
-;Create an EFn with simple positional arguments.
-public defn EFn (tail?:True|False
-                 targs:Tuple<Int>
-                 args:Tuple<Int>
-                 a1:Tuple<EType>
-                 a2:EType
-                 body:EBody
-                 info?:TraceInfo) -> EFn :
-  val pos-args = map(PositionalArg<EType>{false, _}, a1)
-  EFn(tail?, targs, args, pos-args, a2, body, info?)
-
-;Ensure that the argument is a simple positional argument.
-defn ensure-required-pos-arg! (a:FArg) :
-  val good? = match(a:PositionalArg) : not optional?(a)
-  if not good? :
-    fatal("The argument is expected to be a simple required positional argument.")
+;Create a simple positional EFnArg given its type.
+public defn EFnArg (n:Int, type:EType, debug-name:String|False) -> EFnArg :
+  EFnArg(n, PositionalArg<EType>(false,type), debug-name)
 
 ;============================================================  
 ;======================= Instructions =======================
@@ -314,7 +316,7 @@ public defstruct ESlot <: ELoc :
   loc: ELoc
   type: EType  ;type of result
   index: EImm
-  
+
 public defstruct ETVarLoc <: GeneratedDuringCompilation :
   n: Int with: (updater => sub-n)
 
@@ -434,7 +436,7 @@ public defstruct ECheckSet <: EIns & GeneratedDuringCompilation :
   y: EImm
   name: String|False
   info?: TraceInfo with: (as-method => true, updater => sub-info)
-  
+
 ;Used to create a mutable cell for representing variables.
 ;- y: The initial value held by the box. It is false if the variable
 ;  is uninitialized.
@@ -442,13 +444,13 @@ public defstruct ECheckSet <: EIns & GeneratedDuringCompilation :
 public defstruct EBox <: EIns & GeneratedDuringCompilation :
   x: EVarLoc
   y: EImm|False
-  type: EType 
+  type: EType
 public defstruct EBoxGet <: EIns & GeneratedDuringCompilation :
   x: EVarLoc
   y: EImm
 public defstruct EBoxSet <: EIns & GeneratedDuringCompilation :
   y: EImm
-  z: EImm  
+  z: EImm
 public defstruct EReturn <: EIns :
   y: EImm
 ;HiStanza lifted object:
@@ -480,9 +482,18 @@ public defstruct EClosureTGet <: EIns & GeneratedDuringCompilation :
   y: EImm
   n: Int with: (updater => sub-n)
   index: Int
+
+;Initialize the local type x with either a constant type (
+;created during method targ mapping) or with a reified type
+;created during object lifting.
 public defstruct ETDef <: EIns & GeneratedDuringCompilation :
   x: ETVarLoc
-  y: EImm
+  y: EImm|EType
+
+public defstruct ESafepoint <: EIns :
+  group-id: Int with: (updater => sub-group-id)
+  info?: TraceInfo with: (as-method => true, updater => sub-info)
+  
 public defstruct ELetRec <: EIns :
   xs: Tuple<EVarLoc>
   ys: Tuple<EClosure> with: (updater => sub-ys)
@@ -534,37 +545,6 @@ public defstruct GetVarContext <: CastErrorContext
 public defstruct BranchContext <: CastErrorContext
 
 ;============================================================
-;====================== TraceInfo ===========================
-;============================================================
-
-public deftype TraceInfo :
-  FileInfo <: TraceInfo
-  StackTraceEntry <: TraceInfo
-  False <: TraceInfo
-
-;Retrieve the stack trace information of the given item.
-defstruct NoTraceInfo
-public defmulti info? (item:ELItem) -> TraceInfo|NoTraceInfo
-
-;Replace the stack trace information in the given item.
-public defmulti sub-info<?T> (item:?T&ELItem, info:TraceInfo) -> T&ELItem
-
-;By default, the stack trace information is missing.
-defmethod info? (item:ELItem) : NoTraceInfo()
-
-;Returns true if the given item has stack trace information.
-public defn has-trace-info? (item:ELItem) -> True|False :
-  info?(item) is-not NoTraceInfo
-
-;Assume that the given item has trace information, and return it.
-public defn info (item:ELItem) -> TraceInfo :
-  match(info?(item)) :
-    (info:TraceInfo) :
-      info
-    (info:NoTraceInfo) :
-      fatal("Item %_ has no trace information." % [object-type(item)])
-
-;============================================================
 ;======================= Primitives =========================
 ;============================================================
 
@@ -597,12 +577,12 @@ defmethod print (o:OutputStream, t:EType) :
       match(r(t)) :
         (r:EType) : "fn<(%,), %_, %_>" % [a(t), r, b(t)]
         (r:False) : "fn<(%,), %_>" % [a(t), b(t)]
-    (t:EStructT) : "T%_" % [n(t)]      
+    (t:EStructT) : "T%_" % [n(t)]
     (t:EOf) : "ref<T%_>" % [n(t)]
     (t:ETVar) : "TV%_" % [n(t)]
     (t:EAnd) : "and(%_, %_)" % [a(t), b(t)]
     (t:EOr) : "or(%_, %_)" % [a(t), b(t)]
-    
+
 defmethod print (o:OutputStream, e:EDefGlobal) :
   val valstr = "var" when mutable?(e) else "val"
   val ls-str = " lostanza" when lostanza?(e) else ""
@@ -617,7 +597,7 @@ defmethod print (o:OutputStream, e:EDefClosure) :
     n(e), closure(e), ntargs(e), nargs(e), func(e)])
 
 defmethod print (o:OutputStream, e:EDefmulti) :
-  print(o, "defmulti V%_<%,> (%,) -> %_" % [n(e), seq(ETVar,targs(e)), a1-args(e), a2(e)])
+  print(o, "defmulti V%_<%,> (%,) -> %_" % [n(e), targs(e), args(e), ret(e)])
 
 defmethod print (o:OutputStream, e:EDefmethod) :
   val ls-str = " lostanza" when lostanza?(e) else ""
@@ -634,7 +614,7 @@ defmethod print (o:OutputStream, e:EDefStruct) :
 
 defmethod print (o:OutputStream, f:EDefField) :
   val mut-str = "var " when mutable?(f) else ""
-  print(o, "%_%_" % [mut-str, type(f)])
+  print(o, "%_%_%_" % [mut-str, name(f), type(f)])
 
 defmethod print (o:OutputStream, e:EExternFn) :
   val label-str = "" when lbl(e) is False
@@ -663,11 +643,20 @@ defmethod print (o:OutputStream, e:EDefTypeObject) :
 
 defmethod print (o:OutputStream, f:EFn) :
   val tagstr = "fn*" when tail?(f) else "fn"
-  defn astr (x:Int,a:FArg<EType>) : "V%_:%_" % [x,type(a)]  
-  print(o, "%_<%,> (%,) -> %_ :%_" % [tagstr, seq(ETVar,targs(f)), seq(astr, args(f), a1-args(f)), a2(f), body(f)])
+  print(o, "%_<%,> (%,) -> %_ :%_" % [tagstr, targs(f), args(f), ret(f), body(f)])
+
+defn optional-name (name:String|False) :
+  "" when name is False
+  else " (%~)" % [name]
+
+defmethod print (o:OutputStream, a:EFnTArg) :
+  print(o, "%_%_" % [ETVar(n(a)), optional-name(debug-name(a))])
+
+defmethod print (o:OutputStream, a:EFnArg) :
+  print(o, "V%_:%_%_" % [n(a), arg(a), optional-name(debug-name(a))])
 
 defmethod print (o:OutputStream, b:EBody) :
-  bprint(o, cat-all $ [locals(b), localfns(b), localobjs(b), ins(b)])
+  bprint(o, cat-all $ [locals(b), localtypes(b), localfns(b), localobjs(b), ins(b)])
 
 defmethod print (o:OutputStream, f:EMultifn) :
   print(o, "multifn :")
@@ -675,13 +664,13 @@ defmethod print (o:OutputStream, f:EMultifn) :
 
 defmethod print (o:OutputStream, l:ELocal) :
   val varstr = "var" when mutable?(l) else "val"
-  print(o, "def%_ V%_:%_" % [varstr, n(l), type(l)])
+  print(o, "def%_ V%_:%_%_" % [varstr, n(l), type(l), optional-name(debug-name(l))])
 
 defmethod print (o:OutputStream, l:ELocalType) :
   print(o, "type T%_" % [n(l)])
 
 defmethod print (o:OutputStream, e:ELocalFn) :
-  print(o, "defn V%_ %_" % [n(e), func(e)])
+  print(o, "defn V%_%_ %_" % [n(e), func(e), optional-name(debug-name(e))])
 
 defmethod print (o:OutputStream, e:ELocalObj) :
   print(o, "defobj O%_ <: %_ :" % [n(e), type(e)])
@@ -705,7 +694,7 @@ defmethod print (o:OutputStream, e:EImm) :
 
 defmethod print (o:OutputStream, e:EIns) :
   defn P (x) : print(o, x)
-  match(e) : 
+  match(e) :
     (e:EDef) :
       match(y(e)) :
         (y:EImm) : P $ "%_ = %_" % [x(e), y]
@@ -731,9 +720,9 @@ defmethod print (o:OutputStream, e:EIns) :
     (e:ECall) :
       val xstr = "" when x(e) is False
             else "%_ = " % [x(e)]
-      P $ "%_call %_ %_(%,)" % [xstr, calltype(e), f(e), ys(e)]
+      P $ "%_call %_ %_(%,) ;%_" % [xstr, calltype(e), f(e), ys(e), info?(e)]
     (e:ETCall) :
-      P $ "tcall %_ %_(%,)" % [calltype(e), f(e), ys(e)]
+      P $ "tcall %_ %_(%,) ;%_" % [calltype(e), f(e), ys(e), info?(e)]
     (e:EInterpret) : P $ "%_ = interpret %_" % [x(e), y(e)]
     (e:EConv) : P $ "%_ = conv %_" % [x(e), y(e)]
     (e:ECheck) : P $ "check(%_) %_ : %_" % [ctxt(e), y(e), type(e)]
@@ -741,7 +730,7 @@ defmethod print (o:OutputStream, e:EIns) :
     (e:EPrim) :
       match(x(e)) :
         (x:EVarLoc) : P $ "%_ = prim %_(%,)" % [x, op(e), ys(e)]
-        (x:False) : P $ "prim %_(%,)" % [op(e), ys(e)]    
+        (x:False) : P $ "prim %_(%,)" % [op(e), ys(e)]
     (e:EIf) :
       P $ match(op(e)) :
         (op:EOp) : "goto L%_ when prim %_(%,) else L%_" % [n1(e), op, ys(e), n2(e)]
@@ -757,7 +746,7 @@ defmethod print (o:OutputStream, e:EIns) :
       val vstr = "" when y(e) is False else y(e)
       P $ "%_ = box<%_>(%_)" % [x(e), type(e), vstr]
     (e:EBoxGet) : P $ "%_ = box-get %_" % [x(e), y(e)]
-    (e:EBoxSet) : P $ "box-set %_ = %_" % [y(e), z(e)]        
+    (e:EBoxSet) : P $ "box-set %_ = %_" % [y(e), z(e)]
     (e:EReturn) : P $ "return %_" % [y(e)]
     (e:ENewObject) : P $ "%_ = new-object T%_<%,> (%,)" % [x(e), n(e), targs(e), ys(e)]
     (e:EObjectGet) : P $ "%_ = object-get<T%_> %_[%_]" % [x(e), n(e), y(e), index(e)]
@@ -771,6 +760,7 @@ defmethod print (o:OutputStream, e:EIns) :
     (e:ELive) : P $ "live(%,)" % [xs(e)]
     (e:ETypeof) : P $ "goto L%_ when typeof(%_, %_) else L%_" % [n1(e), y(e), type(e), n2(e)]
     (e:ECheckFail) : P $ "check-fail(%_) %_ : %_" % [ctxt(e), y(e), type(e)]
+    (e:ESafepoint) : P $ "safepoint %_ ;%_" % [group-id(e), info?(e)]
 
 defmethod print (o:OutputStream, t:CallType) :
   print{o, _} $ match(t) :
@@ -797,7 +787,7 @@ defmethod print (o:OutputStream, e:EClosure) :
 defmethod print (o:OutputStream, e:EBranch) :
   print(o, "(%,) : goto L%_" % [types(e), n(e)])
 
-defmethod print (o:OutputStream, p:EPackage) :  
+defmethod print (o:OutputStream, p:EPackage) :
   print(o, "package %~ :" % [name(p)])
   val io = packageio(p)
   bprint(o, cat-all $ [imports(io), exports(io), exps(p)])
@@ -808,7 +798,7 @@ defmethod print (o:OutputStream, e:ELoc) :
     (e:EDeref) : "deref(%_)" % [y(e)]
     (e:EDeptr) : "deptr(%_)" % [y(e)]
     (e:EField) : "field(%_, T%_[%_])" % [loc(e), n(e), index(e)]
-    (e:ESlot) : "slot(%_[%_] : %_)" % [loc(e), index(e), type(e)]    
+    (e:ESlot) : "slot(%_[%_] : %_)" % [loc(e), index(e), type(e)]
 
 defmethod print (o:OutputStream, t:ETVarLoc) :
   print(o, "TV%_" % [n(t)])
@@ -844,7 +834,7 @@ defsyntax el-ir :
   defproduction oid : Int
   defrule oid = (?x) when prefix-id?(x,"O") : id-prefix(closest-info(), x, 1)
   defproduction lid : Int
-  defrule lid = (?x) when prefix-id?(x,"L") : id-prefix(closest-info(), x, 1)  
+  defrule lid = (?x) when prefix-id?(x,"L") : id-prefix(closest-info(), x, 1)
 
   defproduction eop : EOp
   defrule eop = (?x:#basic-op) : x
@@ -881,8 +871,8 @@ defsyntax el-ir :
                               (closure = ?c:#vid, ntargs = ?ntargs:#int, nargs = ?nargs:#int)
                               ?f:#efunc) :
     EDefClosure(n, c, ntargs, nargs, f)
-  defrule etexp = (defmulti ?n:#vid<?targs:#tvid ...> (?a1:#etype ...) -> ?a2:#etype) :
-    EDefmulti(n, to-tuple(targs), to-tuple(seq(PositionalArg<EType>{false, _}, a1)), a2, false, closest-info())
+  defrule etexp = (defmulti ?n:#vid<?targs:#efntarg ...> (?args:#efnarg ...) -> ?ret:#etype) :
+    EDefmulti(n, to-tuple(targs), to-tuple(args), ret, false, add-base-dir(closest-info()))
   defrule etexp = (defmethod ?ls:#lostanza? ?multi:#vid<?targs:#etype ...> (id = ?n:#vid) ?f:#efn) :
     EDefmethod(n, multi, to-tuple(targs), f, ls, false)
   defrule etexp = (defstruct ?n:#tid ?p:#parent? : (?fs:#edeffield ... ~ ...)) :
@@ -905,8 +895,8 @@ defsyntax el-ir :
   defrule label? = () : false
 
   defproduction edeffield : EDefField
-  defrule edeffield = (var ?t:#etype) : EDefField(true, t)
-  defrule edeffield = (?t:#etype) : EDefField(false, t)
+  defrule edeffield = (var ?name:#symbol ?t:#etype) : EDefField(true, name, t)
+  defrule edeffield = (?name:#symbol ?t:#etype) : EDefField(false, name, t)
 
   defproduction ebody : EBody
   defrule ebody = ((?locals:#elocal ...
@@ -914,21 +904,21 @@ defsyntax el-ir :
                     ?localfns:#elocalfn ...
                     ?localobjs:#elocalobj ...
                     ?ins:#eins ... #E)) :
-    EBody(to-tuple(locals), to-tuple(localtypes), to-tuple(localfns), to-tuple(localobjs), to-tuple(ins))                
+    EBody(to-tuple(locals), to-tuple(localtypes), to-tuple(localfns), to-tuple(localobjs), to-tuple(ins))
 
   defproduction parent? : False|EType
   defrule parent? = (<: ?t:#etype) : t
   defrule parent? = () : false
 
   defproduction elocal : ELocal
-  defrule elocal = (defvar ?n:#vid : ?t:#etype) : ELocal(n, t, true)
-  defrule elocal = (defval ?n:#vid : ?t:#etype) : ELocal(n, t, false)
+  defrule elocal = (defvar ?n:#vid : ?t:#etype ?name:#debug-name?) : ELocal(n, t, true, name)
+  defrule elocal = (defval ?n:#vid : ?t:#etype ?name:#debug-name?) : ELocal(n, t, false, name)
 
   defproduction elocaltype : ELocalType
   defrule elocaltype = (type ?n:#tid) : ELocalType(n)
 
   defproduction elocalfn : ELocalFn
-  defrule elocalfn = (defn ?n:#vid ?f:#efunc) : ELocalFn(n, f)
+  defrule elocalfn = (defn ?n:#vid ?f:#efunc ?name:#debug-name?) : ELocalFn(n, f, name)
 
   defproduction elocalobj : ELocalObj
   defrule elocalobj = (defobj ?n:#oid <: ?t:#etype : (?ms:#emethod ... #E)) : ELocalObj(n,t,to-tuple(ms))
@@ -939,11 +929,22 @@ defsyntax el-ir :
   defproduction efunc : EFunction
   defrule efunc = (?f:#efn) : f
   defrule efunc = (multifn : (?fs:#efn ... #E)) : EMultifn(to-tuple(fs))
-  
+
   defproduction efn : EFn
-  defrule efn = (?tail:#fntag<?targs:#tvid ...> ((?args:#vid : ?a1:#etype) @...) -> ?a2:#etype : ?b:#ebody) :
-    val eargs = to-tuple(seq(PositionalArg<EType>{false, _}, a1))
-    EFn(tail, to-tuple(targs), to-tuple(args), eargs, a2, b, closest-info())
+  defrule efn = (?tail:#fntag<?targs:#efntarg ...> (?args:#efnarg ...) -> ?ret:#etype : ?b:#ebody) :
+    EFn(tail, to-tuple(targs), to-tuple(args), ret, b, add-base-dir(closest-info()))
+
+  defproduction efntarg : EFnTArg
+  defrule efntarg = (?id:#tvid ?name:#debug-name?) :
+    EFnTArg(id, name)
+
+  defproduction efnarg : EFnArg
+  defrule efnarg = (?id:#vid : ?type:#etype ?name:#debug-name?) :
+    EFnArg(id, PositionalArg<EType>(false,type), name)
+
+  defproduction debug-name?: String|False
+  defrule debug-name? = ((?name:#string)) : name
+  defrule debug-name? = () : false
 
   defproduction fntag : True|False
   defrule fntag = (fn) : false
@@ -951,53 +952,54 @@ defsyntax el-ir :
 
   defproduction eins : EIns
   defrule eins = (def ?x:#vloc) : EDef(x, false)
-  defrule eins = (tdef ?x:#tvloc = ?y:#eimm) : ETDef(x, y)
-  defrule eins = (init-closures (?xs:#vloc ...)) : EInitClosures(to-tuple(xs), closest-info())
-  defrule eins = (letrec (?xs:#vloc ...) = (?cs:#eclosure ...)) : ELetRec(to-tuple(xs), to-tuple(cs), closest-info())
+  defrule eins = (tdef ?x:#tvloc = (?y:#eimm | ?y:#etype)) : ETDef(x, y)
+  defrule eins = (init-closures (?xs:#vloc ...)) : EInitClosures(to-tuple(xs), add-base-dir(closest-info()))
+  defrule eins = (letrec (?xs:#vloc ...) = (?cs:#eclosure ...)) : ELetRec(to-tuple(xs), to-tuple(cs), add-base-dir(closest-info()))
   defrule eins = (box-set ?y:#eimm = ?z:#eimm) : EBoxSet(y, z)
   defrule eins = (return ?y:#eimm) : EReturn(y)
   defrule eins = (tuple-set ?y:#eimm[?i:#int] = ?z:#eimm) : ETupleSet(y, i, z)
-  defrule eins = (check-length(?y:#eimm) == ?len:#int) : ECheckLength(y, len, closest-info())
-  defrule eins = (check(?c:#cast-error-ctxt) ?y:#eimm : ?t:#etype) : ECheck(y,t,c,closest-info())
-  defrule eins = (check-fail(?c:#cast-error-ctxt) ?y:#eimm : ?t:#etype) : ECheckFail(t,y,c,closest-info())
+  defrule eins = (check-length(?y:#eimm) == ?len:#int) : ECheckLength(y, len, add-base-dir(closest-info()))
+  defrule eins = (check(?c:#cast-error-ctxt) ?y:#eimm : ?t:#etype) : ECheck(y,t,c,add-base-dir(closest-info()))
+  defrule eins = (check-fail(?c:#cast-error-ctxt) ?y:#eimm : ?t:#etype) : ECheckFail(t,y,c,add-base-dir(closest-info()))
+  defrule eins = (safepoint ?groupid:#int) : ESafepoint(groupid, add-base-dir(closest-info()))
   defrule eins = (dump (?ys:#eimm ...)) : EDump(to-tuple(ys))
-  defrule eins = (store ?loc:#eloc = ?y:#eimm : ?t:#etype) : EStore(loc, y, t, closest-info())  
-  defrule eins = (store ?loc:#eloc = ?y:#eimm) : EStore(loc, y, ETop(), closest-info())  
+  defrule eins = (store ?loc:#eloc = ?y:#eimm : ?t:#etype) : EStore(loc, y, t, add-base-dir(closest-info()))
+  defrule eins = (store ?loc:#eloc = ?y:#eimm) : EStore(loc, y, ETop(), add-base-dir(closest-info()))
   defrule eins = (label ?n:#lid) : ELabel(n)
-  defrule eins = (call ?t:#calltype ?f:#eimm(?ys:#eimm ...)) : ECall(false, f, to-tuple(ys), t, closest-info())
-  defrule eins = (tcall ?t:#calltype ?f:#eimm(?ys:#eimm ...)) : ETCall(f, to-tuple(ys), t, closest-info())
+  defrule eins = (call ?t:#calltype ?f:#eimm(?ys:#eimm ...)) : ECall(false, f, to-tuple(ys), t, add-base-dir(closest-info()))
+  defrule eins = (tcall ?t:#calltype ?f:#eimm(?ys:#eimm ...)) : ETCall(f, to-tuple(ys), t, add-base-dir(closest-info()))
   defrule eins = (goto ?n1:#lid when prim ?op:#eop(?ys:#eimm ...) else ?n2:#lid) : EIf(n1, n2, op, to-tuple(ys))
   defrule eins = (goto ?n1:#lid when typeof(?y:#eimm, ?t:#etype) else ?n2:#lid) : ETypeof(n1, n2, t, y)
   defrule eins = (goto ?n1:#lid when ?y:#eimm else ?n2:#lid) : EIf(n1, n2, false, [y])
   defrule eins = (goto ?n:#lid) : EGoto(n)
-  defrule eins = (end) : EEnd(closest-info())
+  defrule eins = (end) : EEnd(add-base-dir(closest-info()))
   defrule eins = (live(?ys:#eimm ...)) : ELive(to-tuple(ys))
-  defrule eins = (match(?ys:#eimm ...) : (?bs:#ebranch ...)) : EMatch(to-tuple(ys), to-tuple(bs), closest-info())
-  defrule eins = (dispatch(?ys:#eimm ...) : (?bs:#ebranch ...)) : EDispatch(to-tuple(ys), to-tuple(bs), closest-info())
-  defrule eins = (check-set(?name:#string?) ?y:#eimm) : ECheckSet(y, name, closest-info())  
-  defrule eins = (prim ?op:#eop(?ys:#eimm ...)) : EPrim(false, op, to-tuple(ys), closest-info())
+  defrule eins = (match(?ys:#eimm ...) : (?bs:#ebranch ...)) : EMatch(to-tuple(ys), to-tuple(bs), add-base-dir(closest-info()))
+  defrule eins = (dispatch(?ys:#eimm ...) : (?bs:#ebranch ...)) : EDispatch(to-tuple(ys), to-tuple(bs), add-base-dir(closest-info()))
+  defrule eins = (check-set(?name:#string?) ?y:#eimm) : ECheckSet(y, name, add-base-dir(closest-info()))
+  defrule eins = (prim ?op:#eop(?ys:#eimm ...)) : EPrim(false, op, to-tuple(ys), add-base-dir(closest-info()))
   defrule eins = (?x:#vloc = interpret ?y:#eimm) : EInterpret(x,y)
   defrule eins = (?x:#vloc = conv ?y:#eimm) : EConv(x,y)
-  defrule eins = (?x:#vloc = prim ?op:#eop(?ys:#eimm ...)) : EPrim(x, op, to-tuple(ys), closest-info())
+  defrule eins = (?x:#vloc = prim ?op:#eop(?ys:#eimm ...)) : EPrim(x, op, to-tuple(ys), add-base-dir(closest-info()))
   defrule eins = (?x:#vloc = box<?t:#etype>()) : EBox(x,false,t)
   defrule eins = (?x:#vloc = box<?t:#etype>(?y:#eimm)) : EBox(x,y,t)
   defrule eins = (?x:#vloc = box-get ?y:#eimm) : EBoxGet(x,y)
-  defrule eins = (?x:#vloc = new ?n:#oid) : ENew(x, n, closest-info())
-  defrule eins = (?x:#vloc = new-object ?n:#tid<?targs:#etype ...> (?ys:#eimm ...)) : ENewObject(x, n, to-tuple(targs), to-tuple(ys), closest-info())
+  defrule eins = (?x:#vloc = new ?n:#oid) : ENew(x, n, add-base-dir(closest-info()))
+  defrule eins = (?x:#vloc = new-object ?n:#tid<?targs:#etype ...> (?ys:#eimm ...)) : ENewObject(x, n, to-tuple(targs), to-tuple(ys), add-base-dir(closest-info()))
   defrule eins = (?x:#vloc = object-get<?n:#tid> ?y:#eimm[?i:#int]) : EObjectGet(x, y, n, i)
   defrule eins = (?x:#tvloc = object-tget<?n:#tid> ?y:#eimm[?i:#int]) : EObjectTGet(x, y, n, i)
   defrule eins = (?x:#vloc = closure-get<?n:#int> ?y:#eimm[?i:#int]) : EClosureGet(x, y, n, i)
   defrule eins = (?x:#tvloc = closure-tget<?n:#int> ?y:#eimm[?i:#int]) : EClosureTGet(x, y, n, i)
   defrule eins = (?x:#tvloc = type-object ?n:#tid<?ts:#etype ...>) : ETypeObject(x, n, to-tuple(ts))
-  defrule eins = (?x:#vloc = tuple [?ys:#eimm ...]) : ETuple(x, to-tuple(ys), closest-info())
-  defrule eins = (?x:#vloc = void-tuple(?len:#int)) : EVoidTuple(x, len, closest-info())
-  defrule eins = (?x:#vloc = tuple-get ?y:#eimm[?i:#int]) : ETupleGet(x, y, i, closest-info())
-  defrule eins = (?x:#vloc = object ?n:#tid (?ys:#eimm ...)) : EObject(x, n, to-tuple(ys), closest-info())
-  defrule eins = (?x:#vloc = array ?n:#tid (?ys:#eimm ...)) : EArray(x, n, to-tuple(ys), closest-info())
+  defrule eins = (?x:#vloc = tuple [?ys:#eimm ...]) : ETuple(x, to-tuple(ys), add-base-dir(closest-info()))
+  defrule eins = (?x:#vloc = void-tuple(?len:#int)) : EVoidTuple(x, len, add-base-dir(closest-info()))
+  defrule eins = (?x:#vloc = tuple-get ?y:#eimm[?i:#int]) : ETupleGet(x, y, i, add-base-dir(closest-info()))
+  defrule eins = (?x:#vloc = object ?n:#tid (?ys:#eimm ...)) : EObject(x, n, to-tuple(ys), add-base-dir(closest-info()))
+  defrule eins = (?x:#vloc = array ?n:#tid (?ys:#eimm ...)) : EArray(x, n, to-tuple(ys), add-base-dir(closest-info()))
   defrule eins = (?x:#vloc = struct ?n:#tid (?ys:#eimm ...)) : EStruct(x, n, to-tuple(ys))
-  defrule eins = (?x:#vloc = addr(?loc:#eloc)) : EPtr(x, loc)  
+  defrule eins = (?x:#vloc = addr(?loc:#eloc)) : EPtr(x, loc)
   defrule eins = (?x:#vloc : ?xt:#etype = load ?loc:#eloc) : ELoad(x, xt, loc)
-  defrule eins = (?x:#vloc = call ?t:#calltype ?f:#eimm(?ys:#eimm ...)) : ECall(x, f, to-tuple(ys), t, closest-info())
+  defrule eins = (?x:#vloc = call ?t:#calltype ?f:#eimm(?ys:#eimm ...)) : ECall(x, f, to-tuple(ys), t, add-base-dir(closest-info()))
   defrule eins = (?x:#vloc = ?y:#eimm) : EDef(x, y)
 
   defproduction calltype : CallType
@@ -1022,7 +1024,7 @@ defsyntax el-ir :
     EClosure(n, to-tuple(targs), to-tuple(ys))
 
   defproduction ebranch : EBranch
-  defrule ebranch = ((?ts:#etype ...) : goto ?n:#lid) : EBranch(to-tuple(ts), n, closest-info())
+  defrule ebranch = ((?ts:#etype ...) : goto ?n:#lid) : EBranch(to-tuple(ts), n, add-base-dir(closest-info()))
 
   defproduction eimm : EImm
   defrule eimm = (LV{?x}) : ELSLiteral(unwrap-all(x))
@@ -1034,8 +1036,8 @@ defsyntax el-ir :
   defrule eimm = (?x:#ecurry) : x
 
   defproduction ecurry : EVar|ECurry
-  defrule ecurry = (?n:#vid<?targs:#etype ...>) : ECurry(EVar(n,closest-info()), to-tuple(targs))
-  defrule ecurry = (?n:#vid) : EVar(n, closest-info())
+  defrule ecurry = (?n:#vid<?targs:#etype ...>) : ECurry(EVar(n,add-base-dir(closest-info())), to-tuple(targs))
+  defrule ecurry = (?n:#vid) : EVar(n, add-base-dir(closest-info()))
 
   defproduction vloc : EVarLoc
   defrule vloc = (?n:#vid) : EVarLoc(n)
@@ -1101,12 +1103,12 @@ defmethod print (o:OutputStream, e:ELError) :
 
 defn rank (t:EType) :
   match(t) :
-    (t:EByte) : 0 
-    (t:EInt) : 1 
-    (t:ELong) : 2 
-    (t:EFloat) : 3 
-    (t:EDouble) : 4 
-    (t:EUnknown) : 5 
+    (t:EByte) : 0
+    (t:EInt) : 1
+    (t:ELong) : 2
+    (t:EFloat) : 3
+    (t:EDouble) : 4
+    (t:EUnknown) : 5
     (t:EPtrT) : 6
     (t:EFnT) : 7
     (t:EStructT) : 8
@@ -1114,8 +1116,8 @@ defn rank (t:EType) :
     (t:ETVar) : 10
     (t:EAnd) : 11
     (t:EOr) : 12
-    (t:ETop) : 13 
-    (t:EBot) : 14 
+    (t:ETop) : 13
+    (t:EBot) : 14
 
 defmethod hash (t:EType) :
   val base = rank(t) * 13
@@ -1260,6 +1262,8 @@ public deftype ELItem :
   ETVarLoc <: ELItem
   EBranch <: ELItem
   EClosure <: ELItem
+  EFnArg <: ELItem
+  EFnTArg <: ELItem
   ELBigItem <: ELItem
 
 public defn do (f:ELItem -> ?, item:ELItem) :
@@ -1303,11 +1307,11 @@ defmethod map<?T> (f:ELItem -> ELItem, item:ELItem&?T) -> ELItem&T :
     ;EPackage
     (e:EPackage) : EPackage(packageio(e), h(exps(e)))
 
-    ;ETExps    
+    ;ETExps
     (e:EDefGlobal) : EDefGlobal(n(e), h(type(e)), mutable?(e), lostanza?(e))
     (e:EDefn) : EDefn(n(e), h(func(e)), lostanza?(e))
     (e:EDefClosure) : EDefClosure(n(e), closure(e), ntargs(e), nargs(e), h(func(e)))
-    (e:EDefmulti) : EDefmulti(n(e), targs(e), h(a1-args(e)), h(a2(e)), dispatch(e), info(e))
+    (e:EDefmulti) : EDefmulti(n(e), h(targs(e)), h(args(e)), h(ret(e)), dispatch(e), info(e))
     (e:EDefmethod) : EDefmethod(n(e), multi(e), h(targs(e)), h(func(e)), lostanza?(e), dispatch(e))
     (e:EDefStruct) : EDefStruct(n(e), h?(parent(e)), h(base(e)), h?(items(e)))
     (e:EExternFn) : EExternFn(n(e), lbl(e), h(func(e)))
@@ -1318,19 +1322,23 @@ defmethod map<?T> (f:ELItem -> ELItem, item:ELItem&?T) -> ELItem&T :
     (e:EDefTypeObject) : EDefTypeObject(n(e), nargs(e), h(type(e)))
 
     ;Fields
-    (e:EDefField) : EDefField(mutable?(e), h(type(e)))
+    (e:EDefField) : EDefField(mutable?(e), name(e), h(type(e)))
 
     ;Functions
     (e:EMultifn) : EMultifn(h(funcs(e)))
-    (e:EFn) : EFn(tail?(e), targs(e), args(e), h(a1-args(e)), h(a2(e)), h(body(e)), info(e), free?(e))
+    (e:EFn) : EFn(tail?(e), h(targs(e)), h(args(e)), h(ret(e)), h(body(e)), info(e), free?(e))
+
+    ;Arguments.
+    (e:EFnArg) : EFnArg(n(e), h(arg(e)), debug-name(e))
+    (e:EFnTArg) : e
 
     ;Bodies
     (e:EBody) : EBody(h(locals(e)), h(localtypes(e)), h(localfns(e)), h(localobjs(e)), h(ins(e)))
 
     ;Locals
-    (e:ELocal) : ELocal(n(e), h(type(e)), mutable?(e))
+    (e:ELocal) : ELocal(n(e), h(type(e)), mutable?(e), debug-name(e))
     (e:ELocalType) : e
-    (e:ELocalFn) : ELocalFn(n(e), h(func(e)))
+    (e:ELocalFn) : ELocalFn(n(e), h(func(e)), debug-name(e))
     (e:ELocalObj) : ELocalObj(n(e), h(type(e)), h(methods(e)))
 
     ;Methods
@@ -1394,6 +1402,7 @@ defmethod map<?T> (f:ELItem -> ELItem, item:ELItem&?T) -> ELItem&T :
     (e:ELetRec) : ELetRec(h(xs(e)), h(ys(e)), info(e))
     (e:ETypeObject) : ETypeObject(h(x(e)), n(e), h(targs(e)))
     (e:ELive) : ELive(h(xs(e)))
+    (e:ESafepoint) : e
 
     ;Locations
     (e:EVarLoc) : e
@@ -1403,7 +1412,7 @@ defmethod map<?T> (f:ELItem -> ELItem, item:ELItem&?T) -> ELItem&T :
     (e:ESlot) : ESlot(h(loc(e)), h(type(e)), h(index(e)))
 
     ;Type Locations
-    (e:ETVarLoc) : e    
+    (e:ETVarLoc) : e
 
     ;Branches
     (e:EBranch) : EBranch(h(types(e)), n(e), info(e))
@@ -1468,6 +1477,7 @@ public defn varlocs (e:EIns) -> Tuple<EVarLoc> :
     (e:ELive) : []
     (e:ETypeof) : []
     (e:ECheckFail) : []
+    (e:ESafepoint) : []
 
 ;Return the list of immediates that the instruction
 ;uses to perform its action.
@@ -1511,14 +1521,18 @@ public defn uses (e:EIns) -> Seqable<EImm> :
     (e:EObjectTGet) : [y(e)]
     (e:EClosureGet) : [y(e)]
     (e:EClosureTGet) : [y(e)]
-    (e:ETDef) : [y(e)]
+    (e:ETDef) : 
+      match(y(e)) :
+        (y:EType) : []
+        (y:EImm) : [y]
     (e:ELetRec) :  seq-cat(ys, ys(e))
     (e:ETypeObject) : []
     (e:EEnd) : []
     (e:ELive) : xs(e)
     (e:ETypeof) : [y(e)]
     (e:ECheckFail) : [y(e)]
-    
+    (e:ESafepoint) : []
+
 ;Return the list of immediates that the instruction
 ;uses to retrieve its location.
 public defn uses (e:ELoc) -> Seqable<EImm> :
@@ -1544,12 +1558,14 @@ public defn label-uses (e:EIns) -> Seqable<Int> :
 ;============================================================
 
 public defn read-el-package (filename:String) :
-  val forms = reader/read-file(filename)
-  parse-syntax[el-ir / #epackage](forms)
+  within with-base-dir() :
+    val forms = reader/read-file(filename)
+    parse-syntax[el-ir / #epackage](forms)
 
 public defn read-el-packages (filename:String) :
-  val forms = reader/read-file(filename)
-  to-tuple(parse-syntax[el-ir / #epackage ...](forms))
+  within with-base-dir() :
+    val forms = reader/read-file(filename)
+    to-tuple(parse-syntax[el-ir / #epackage ...](forms))
 
 ;Information for dumping to log.
 defmethod stz/dump-to-log/object-log-name (p:EPackage) : name(p)

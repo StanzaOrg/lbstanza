@@ -10,6 +10,7 @@ defpackage stz/type-error-formatter :
   import stz/primitives
   import stz/type-hierarchy
   import stz/type-utils
+  import stz/absolute-info
 
 ;============================================================
 ;==================== Public API ============================
@@ -176,8 +177,9 @@ public defn TypeErrorFormatter (namemap:NameMap, hier:TypeHierarchy) :
       (e:LSMix) : n(refs(e)[0])
 
   ;Return a human-readable prefix for the file information.
-  defn info-str (info:FileInfo|False) :
-    "" when info is False else "%_: " % [info]
+  defn info-str (info:AbsoluteFileInfo|False) :
+    match(info:AbsoluteFileInfo) : "%_: " % [/info(info)]
+    else : ""
   defn info-str (e:TExp|TComm|LSExp|LSComm) :
     info-str(info(e))
 

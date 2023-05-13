@@ -18,13 +18,18 @@ public defn compiler-flags () :
   to-tuple(COMPILE-FLAGS)
 
 ;========= Stanza Configuration ========
-public val STANZA-VERSION = [0 18 18]
+public val STANZA-VERSION = [0 18 19]
 public var STANZA-INSTALL-DIR:String = ""
 public var OUTPUT-PLATFORM:Symbol = `platform
 public var STANZA-PKG-DIRS:List<String> = List()
 public val STANZA-PROJ-FILES = Vector<String>()
 public var EXPERIMENTAL-FEATURES:Tuple<Symbol> = []
 public var AUX-FILE-OVERRIDE:String|False = false
+
+;====== Currently-Supported Experimental Features =====
+public val SUPPORTED-EXPERIMENTAL-FEATURES = `(
+  jit
+  safepoints)
 
 ;====== Compiler Configuration =====
 public var STANZA-MAX-COMPILER-HEAP-SIZE = 4L * 1024L * 1024L * 1024L
