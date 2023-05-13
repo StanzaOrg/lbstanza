@@ -202,6 +202,7 @@ defpackage stz/reg-alloc :
   import stz/basic-blocks with :
     prefix(Block) => Basic
   import stz/trace-info
+  import stz/params
 
 ;============================================================
 ;===================== Driver ===============================
@@ -2544,6 +2545,7 @@ defn assemble (emitter:CodeEmitter,
   ;====================
   ;==== VarContext ====
   ;====================
+  val safepoints-enabled? = contains?(EXPERIMENTAL-FEATURES, `safepoints)
   val named-vars = Vector<asm-NamedVar>()
   val named-var-table = IntTable<Int>()
   for (v in 0 to false, name in VAR-NAMES) do :
@@ -2551,7 +2553,8 @@ defn assemble (emitter:CodeEmitter,
       val entry = asm-NamedVar(offset(stackmap,v), name as String)
       add(named-vars, entry)
       named-var-table[v] = length(named-vars) - 1
-  E $ asm-VarContext(context-id, to-tuple(named-vars))
+  if safepoints-enabled? :
+    E $ asm-VarContext(context-id, to-tuple(named-vars))
 
   ;Helper: Retrieve the VarMap for the given variables.
   defn varmap (vs:Tuple<Var>) -> asm-VarMap :
@@ -2604,9 +2607,10 @@ defn assemble (emitter:CodeEmitter,
             false
       (e:Call) :
         defn emit-info-label (label-id:Int, info:CallInfo) :
+          val vmap = varmap(/named-vars(info)) when safepoints-enabled?
           E $ asm-Label(label-id, 
                         trace-entry(info)
-                        varmap(/named-vars(info)))            
+                        vmap)            
 
         match(type(e)) :
           (t:ExtendStack) :
