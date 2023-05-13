@@ -363,7 +363,7 @@ defn gen (os:OutputStream, ins:Ins, backend:Backend) :
    ;     ---------
    defn padded-chars (s:String) :
       val n = length(s) + 1
-      val rem = ((n + 7) & -8) - n
+      val rem = ((n + 3) & -4) - n
       cat(seq(to-int, s), repeat(0, 1 + rem))
    defn #lbl (n:Int) : "__L%_" % [n]
    defn #lbl (i:Mem) : #lbl(n(i))

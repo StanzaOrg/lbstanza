@@ -206,6 +206,12 @@ public defn LocalTable () -> LocalTable :
           val index = next(counter, length(entries(ctxt)))
           E(DefInt(index))
         E(DefInt(value(counter)))
+        
+        ;Emit extra int to align next table to ensure
+        ;whole list is multiple of 8-bytes. Needed to align
+        ;following table.
+        if length(context-list) % 2 == 1 :
+          E(DefInt(0))
 
       ;Emit the map-list.
       defn emit-map-list () -> False :
