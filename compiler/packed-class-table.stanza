@@ -44,6 +44,7 @@ public defmulti emit-pointer-to-label (p:StaticPacker, id:Int) -> False
 public defmulti emit (p:StaticPacker, x:Int) -> False
 public defmulti emit (p:StaticPacker, x:Long) -> False
 public defmulti emit (p:StaticPacker, x:String) -> False
+public defmulti align-8 (p:StaticPacker) -> False
 
 ;============================================================
 ;================== Overall Static Packer ===================
@@ -100,6 +101,7 @@ public defn pack (records:Collection<ClassTableRecord>, packer:StaticPacker) -> 
     pack(r, packer)
 
   ;Emit field name records
+  align-8(packer)
   for (r in records, i in 0 to false) do :
     if not empty?(field-names(r)) :
       emit-comment(packer, to-string("Field Name Records: Class %_ (index %_)" % [name(r), index(r)]))
