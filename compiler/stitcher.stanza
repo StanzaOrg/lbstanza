@@ -880,6 +880,7 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
         defmethod emit (this, x:Int) : E $ DefInt(x)
         defmethod emit (this, x:Long) : E $ DefLong(x)
         defmethod emit (this, x:String) : E $ DefString(x)
+        defmethod align-8 (this) : E $ DefData()
     E $ DefText()
     E $ Comment("End of Class Table")
 
