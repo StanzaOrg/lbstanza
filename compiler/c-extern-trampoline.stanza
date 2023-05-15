@@ -221,15 +221,19 @@ public defn compile-c-extern-trampoline-stub (backend:Backend,
 
   ;Save and restore preserved registers.
   ;Currently we use 2 of them.
-  val preserve-registers-address = unique-label(emitter)
-  
+  val num-used-preserved-registers = 2
+
   defn save-preserved-regs () :
     for i in 0 to 2 do :
-      E $ StoreL(Mem(preserve-registers-address, i * 8), R(c-preserved-regs(backend)[i]))
+      val offset = -8 - i * 8
+      E $ StoreL(RSP, R(c-preserved-regs(backend)[i]), offset)
+    E $ SubL(RSP, RSP, INT(num-used-preserved-registers * 8))
       
   defn restore-preserved-regs () :
+    E $ AddL(RSP, RSP, INT(num-used-preserved-registers * 8))
     for i in 0 to 2 do :
-      E $ LoadL(R(c-preserved-regs(backend)[i]), Mem(preserve-registers-address, i * 8))  
+      val offset = -8 - i * 8
+      E $ LoadL(R(c-preserved-regs(backend)[i]), RSP, offset)
   
   ;Retrieve the argument registers.
   val ARG0 = R(callc-regs(backend)[0])
@@ -249,12 +253,6 @@ public defn compile-c-extern-trampoline-stub (backend:Backend,
   ;Load the parameter with the given name to the given location.
   defn load-param (x:Loc, name:Symbol) -> False :
     E $ LoadL(x, M(params-address), param-offset(name))
-
-  ;Define space for preserve registers.
-  E $ DefData()
-  E $ Label(preserve-registers-address)
-  E $ DefSpace(8 * 2)
-  E $ DefText()
 
   ;Emit the jump tables for setting registers
 
@@ -344,7 +342,9 @@ public defn compile-c-extern-trampoline-stub (backend:Backend,
   ;Decrement num-mem-args.
   E $ SubL(NUM-MEM-ARGS, NUM-MEM-ARGS, INT(1))
   ;Load value from C stack.
-  val offset = 8 + c-num-spill-slots(backend) * 8
+  val offset = 8
+           + c-num-spill-slots(backend) * 8
+           + num-used-preserved-registers * 8
   E $ ShlL(MEM-VALUE, NUM-MEM-ARGS, INT(3))
   E $ AddL(MEM-VALUE, MEM-VALUE, RSP)
   E $ LoadL(MEM-VALUE, MEM-VALUE, offset)
