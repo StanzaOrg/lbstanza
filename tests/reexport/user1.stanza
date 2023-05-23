@@ -1,0 +1,8 @@
+; #use-added-syntax(reexport-syntax)
+
+defpackage user1 :
+    import core
+    import public1
+
+;foo()
+println(foo())

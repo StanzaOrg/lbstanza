@@ -102,7 +102,9 @@ defn ls-name-args (e:IExp) -> [IExp, List<IExp>] :
       ($package name:e imports:e ...) :
          IDefPackage(name, imports, add-base-dir(info))
       ($import name:e prefixes:e ...) :
-         IImportExp(name, prefixes, add-base-dir(info))
+         IImportExp(name, false, prefixes, add-base-dir(info))
+      ($forward name:e prefixes:e ...) :
+         IImportExp(name, true, prefixes, add-base-dir(info))
       ($prefix-of (names:e ...) p:e) :
          IPrefixExp(names, p, add-base-dir(info))
       ($prefix p:e) :
@@ -495,7 +497,7 @@ defn to-iimport (e:IImportExp) -> IImport :
     IPrefix(names, prefix)
   val package = name!(package(e))
   val prefix = to-tuple $ seq(to-iprefix, prefix(e) as List<IPrefixExp>)
-  IImport(package, prefix, info(e))
+  IImport(package, forward(e), prefix, info(e))
 
 ;============================================================
 ;================= Syntax Restrictions ======================

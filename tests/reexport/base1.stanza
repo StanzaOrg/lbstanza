@@ -1,0 +1,6 @@
+; #use-added-syntax(reexport-syntax)
+
+defpackage base1 :
+    import core
+
+public defn foo () : "base1-foo"

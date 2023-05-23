@@ -995,7 +995,7 @@ defsyntax core :
 
    val TAG-TABLE = HashSet<Symbol>()
    for tag in `(
-      $package $import $prefix-of $prefix $public $protected $private $doc $nodoc $deftype $defchild $def
+      $package $import $forward $prefix-of $prefix $public $protected $private $doc $nodoc $deftype $defchild $def
       $defvar $defn $defn* $defmulti $defmethod $defmethod* $fn $fn*
       $multi $begin $let $match $branch $new $as $as? $set $do
       $prim $tuple $quote $none $of $and $or $->
@@ -2224,6 +2224,8 @@ defsyntax core :
       qquote($import ~ name ~@ ps)
    defrule import-clause! = (import ?name:#id!) :
       qquote($import ~ name)
+   defrule import-clause! = (forward ?name:#id!) :
+      qquote($forward ~ name)
    fail-if import-clause! = () :
       CSE(closest-info(), "Expected import clause here.")
 

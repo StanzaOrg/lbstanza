@@ -737,8 +737,14 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
   defn make-symtable (p:IPackage) -> SymbolTable :
     ;Create and initialize symboltable with base mappings
     val symtable = SymbolTable(name(p), namemap(p))
-    ;Evaluate all imports for the symbol table
-    for imp in imports(p) do :
+    val readPackages = HashSet<Symbol>()
+    val forwardedPackages = HashSet<Symbol>()
+    ; For some given import:
+    ; Add its public symbols to the table, recursively import any
+    ;   forwarded packages
+    ; TODO: skip double-imports modulo prefixing
+    ; TODO: detect cycles
+    defn extend-symtable (imp:IImport) -> False :
       defn visible? (e:VEntry|Export) :
         if import-private?(imp) : true
         else : visibility(e) is Public
@@ -747,13 +753,19 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
         ;Imported a source file
         (p:IPackage) :
           import(symtable, filter(visible?, toplevel(namemap(p))), prefix(imp))
+          for imp in filter(forward, imports(p)) do :
+            extend-symtable(imp)
         ;Imported a .pkg file.
         (p:PackageExports) :
           import(symtable, filter(visible?, exports(p)), prefix(imp))
         ;Could not resolve the imported package.
         (f:False) :
           add(errors, NoPackage(package-name, name(p), info(imp)))
-    ;Return new symbol table      
+
+
+    for imp in imports(p) do :
+      extend-symtable(imp)
+
     symtable
     
   ;Construct a symbol table from a .pkg file.        
@@ -947,6 +959,12 @@ public defstruct NotCapVar <: ResolveError :
 public defstruct MissingType <: ResolveError :
   src-package:Symbol
   typeid:TypeId
+public defstruct ForwardingCycle <: ResolveError :
+  src-packages:Seq<Symbol>
+
+defmethod print (o:OutputStream, ps:ForwardingCycle) :
+  val FMT = "Packages form a cycle via forwarding: %_"
+  print(o, FMT % [src-packages(ps)])
 
 defmethod print (o:OutputStream, e:MissingType) :
   val FMT = "Missing type: The %~ package requires the %_/%_ type to be defined."
