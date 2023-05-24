@@ -2224,6 +2224,8 @@ defsyntax core :
       qquote($import ~ name ~@ ps)
    defrule import-clause! = (import ?name:#id!) :
       qquote($import ~ name)
+   defrule import-clause! = (forward ?name:#id! with #:! (?ps:#prefix-clause! ...)) :
+      qquote($forward ~ name ~@ ps)
    defrule import-clause! = (forward ?name:#id!) :
       qquote($forward ~ name)
    fail-if import-clause! = () :

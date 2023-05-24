@@ -737,34 +737,37 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
   defn make-symtable (p:IPackage) -> SymbolTable :
     ;Create and initialize symboltable with base mappings
     val symtable = SymbolTable(name(p), namemap(p))
-    val readPackages = HashSet<Symbol>()
-    val forwardedPackages = HashSet<Symbol>()
-    ; For some given import:
+    val forwarded-packages = HashSet<Symbol>() ; Set of packages already forwarded
+    ; For a given import and its prefix table:
     ; Add its public symbols to the table, recursively import any
-    ;   forwarded packages
+    ;   forwarded packages, transitively composing prefix tables
     ; TODO: skip double-imports modulo prefixing
-    ; TODO: detect cycles
-    defn extend-symtable (imp:IImport) -> False :
+    defn extend-symtable (imp:IImport, ptable:PrefixTable) -> False :
       defn visible? (e:VEntry|Export) :
         if import-private?(imp) : true
         else : visibility(e) is Public
       val package-name = package(imp)
       match(load-package(package-name)) :
-        ;Imported a source file
+        ;Imported a source file, recursively import any forwards
         (p:IPackage) :
-          import(symtable, filter(visible?, toplevel(namemap(p))), prefix(imp))
-          for imp in filter(forward, imports(p)) do :
-            extend-symtable(imp)
+          if forwarded-packages[package-name] : ; Cycle
+            add(errors, ForwardingCycle(to-seq(forwarded-packages)))
+          else :
+            add(forwarded-packages, package-name)
+            import(symtable, filter(visible?, toplevel(namemap(p))), ptable)
+            for imp in filter(forward, imports(p)) do :
+              extend-symtable(imp, compose(ptable, PrefixTable(prefix(imp))))
+            remove(forwarded-packages, package-name) as False ; ugly cast -- could fail if we actually did detect a cycle
         ;Imported a .pkg file.
         (p:PackageExports) :
-          import(symtable, filter(visible?, exports(p)), prefix(imp))
+          import(symtable, filter(visible?, exports(p)), ptable)
         ;Could not resolve the imported package.
         (f:False) :
           add(errors, NoPackage(package-name, name(p), info(imp)))
 
 
     for imp in imports(p) do :
-      extend-symtable(imp)
+      extend-symtable(imp, PrefixTable(prefix(imp)))
 
     symtable
     
@@ -802,8 +805,8 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
 
 deftype SymbolTable
 defmulti package (t:SymbolTable) -> Symbol
-defmulti import (t:SymbolTable, entries:Seqable<VEntry>, prefix:Tuple<IPrefix>) -> False
-defmulti import (t:SymbolTable, exports:Seqable<Export>, prefix:Tuple<IPrefix>) -> False
+defmulti import (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable) -> False
+defmulti import (t:SymbolTable, exports:Seqable<Export>, ptable:PrefixTable) -> False
 defmulti push-scope (t:SymbolTable) -> False
 defmulti pop-scope (t:SymbolTable) -> False
 defmulti define (t:SymbolTable, n:Int) -> False
@@ -827,8 +830,7 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
     do(add-entry{_, false}, es)
 
   ;Importing a sequence of entries
-  defn import (es:Seqable<VEntry>, prefix:Tuple<IPrefix>) :
-    val ptable = PrefixTable(prefix)
+  defn import (es:Seqable<VEntry>, ptable:PrefixTable) :
     for e in es do :
       add-entry(e, ptable[name(e)])
 
@@ -841,10 +843,10 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   new SymbolTable :
     defmethod package (this) :
       package-name
-    defmethod import (this, entries:Seqable<VEntry>, prefix:Tuple<IPrefix>) :
-      import(entries, prefix)
-    defmethod import (this, exports:Seqable<Export>, prefix:Tuple<IPrefix>) :
-      import(seq(VEntry,exports), prefix)
+    defmethod import (this, entries:Seqable<VEntry>, ptable:PrefixTable) :
+      import(entries, ptable)
+    defmethod import (this, exports:Seqable<Export>, ptable:PrefixTable) :
+      import(seq(VEntry,exports), ptable)
     defmethod push-scope (this) :
       push-level(table)
     defmethod pop-scope (this) :
@@ -874,6 +876,11 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
 deftype PrefixTable
 defmulti get (t:PrefixTable, name:Symbol) -> String|False
 
+; Empty table
+defn PrefixTable () :
+  new PrefixTable :
+    defmethod get (this, name:Symbol) : false
+
 defn PrefixTable (prefixes:Tuple<IPrefix>) :
   var all-prefix:String|False = false
   val table = HashTable<Symbol,String>()
@@ -886,6 +893,17 @@ defn PrefixTable (prefixes:Tuple<IPrefix>) :
       match(get?(table, name)) :
         (s:String) : s
         (s:False) : all-prefix
+
+; Compose tables t1 and t2 such that:
+; get(compose(t1,t2),x) = get(t1,x) ++ get(t2,x)
+defn compose (t1:PrefixTable, t2:PrefixTable) -> PrefixTable :
+  new PrefixTable :
+    defmethod get (this, name:Symbol) :
+      match(get(t1, name), get(t2, name)) :
+        (x:String, y:String) : append(x,y)
+        (x:False, y:String)  : y
+        (x:String, y:False)  : x
+        (x,y)                : false
         
 defn add-prefix (prefix:String|False, x:Symbol) :
   match(prefix:String) :
@@ -964,7 +982,7 @@ public defstruct ForwardingCycle <: ResolveError :
 
 defmethod print (o:OutputStream, ps:ForwardingCycle) :
   val FMT = "Packages form a cycle via forwarding: %_"
-  print(o, FMT % [src-packages(ps)])
+  print(o, FMT % [to-vector<Symbol>(src-packages(ps))])
 
 defmethod print (o:OutputStream, e:MissingType) :
   val FMT = "Missing type: The %~ package requires the %_/%_ type to be defined."
