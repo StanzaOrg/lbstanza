@@ -46,8 +46,8 @@ public defn NameMap (ns:Seqable<NameMap|PackageExports>) :
 ;Holds the definition information for a variable in the input stage
 ;of the program. 
 public defstruct VEntry <: Equalable :
-  n: Int
-  package: Symbol
+  n: Int 
+  package: Symbol with: (updater => forward-to)
   name: Symbol
   visibility: Visibility
   type: EType

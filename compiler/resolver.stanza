@@ -741,33 +741,35 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
     ; For a given import and its prefix table:
     ; Add its public symbols to the table, recursively import any
     ;   forwarded packages, transitively composing prefix tables
-    ; TODO: skip double-imports modulo prefixing
-    defn extend-symtable (imp:IImport, ptable:PrefixTable) -> False :
+    defn extend-symtable (imp:IImport, ptable:PrefixTable, include-protected:True|False) -> False :
       defn visible? (e:VEntry|Export) :
         if import-private?(imp) : true
         else : visibility(e) is Public
-      val package-name = package(imp)
-      match(load-package(package-name)) :
+      defn protected? (e : VEntry|Export) :
+        visibility(e) is Protected
+      val import-name = package(imp)
+      match(load-package(import-name)) :
         ;Imported a source file, recursively import any forwards
         (p:IPackage) :
-          if forwarded-packages[package-name] : ; Cycle
-            add(errors, ForwardingCycle(to-seq(forwarded-packages)))
+          if forwarded-packages[import-name] : ; Cycle
+            throw(ForwardingCycle(to-seq(forwarded-packages)))
           else :
-            add(forwarded-packages, package-name)
+            add(forwarded-packages, import-name)
             import(symtable, filter(visible?, toplevel(namemap(p))), ptable)
+            if include-protected :
+              forward-protected(symtable, filter(protected?, toplevel(namemap(p))))
             for imp in filter(forward, imports(p)) do :
-              extend-symtable(imp, compose(ptable, PrefixTable(prefix(imp))))
-            remove(forwarded-packages, package-name) as False ; ugly cast -- could fail if we actually did detect a cycle
+              extend-symtable(imp, compose(ptable, PrefixTable(prefix(imp))), include-protected)
+            remove(forwarded-packages, import-name) as False ; ugly cast -- could fail if we actually did detect a cycle
         ;Imported a .pkg file.
         (p:PackageExports) :
           import(symtable, filter(visible?, exports(p)), ptable)
         ;Could not resolve the imported package.
         (f:False) :
-          add(errors, NoPackage(package-name, name(p), info(imp)))
-
-
+          add(errors, NoPackage(import-name, name(p), info(imp)))
+    
     for imp in imports(p) do :
-      extend-symtable(imp, PrefixTable(prefix(imp)))
+      extend-symtable(imp, PrefixTable(prefix(imp)), forward(imp))
 
     symtable
     
@@ -807,6 +809,8 @@ deftype SymbolTable
 defmulti package (t:SymbolTable) -> Symbol
 defmulti import (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable) -> False
 defmulti import (t:SymbolTable, exports:Seqable<Export>, ptable:PrefixTable) -> False
+defmulti forward-protected (t:SymbolTable, entries:Seqable<VEntry>) -> False
+defmulti forward-protected (t:SymbolTable, exports:Seqable<Export>) -> False
 defmulti push-scope (t:SymbolTable) -> False
 defmulti pop-scope (t:SymbolTable) -> False
 defmulti define (t:SymbolTable, n:Int) -> False
@@ -838,6 +842,11 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
     for e in es do :
       add-entry(e, ptable[name(e)])
 
+  ;Importing a sequence of protected entries when forwarding a package
+  defn forward-protected (es:Seqable<VEntry>) :
+    for e in es do :
+      add-entry(forward-to(e, package-name), false)
+
   ;Initializing the symbol table
   match(base) :
     (basemap:NameMap) : add-entries(toplevel(basemap))
@@ -851,6 +860,11 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
       import(entries, ptable)
     defmethod import (this, exports:Seqable<Export>, ptable:PrefixTable) :
       import(seq(VEntry,exports), ptable)
+    defmethod forward-protected (this, entries:Seqable<VEntry>) :
+      forward-protected(entries)
+    defmethod forward-protected (this, exports:Seqable<Export>) :
+      fatal("Protected forwarding not yet implemented for .pkg files")
+      ;forward-protected(seq(VEntry,exports), ptable)
     defmethod push-scope (this) :
       push-level(table)
     defmethod pop-scope (this) :
