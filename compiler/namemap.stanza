@@ -45,7 +45,7 @@ public defn NameMap (ns:Seqable<NameMap|PackageExports>) :
 
 ;Holds the definition information for a variable in the input stage
 ;of the program. 
-public defstruct VEntry :
+public defstruct VEntry <: Equalable :
   n: Int
   package: Symbol
   name: Symbol
@@ -54,6 +54,10 @@ public defstruct VEntry :
   info: AbsoluteFileInfo|False
 with:
   printer => true
+
+defmethod equal? (e1 : VEntry, e2 : VEntry) :
+  n(e1) == n(e2)
+
 
 public defstruct Local <: Visibility
 defmethod print (o:OutputStream, l:Local) :

@@ -821,7 +821,11 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   defn add-entry (e:VEntry, prefix:String|False) :
     val name* = add-prefix(prefix, name(e))
     table[name*] =
-      if key?(table, name*) : cons(e, table[name*])
+      if key?(table, name*) : 
+        if not contains?(table[name*], e) :
+          cons(e, table[name*])
+        else :
+          table[name*]
       else : List(e)
     if level(table) == 0 :
       update(basetable, cons{e,_}, name*)
