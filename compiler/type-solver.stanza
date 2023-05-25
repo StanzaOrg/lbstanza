@@ -1508,54 +1508,60 @@ defn erase (t:Type, hier:TypeHierarchy) -> Type :
 public defn disjoint? (xss:Tuple<Tuple<Type>>, args:Tuple<Type>, hier:TypeHierarchy) -> PredResult :
   ;Sanity check the lengths.
   if length(xss) < 2 : fatal("Expecting at least two branches.")
-  if empty?(args) : fatal("Expecting at least one argument.")
+  ;if empty?(args) : fatal("Expecting at least one argument.")
+  if empty?(args) : 
+    if all?(empty?, xss):
+      false ; 0-arity function types, cannot be disjoint
+    else :
+      fatal("Expecting at least one argument.")
+  else :
 
-  ;Check whether any of the arguments are Bot.
-  ;If so, then types can be considered disjoint.
-  defn any-bot? () -> PredResult :
-    reduce(or-pred, seq(bottom?, args))
+    ;Check whether any of the arguments are Bot.
+    ;If so, then types can be considered disjoint.
+    defn any-bot? () -> PredResult :
+      reduce(or-pred, seq(bottom?, args))
 
-  ;For axis 'axis', compare branch 'i' against branch 'j'.
-  ;Returns:
-  ;- Blocked: Cannot tell whether disjoint.
-  ;- False: The two branches are not disjoint along this axis.
-  ;- True: The two branches are disjoint along this axis.
-  defn disjoint? (exss:Tuple<Tuple<Type>>, eargs:Tuple<Type>, i:Int, j:Int, axis:Int) -> PredResult :
-    ;Compute whether there is any overlap.
-    val soverlap = overlap-search?(exss[i][axis], exss[j][axis], hier)
-    match(eval-pred-result(soverlap)) :
-      ;Case: Cannot tell whether there is overlap.
-      (r:Blocked) : r
-      ;Case: There is overlap, so therefore not disjoint.
-      (r:True) : false
-      ;Case: There is no overlap, so therefore check args-to-xs.
-      (r:False) : /disjoint?(exss[i][axis], exss[j][axis], eargs[axis], hier)
+    ;For axis 'axis', compare branch 'i' against branch 'j'.
+    ;Returns:
+    ;- Blocked: Cannot tell whether disjoint.
+    ;- False: The two branches are not disjoint along this axis.
+    ;- True: The two branches are disjoint along this axis.
+    defn disjoint? (exss:Tuple<Tuple<Type>>, eargs:Tuple<Type>, i:Int, j:Int, axis:Int) -> PredResult :
+      ;Compute whether there is any overlap.
+      val soverlap = overlap-search?(exss[i][axis], exss[j][axis], hier)
+      match(eval-pred-result(soverlap)) :
+        ;Case: Cannot tell whether there is overlap.
+        (r:Blocked) : r
+        ;Case: There is overlap, so therefore not disjoint.
+        (r:True) : false
+        ;Case: There is no overlap, so therefore check args-to-xs.
+        (r:False) : /disjoint?(exss[i][axis], exss[j][axis], eargs[axis], hier)
 
-  ;Determine whether branch i and j are disjoint along any axis.
-  defn disjoint? (exss:Tuple<Tuple<Type>>, eargs:Tuple<Type>, i:Int, j:Int) -> PredResult :
-    val rs = for axis in 0 to length(eargs) seq :
-      disjoint?(exss,eargs,i,j,axis)
-    reduce(or-pred, rs)
+    ;Determine whether branch i and j are disjoint along any axis.
+    defn disjoint? (exss:Tuple<Tuple<Type>>, eargs:Tuple<Type>, i:Int, j:Int) -> PredResult :
+      val rs = for axis in 0 to length(eargs) seq :
+        disjoint?(exss,eargs,i,j,axis)
+      reduce(or-pred, rs)
 
-  ;Determine whether all pairs are disjoint.
-  defn all-pairs-disjoint? (exss:Tuple<Tuple<Type>>, eargs:Tuple<Type>) -> PredResult :
-    val rs = for i in 0 to length(exss) seq-cat :
-      for j in (i + 1) to length(exss) seq :
-        disjoint?(exss,eargs,i,j)
-    reduce(and-pred, rs)
+    ;Determine whether all pairs are disjoint.
+    defn all-pairs-disjoint? (exss:Tuple<Tuple<Type>>, eargs:Tuple<Type>) -> PredResult :
+      val rs = for i in 0 to length(exss) seq-cat :
+        for j in (i + 1) to length(exss) seq :
+          disjoint?(exss,eargs,i,j)
+      reduce(and-pred, rs)
 
-  ;Erase all types
-  defn erase-xss () -> Tuple<Tuple<Type>> :
-    for xs in xss map :
-      map(erase{_, hier}, xs)
+    ;Erase all types
+    defn erase-xss () -> Tuple<Tuple<Type>> :
+      for xs in xss map :
+        map(erase{_, hier}, xs)
 
-  defn erase-args () -> Tuple<Type> :
-    map(erase{_, hier}, args)
+    defn erase-args () -> Tuple<Type> :
+      map(erase{_, hier}, args)
 
-  ;Launch!
-  match(any-bot?()) :
-    (r:Blocked|True) : r
-    (r:False) : all-pairs-disjoint?(erase-xss(), erase-args())
+    ;Launch!
+    match(any-bot?()) :
+      (r:Blocked|True) : r
+      (r:False) : all-pairs-disjoint?(erase-xss(), erase-args())
 
 ;Returns True|False|Blocked indicating whether x and y are disjoint under u.
 defn disjoint? (x:Type, y:Type, u:Type, hier:TypeHierarchy) -> PredResult :
