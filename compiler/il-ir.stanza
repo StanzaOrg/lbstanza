@@ -23,6 +23,7 @@ with:
 public defstruct IImport :
   package: Symbol
   forward: True|False with: (default => false)
+  only: False|HashSet<Symbol> with: (default => false)
   prefix: Tuple<IPrefix> with: (default => [])
   info: AbsoluteFileInfo|False with: (default => false)
   import-private?: True|False with: (default => false, updater => sub-import-private?)
@@ -50,6 +51,7 @@ with:
             package: IExp
             forward: True|False
             prefix: List<IExp>
+            only: False|List<IExp>
          IPrefixExp :
             names: False|List<IExp>
             prefix: IExp
@@ -379,8 +381,8 @@ with:
       IDefPackage :
          ($package name imports ...)
       IImportExp :
-         if forward(e) : ($forward package prefix ...)
-         else : ($import package prefix ...)
+         if forward(e) : if (only(e) != false) : ($forward-only package (only ...) prefix ...) else : ($forward package prefix ...)
+         else : if (only(e) != false) : ($import-only package (only ...) prefix ...) else : ($import package prefix ...)
       IPrefixExp :
          if names(e) != false : ($prefix-of (names ...) prefix)
          else : ($prefix prefix)

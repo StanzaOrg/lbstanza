@@ -102,9 +102,13 @@ defn ls-name-args (e:IExp) -> [IExp, List<IExp>] :
       ($package name:e imports:e ...) :
          IDefPackage(name, imports, add-base-dir(info))
       ($import name:e prefixes:e ...) :
-         IImportExp(name, false, prefixes, add-base-dir(info))
+         IImportExp(name, false, prefixes, false, add-base-dir(info))
+      ($import-only name:e (defs:e ...) prefixes:e ...) :
+         IImportExp(name, false, prefixes, defs, add-base-dir(info))
       ($forward name:e prefixes:e ...) :
-         IImportExp(name, true, prefixes, add-base-dir(info))
+         IImportExp(name, true, prefixes, false, add-base-dir(info))
+      ($forward-only name:e (defs:e ...) prefixes:e ...) :
+         IImportExp(name, true, prefixes, defs, add-base-dir(info))
       ($prefix-of (names:e ...) p:e) :
          IPrefixExp(names, p, add-base-dir(info))
       ($prefix p:e) :
@@ -497,7 +501,10 @@ defn to-iimport (e:IImportExp) -> IImport :
     IPrefix(names, prefix)
   val package = name!(package(e))
   val prefix = to-tuple $ seq(to-iprefix, prefix(e) as List<IPrefixExp>)
-  IImport(package, forward(e), prefix, info(e))
+  val only = match(only(e)) :
+   (xs:List<IExp>) : to-hashset<Symbol>(seq(name!, xs))
+   (f:False) : false
+  IImport(package, forward(e), only, prefix, info(e))
 
 ;============================================================
 ;================= Syntax Restrictions ======================

@@ -742,6 +742,10 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
     ; Add its public symbols to the table, recursively import any
     ;   forwarded packages, transitively composing prefix tables
     defn extend-symtable (imp:IImport, ptable:PrefixTable, include-protected:True|False) -> False :
+      defn should-import? (e: VEntry) :
+          match(only(imp)) :
+            (only:HashSet<Symbol>) : only[name(e)]
+            (f:False) : true
       defn visible? (e:VEntry|Export) :
         if import-private?(imp) : true
         else : visibility(e) is Public
@@ -751,19 +755,21 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
       match(load-package(import-name)) :
         ;Imported a source file, recursively import any forwards
         (p:IPackage) :
-          if forwarded-packages[import-name] : ; Cycle
+          if forwarded-packages[import-name] : ; Package already seen on this recursion stack: cycle
             throw(ForwardingCycle(to-seq(forwarded-packages)))
           else :
             add(forwarded-packages, import-name)
-            import(symtable, filter(visible?, toplevel(namemap(p))), ptable)
+            import(symtable, filter(visible?, toplevel(namemap(p))), ptable, should-import?)
             if include-protected :
               forward-protected(symtable, filter(protected?, toplevel(namemap(p))))
             for imp in filter(forward, imports(p)) do :
               extend-symtable(imp, compose(ptable, PrefixTable(prefix(imp))), include-protected)
-            remove(forwarded-packages, import-name) as False ; ugly cast -- could fail if we actually did detect a cycle
+            remove(forwarded-packages, import-name) ; Do I care if this fails?
+            false
         ;Imported a .pkg file.
         (p:PackageExports) :
-          import(symtable, filter(visible?, exports(p)), ptable)
+          ; TODO: forwarding?
+          import(symtable, filter(visible?, exports(p)), ptable, should-import?)
         ;Could not resolve the imported package.
         (f:False) :
           add(errors, NoPackage(import-name, name(p), info(imp)))
@@ -807,8 +813,8 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
 
 deftype SymbolTable
 defmulti package (t:SymbolTable) -> Symbol
-defmulti import (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable) -> False
-defmulti import (t:SymbolTable, exports:Seqable<Export>, ptable:PrefixTable) -> False
+defmulti import (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable, pred) -> False
+defmulti import (t:SymbolTable, exports:Seqable<Export>, ptable:PrefixTable, pred) -> False
 defmulti forward-protected (t:SymbolTable, entries:Seqable<VEntry>) -> False
 defmulti forward-protected (t:SymbolTable, exports:Seqable<Export>) -> False
 defmulti push-scope (t:SymbolTable) -> False
@@ -838,9 +844,9 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
     do(add-entry{_, false}, es)
 
   ;Importing a sequence of entries
-  defn import (es:Seqable<VEntry>, ptable:PrefixTable) :
+  defn import (es:Seqable<VEntry>, ptable:PrefixTable, pred) :
     for e in es do :
-      add-entry(e, ptable[name(e)])
+      if pred(e) : add-entry(e, ptable[name(e)])
 
   ;Importing a sequence of protected entries when forwarding a package
   defn forward-protected (es:Seqable<VEntry>) :
@@ -856,10 +862,10 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   new SymbolTable :
     defmethod package (this) :
       package-name
-    defmethod import (this, entries:Seqable<VEntry>, ptable:PrefixTable) :
-      import(entries, ptable)
-    defmethod import (this, exports:Seqable<Export>, ptable:PrefixTable) :
-      import(seq(VEntry,exports), ptable)
+    defmethod import (this, entries:Seqable<VEntry>, ptable:PrefixTable, pred) :
+      import(entries, ptable, pred)
+    defmethod import (this, exports:Seqable<Export>, ptable:PrefixTable, pred) :
+      import(seq(VEntry,exports), ptable, pred)
     defmethod forward-protected (this, entries:Seqable<VEntry>) :
       forward-protected(entries)
     defmethod forward-protected (this, exports:Seqable<Export>) :
@@ -999,8 +1005,8 @@ public defstruct ForwardingCycle <: ResolveError :
   src-packages:Seq<Symbol>
 
 defmethod print (o:OutputStream, ps:ForwardingCycle) :
-  val FMT = "Packages form a cycle via forwarding: %_"
-  print(o, FMT % [to-vector<Symbol>(src-packages(ps))])
+  print(o, "Packages form a cycle via forwarding: ")
+  print-all(o, join(src-packages(ps), ", "))
 
 defmethod print (o:OutputStream, e:MissingType) :
   val FMT = "Missing type: The %~ package requires the %_/%_ type to be defined."

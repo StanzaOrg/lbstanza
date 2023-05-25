@@ -995,7 +995,8 @@ defsyntax core :
 
    val TAG-TABLE = HashSet<Symbol>()
    for tag in `(
-      $package $import $forward $prefix-of $prefix $public $protected $private $doc $nodoc $deftype $defchild $def
+      $package $import $import-only $forward $forward-only $prefix-of $prefix 
+      $public $protected $private $doc $nodoc $deftype $defchild $def
       $defvar $defn $defn* $defmulti $defmethod $defmethod* $fn $fn*
       $multi $begin $let $match $branch $new $as $as? $set $do
       $prim $tuple $quote $none $of $and $or $->
@@ -2224,10 +2225,18 @@ defsyntax core :
       qquote($import ~ name ~@ ps)
    defrule import-clause! = (import ?name:#id!) :
       qquote($import ~ name)
+   defrule import-clause! = (from ?name:#id! import [?defs:#id! ...] with #:! (?ps:#prefix-clause! ...)) :
+      qquote($import-only ~ name ~ defs ~@ ps)
+   defrule import-clause! = (from ?name:#id! import [?defs:#id! ...]) :
+      qquote($import-only ~ name ~ defs)
    defrule import-clause! = (forward ?name:#id! with #:! (?ps:#prefix-clause! ...)) :
       qquote($forward ~ name ~@ ps)
    defrule import-clause! = (forward ?name:#id!) :
       qquote($forward ~ name)
+   defrule import-clause! = (from ?name:#id! forward [?defs:#id! ...] with #:! (?ps:#prefix-clause! ...)) :
+      qquote($forward-only ~ name ~ defs ~@ ps)
+   defrule import-clause! = (from ?name:#id! forward [?defs:#id! ...]) :
+      qquote($forward-only ~ name ~ defs)
    fail-if import-clause! = () :
       CSE(closest-info(), "Expected import clause here.")
 
