@@ -1,0 +1,2 @@
+defpackage base2 :
+    forward base1 

@@ -3,7 +3,9 @@
 Package Forms:
    ($defpackage name imports ...)
    ($import name prefixes ...)
+   ($import-only name (defs ...) prefixes ...)
    ($forward name prefixes ...)
+   ($forward-only name (defs ...) prefixes ...)
    ($prefix-of (names ...) p)
    ($prefix p)
    ($public e)

@@ -3,4 +3,5 @@
 defpackage base1 :
     import core
 
-public defn foo () : "base1-foo"
+protected defn foo () -> Int : 0 
+protected defn bar () -> Int : 0 

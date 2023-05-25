@@ -1,0 +1,11 @@
+; #use-added-syntax(reexport-syntax)
+
+defpackage user2 :
+    import core
+    import user1 with:
+        prefix => A
+
+
+;foo()
+println(AUBfoo())
+;println(bar())

@@ -1,5 +1,4 @@
 ; #use-added-syntax(reexport-syntax)
 
 defpackage public1 :
-    ;import core
-    forward base1
+    forward base2

@@ -1,0 +1,8 @@
+; #use-added-syntax(reexport-syntax)
+
+defpackage public2 :
+    import core
+    forward base1
+    forward base2 with:
+        prefix => b
+
