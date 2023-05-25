@@ -1508,11 +1508,10 @@ defn erase (t:Type, hier:TypeHierarchy) -> Type :
 public defn disjoint? (xss:Tuple<Tuple<Type>>, args:Tuple<Type>, hier:TypeHierarchy) -> PredResult :
   ;Sanity check the lengths.
   if length(xss) < 2 : fatal("Expecting at least two branches.")
-  ;if empty?(args) : fatal("Expecting at least one argument.")
   if empty?(args) : 
     if all?(empty?, xss):
       false ; 0-arity function types, cannot be disjoint
-    else :
+    else : ; At least one function expects arguments 
       fatal("Expecting at least one argument.")
   else :
 
