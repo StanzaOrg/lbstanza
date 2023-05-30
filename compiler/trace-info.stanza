@@ -24,8 +24,8 @@ with:
   constructor => #StackTraceInfo
 
 ;Sanity check: Ensure that we don't have signature and info as false.
-public defn StackTraceInfo (package:Symbol
-                            signature:String|False
+public defn StackTraceInfo (package:Symbol,
+                            signature:String|False,
                             info:AbsoluteFileInfo|False) :
   if signature is False and info is False :
     fatal("StackTraceInfo cannot have both signature and info be false.")

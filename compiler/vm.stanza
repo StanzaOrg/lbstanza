@@ -133,10 +133,10 @@ public defstruct LivenessMap <: Hashable&Equalable :
   num-slots: Int
 with:
   printer => true
-  
+
 defmethod hash (m:LivenessMap) :
   num-slots(m) + 7 * hash(live-slots(m))
-  
+
 defmethod equal? (a:LivenessMap, b:LivenessMap) :
   live-slots(a) == live-slots(b) and
   num-slots(a) == num-slots(b)
@@ -150,9 +150,9 @@ public defn LiveMapTable () :
     add-all(sort-buffer, slots)
     if empty?(sort-buffer) :
       LivenessMap([], num-slots)
-    else :    
+    else :
       qsort!(sort-buffer)
-      LivenessMap(to-tuple(sort-buffer), num-slots)    
+      LivenessMap(to-tuple(sort-buffer), num-slots)
 
   ;Accumulate all liveness maps here.
   val maps = Vector<LivenessMap>()
@@ -176,10 +176,10 @@ public defn LiveMapTable () :
       match(get?(table,map)) :
         (i:Int) : i
         (f:False) : add-map(map)
-      
+
     defmethod get (this, i:Int) :
       maps[i]
-      
+
     defmethod key? (this, i:Int) :
       i >= 0 and i < length(maps)
 
@@ -389,7 +389,7 @@ public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend
   return vm
 
 ;Make an appropriate CodeTable depending on whether the user has
-;enabled the JIT. 
+;enabled the JIT.
 defn make-code-table (resolver:EncodingResolver, backend:Backend) -> CodeTable :
   if contains?(EXPERIMENTAL-FEATURES, `jit) : JITCodeTable(resolver, backend)
   else : CVMCodeTable()
@@ -533,11 +533,11 @@ lostanza defn print-stack-trace (stack:ptr<Stack>, vmtable:ref<VMTable>, livemap
   return false
 
 ;Print the stack buffer
-defn print-stack-buffer (buffer:Vector<StackTraceInfo>) -> False :
+defn print-stack-buffer (buffer:Vector<StackTraceEntry>) -> False :
   do(print-stack-entry, buffer)
 
 ;Print a single stack trace entry.
-defn print-stack-entry (e:StackTraceInfo) -> False :
+defn print-stack-entry (e:StackTraceEntry) -> False :
   ;Print package and signature
   match(signature(e)) :
     (sig:String) : println(STANDARD-ERROR-STREAM, "  in %_/%_" % [package(e), sig])
@@ -551,34 +551,31 @@ defn print-stack-entry (e:StackTraceInfo) -> False :
 ;---------------------- Collecting --------------------------
 ;------------------------------------------------------------
 
+
 lostanza defn collect-stack-trace (stack:ptr<Stack>, vmtable:ref<VMTable>, livemap:ref<LiveMapTable>) -> ptr<PackedStackTrace> :
-  ;Collect all StackTraceInfo items.
   val buffer = collect-stack-trace-entries(stack, vmtable, livemap)
 
   ;Pack items into stable memory.
   val builder = StackTraceBuilder()
   add-entries(builder, buffer)
-
-  ;Return false
   return pack(builder)
 
-defn add-entries (b:StackTraceBuilder, es:Seqable<StackTraceInfo>) :
+defn add-entries (b:StackTraceBuilder, es:Seqable<StackTraceEntry>) :
   for e in es do :
-    #if-defined(BOOTSTRAP) :
-      ;The existing stack trace representation uses FileInfo instead of AbsoluteFileInfo.
-      add-entry(b, StackTraceEntry(package(e), signature(e), info?(info(e))))
-    #else :
-      add-entry(b, StackTraceEntry(0L, 0L, package(e), signature(e), info(e)))
+    add-entry(b, e)
 
 ;------------------------------------------------------------
 ;-------------------- Common Utilities ----------------------
 ;------------------------------------------------------------
 
+defn make-entry (ip:Long, sp:Long, st-info:StackTraceInfo) :
+  StackTraceEntry(ip, sp, package(st-info), signature(st-info), info(st-info))
+
 lostanza defn collect-stack-trace-entries (stack:ptr<Stack>,
                                            vmtable:ref<VMTable>,
-                                           livemap:ref<LiveMapTable>) -> ref<Vector<StackTraceInfo>> :
+                                           livemap:ref<LiveMapTable>) -> ref<Vector<StackTraceEntry>> :
   ;Accumulate all entries into a buffer.
-  val buffer = Vector<StackTraceInfo>()
+  val buffer = Vector<StackTraceEntry>()
 
   ;Discover return addresses
   val end-sp = stack.stack-pointer
@@ -589,7 +586,7 @@ lostanza defn collect-stack-trace-entries (stack:ptr<Stack>,
       ;if it exists in the file info table
       val ret = new Long{sp.return}
       match(get?(vmtable.trace-table, ret)) :
-        (info:ref<StackTraceInfo>) : add(buffer, info)
+        (info:ref<StackTraceInfo>) : add(buffer, make-entry(ret, new Long{sp as long}, info))
         (info) : ()
 
       ;Continue if we're not at the end of the stack
@@ -840,7 +837,7 @@ defn EncodingResolver (class-table:ClassTable,
       val c = loaded-class(class-table, n)
       match(class(c)) :
         (class:VMArrayClass|VMLeafClass) : package(c) == `core
-        (class) : false        
+        (class) : false
     defmethod marker? (this, n:Int) :
       match(class-table[n]) :
         (c:VMLeafClass) : size(c) == 0 and not unique?(class-table,n)
@@ -860,10 +857,10 @@ defn EncodingResolver (class-table:ClassTable,
 ;====================== Loading =============================
 ;============================================================
 
-public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-globals?:True|False) -> False :  
+public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-globals?:True|False) -> False :
   if not empty?(to-seq(vmps)) :
     vprintln("VM: Load packages %," % [seq(name, vmps)])
-    val package-names = to-string("%," % [seq(name, vmps)])    
+    val package-names = to-string("%," % [seq(name, vmps)])
     within log-time(LOAD-VM-PACKAGES, suffix(package-names)) :
       ;Precondition
       ensure-core-loaded-first!(vm, vmps)
@@ -908,21 +905,21 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
         ;Load each of the functions.
         for f in funcs(load-unit) do :
           load-function(vmt, f, callback-set[id(f)], encoding-resolver, backend(vm))
-        
+
       ;Load datas and consts
       vprintln("VM: Loading datas and constants")
       within log-time(LOAD-DATAS) :
         load-datas(vmt, datas(load-unit))
       within log-time(LOAD-CONSTS) :
-        load-consts(vmt, consts(load-unit))       
-          
+        load-consts(vmt, consts(load-unit))
+
       ;Update the virtual machine state
       vprintln("VM: Updating branch table")
       within log-time(UPDATE-BRANCH-TABLE) :
         update(branch-table(vm))
       vprintln("VM: Updating VMState")
       within log-time(UPDATE-VMSTATE) :
-        update-vmstate(vm)      
+        update-vmstate(vm)
 
       ;If core has been loaded, then initialize the constants by running
       ;the initialize-constants function.
@@ -955,7 +952,7 @@ public defn init-package (vm:VirtualMachine, package:Symbol) -> True|False :
   match(f:Int) :
     vprintln("VM: Running package %_" % [package])
     within log-time(EXEC-PACKAGE, suffix(package)) :
-      val run-result = 
+      val run-result =
         if package == `core :
           run-bytecode(vm, f)
           set-core-loaded?(vm, true)
@@ -1012,7 +1009,7 @@ lostanza defn launch-init (vm:ref<VirtualMachine>, fid:ref<Int>) -> ref<True|Fal
 ;================= Releasing Resources ======================
 ;============================================================
 
-public defn shutdown (vm:VirtualMachine) :  
+public defn shutdown (vm:VirtualMachine) :
   free-code-table(vm)
 
 lostanza defn free-code-table (vm:ref<VirtualMachine>) -> ref<False> :
