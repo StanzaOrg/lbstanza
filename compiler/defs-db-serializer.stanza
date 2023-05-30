@@ -62,6 +62,8 @@ defserializer DefsDbSerializer () :
   deftype package-import (PackageImport) : 
     name:symbol
     prefixes:tuple(package-import-prefix)
+    only:opt(tuple(symbol))
+    forward:bool
 
   deftype package-import-prefix (PackageImportPrefix) : 
     names:opt(tuple(symbol))

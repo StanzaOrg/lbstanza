@@ -65,6 +65,8 @@ doc: "An imported package and its prefixes."
 public defstruct PackageImport : 
   name:Symbol
   prefixes:Tuple<PackageImportPrefix>
+  only:False|Tuple<Symbol>
+  forward:True|False
 
 doc: "A prefix in a package import."
 public defstruct PackageImportPrefix : 
@@ -138,12 +140,17 @@ defmethod print (o:OutputStream, f:DefnAnnotation) :
   match(return-type?:Symbol) : 
     print(o, " -> %_" % [return-type?])
 
+; TODO: should I print the import list as a block?
 defmethod print (o:OutputStream, p:PackageImport) :
+  val keyword = if forward(p) : "forward" else : "import"
+  val heading = 
+    match(only(p)) :
+      (ds:Tuple<Symbol>) : ("from %_ %_ (%,)" % [name(p), keyword, only(p)])
+      (f:False) : ("%_ %_" % [keyword, name(p)])
   if empty?(prefixes(p)) :
-    print(o, "import %_" % [name(p)])
+    print(o, heading)
   else :
-    val heading = to-string("import %_" % [name(p)])
-    print-block(o, heading, prefixes(p))
+    print-block(o, to-string(heading), prefixes(p))
 
 defmethod print (o:OutputStream, p:PackageImportPrefix) : 
   match(names(p)) : 

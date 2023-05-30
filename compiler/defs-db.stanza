@@ -171,7 +171,11 @@ protected-when(TESTING) defn build-package-defs (ipackage:IPackage,
   defn to-package-import (iimport:IImport) -> PackageImport :
     val prefixes = for iprefix in prefix(iimport) map : 
       PackageImportPrefix(names(iprefix), prefix(iprefix))
-    PackageImport(package(iimport), prefixes)
+    val imports = 
+      match(only(iimport)) :
+        (ds:HashSet) : to-tuple(ds)
+        (f:False) : false
+    PackageImport(package(iimport), prefixes, imports, forward(iimport))
 
   ;Index the expressions in the package to assemble the definitions.
   val indexed-exps = index-expressions(exps(ipackage), nm)
