@@ -238,10 +238,11 @@ defn prompter (style:TerminalStyle, prompt:String, continue:String) -> Prompter 
     SimpleTerminal :
       core/line-prompter/LinePrompter(prompt, continue)
     EditTerminal :
-      #if-defined(PLATFORM-WINDOWS) :
-        fatal("EditTerminal is currently not supported on Windows.")
-      #else :
-        stz/line-noise-prompter/LineNoisePrompter(prompt, continue)
+      ; #if-defined(PLATFORM-WINDOWS) :
+      ;   fatal("EditTerminal is currently not supported on Windows.")
+      ; #else :
+      println("prompt = %_   continue = %_" % [prompt continue])
+      stz/line-noise-prompter/LineNoisePrompter(prompt, continue)
 
 ;============================================================
 ;=================== REPL Syntax Packages ===================
