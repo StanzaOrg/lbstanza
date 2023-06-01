@@ -529,7 +529,7 @@ class Utf8String {
   char* _data;
 };
 
-struct linenoiseCompletions {
+struct linenoiseCompletionsInt {
   vector<Utf32String> completionStrings;
 };
 
@@ -1902,9 +1902,9 @@ static char32_t linenoiseReadChar(void) {
 /**
  * Free memory used in a recent command completion session
  *
- * @param lc pointer to a linenoiseCompletions struct
+ * @param lc pointer to a linenoiseCompletionsInt struct
  */
-static void freeCompletions(linenoiseCompletions* lc) {
+static void freeCompletions(linenoiseCompletionsInt* lc) {
   lc->completionStrings.clear();
 }
 
@@ -1949,7 +1949,8 @@ static const size_t completionCountCutoff = 100;
  * screen position
  */
 int InputBuffer::completeLine(PromptBase& pi) {
-  linenoiseCompletions lc;
+  linenoiseCompletions lcExt = {0, NULL};
+  linenoiseCompletionsInt lc;
   char32_t c = 0;
 
   // completionCallback() expects a parsable entity, so find the previous break
@@ -1968,8 +1969,14 @@ int InputBuffer::completeLine(PromptBase& pi) {
   Utf8String parseItem(unicodeCopy);
 
   // get a list of completions
-  completionCallback(parseItem.get(), &lc);
-
+  completionCallback(parseItem.get(), &lcExt);
+  for (size_t i=0; i<lcExt.len; i++) {
+    lc.completionStrings.push_back(Utf32String(lcExt.cvec[i]));
+  }
+  for (int i=0; i<lcExt.len; i++) {
+    free(lcExt.cvec[i]);
+  }
+  if (lcExt.len > 0) free(lcExt.cvec);
   // if no completions, we are done
   if (lc.completionStrings.size() == 0) {
     beep();
@@ -3249,9 +3256,25 @@ void linenoiseSetCompletionCallback(linenoiseCompletionCallback* fn) {
   completionCallback = fn;
 }
 
-void linenoiseAddCompletion(linenoiseCompletions* lc, const char* str) {
-  lc->completionStrings.push_back(Utf32String(str));
+// void linenoiseAddCompletion(linenoiseCompletionsInt* lc, const char* str) {
+//   lc->completionStrings.push_back(Utf32String(str));
+// }
+void linenoiseAddCompletion(linenoiseCompletions *lc, const char *str) {
+    size_t len = strlen(str);
+    char *copy, **cvec;
+
+    copy = (char*)malloc(len+1);
+    if (copy == NULL) return;
+    memcpy(copy,str,len+1);
+    cvec = (char**)realloc(lc->cvec,sizeof(char*)*(lc->len+1));
+    if (cvec == NULL) {
+        free(copy);
+        return;
+    }
+    lc->cvec = cvec;
+    lc->cvec[lc->len++] = copy;
 }
+
 
 int linenoiseHistoryAdd(const char* line) {
   if (historyMaxLen == 0) {
