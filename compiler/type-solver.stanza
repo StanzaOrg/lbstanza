@@ -1507,9 +1507,12 @@ defn erase (t:Type, hier:TypeHierarchy) -> Type :
 ;under the given arguments.
 public defn disjoint? (xss:Tuple<Tuple<Type>>, args:Tuple<Type>, hier:TypeHierarchy) -> PredResult :
   ;Sanity check the lengths.
-  if length(xss) < 2 : fatal("Expecting at least two branches.")
-  if empty?(args) : fatal("Expecting at least one argument.")
-
+  if length(xss) < 2 :
+    fatal("Expecting at least two branches.")
+  for xs in xss do :
+    if not same-length?(xs, args) :
+      fatal("Arity mismatch between types and arguments.")
+  
   ;Check whether any of the arguments are Bot.
   ;If so, then types can be considered disjoint.
   defn any-bot? () -> PredResult :
@@ -1553,9 +1556,16 @@ public defn disjoint? (xss:Tuple<Tuple<Type>>, args:Tuple<Type>, hier:TypeHierar
     map(erase{_, hier}, args)
 
   ;Launch!
-  match(any-bot?()) :
-    (r:Blocked|True) : r
-    (r:False) : all-pairs-disjoint?(erase-xss(), erase-args())
+  if empty?(args) :
+    ;Case: 0-arity function types, cannot be disjoint.
+    false    
+  else :
+    match(any-bot?()) :
+      ;Case: One of the arguments is bottom, so consider all cases disjoint
+      ;since execution will never reach the functional call.
+      (r:Blocked|True) : r
+      ;Case: Ensure all pairs are disjoint.
+      (r:False) : all-pairs-disjoint?(erase-xss(), erase-args())
 
 ;Returns True|False|Blocked indicating whether x and y are disjoint under u.
 defn disjoint? (x:Type, y:Type, u:Type, hier:TypeHierarchy) -> PredResult :
