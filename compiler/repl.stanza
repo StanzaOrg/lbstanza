@@ -219,11 +219,11 @@ defn read-repl-exp (inputstream:InputStream) :
   defn read-input-line () : /read-line(inputstream)
   read-repl-exp(read-input-line)
 
-defn read-repl-exp (style:TerminalStyle -- completion:False|(String -> Tuple<String>) = false) :
+defn read-repl-exp (style:TerminalStyle) :
   defn read-input-line () :
     val prompt   = "stanza> "
     val continue = "      > "
-    read-line(prompter(style, prompt, continue, completion = completion))
+    read-line(prompter(style, prompt, continue))
   flush(STANDARD-OUTPUT-STREAM as FileOutputStream)
   flush(STANDARD-ERROR-STREAM as FileOutputStream)
   read-repl-exp(read-input-line)
@@ -233,13 +233,13 @@ defn read-repl-exp (style:TerminalStyle -- completion:False|(String -> Tuple<Str
 ;============================================================
 
 ;Return a prompter given the terminal style.
-defn prompter (style:TerminalStyle, prompt:String, continue:String
-               -- completion:False|(String -> Tuple<String>) = false) -> Prompter :
+defn prompter (style:TerminalStyle, prompt:String, continue:String) -> Prompter :
   switch(style) :
     SimpleTerminal :
       core/line-prompter/LinePrompter(prompt, continue)
     EditTerminal :
-      stz/line-noise-prompter/LineNoisePrompter(prompt, continue, completion = completion)
+      val history-path = stz/params/system-filepath(stz/params/StanzaREPLHistory)
+      stz/line-noise-prompter/LineNoisePrompter(prompt, continue, history-path = history-path, completion = REPL-COMPLETION)
 
 ;============================================================
 ;=================== REPL Syntax Packages ===================
@@ -254,6 +254,13 @@ public defn register-initial-repl-syntax (name:Symbol) :
 public val REPL-INITIAL-LOAD-PACKAGES = Vector<Symbol|String>()
 public defn register-initial-repl-package (name:Symbol|String) :
   add(REPL-INITIAL-LOAD-PACKAGES, name)
+
+;============================================================
+;=================== Completion Callback ====================
+;============================================================
+var REPL-COMPLETION : False|(String -> Tuple<String>) = false
+public defn register-repl-completion (f:String -> Tuple<String>) :
+  REPL-COMPLETION = f
 
 ;============================================================
 ;======================= Loading ============================
@@ -973,8 +980,7 @@ defn run-script (repl:REPL, s:String) :
 
 public defn repl (args:Tuple<String>,
                   style:TerminalStyle,
-                  macro-plugins:Tuple<String>
-                  -- completion:False|(String -> Tuple<String>) = false) :
+                  macro-plugins:Tuple<String>) :
   val repl = REPL(macro-plugins)
 
   ;Create a LoadExp expression out of the command line
@@ -993,7 +999,7 @@ public defn repl (args:Tuple<String>,
   defn* repl-loop () -> False :
     val loop? =
       try :
-        val exp = read-repl-exp(style, completion = completion)
+        val exp = read-repl-exp(style)
         match(exp:RExp) :
           eval-exp(repl, exp)
           true
@@ -1018,12 +1024,12 @@ public defn repl (args:Tuple<String>,
 ;Default macro-plugins is [].
 ;Default terminal-style is default-terminal-style().
 
-public defn repl (style:TerminalStyle -- completion:False|(String -> Tuple<String>) = false) :
-  repl([], style, [], completion = completion)
-public defn repl (args:Tuple<String> -- completion:False|(String -> Tuple<String>) = false) :
-  repl(args, default-terminal-style(), [], completion = completion)
-public defn repl (-- completion:False|(String -> Tuple<String>) = false) :
-  repl([], default-terminal-style(), [], completion = completion)
+public defn repl (style:TerminalStyle) :
+  repl([], style, [])
+public defn repl (args:Tuple<String>) :
+  repl(args, default-terminal-style(), [])
+public defn repl () :
+  repl([], default-terminal-style(), [])
 
 ;============================================================
 ;==================== Run Immediately =======================

@@ -1,7 +1,19 @@
 include "examples/stanza.proj"
 
 package stz/line-noise-prompter requires :
-  ccfiles: "runtime/linenoise.c"
+  ccfiles:
+    on-platform :
+      windows :
+        "runtime/linenoise-ng/linenoise.cpp"
+        "runtime/linenoise-ng/ConvertUTF.cpp"
+        "runtime/linenoise-ng/wcwidth.cpp"
+      os-x :  "runtime/linenoise.c"
+      linux : "runtime/linenoise.c"
+  ccflags:
+    on-platform :
+      windows : "-std=c++11"
+      os-x    : "-std=gnu99"
+      linux   : "-std=gnu99"
 
 package stz/vm requires :
   ccfiles: "build/cvm.o"

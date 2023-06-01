@@ -1,6 +1,5 @@
 defpackage stz/line-noise-prompter :
   import core
-  import collections
   import reader
 
 extern linenoiseSetMultiLine : int -> int
@@ -8,14 +7,16 @@ extern linenoise : ptr<byte> -> ptr<byte>
 extern linenoiseHistoryAdd : ptr<byte> -> int
 extern linenoiseSetCompletionCallback : ptr<((ptr<byte>, ptr<?>) -> int)> -> int
 extern linenoiseAddCompletion : (ptr<?>, ptr<byte>) -> int
+extern linenoiseHistorySave : ptr<byte> -> int
+extern linenoiseHistoryLoad : ptr<byte> -> int
+
+var completion-callback : False|(String -> Tuple<String>) = false
 
 lostanza defn set-multi-line (x:ref<True|False>) -> ref<False> :
   if x == true : call-c linenoiseSetMultiLine(1)
   else : call-c linenoiseSetMultiLine(0)
   return false
 set-multi-line(true)
-
-var completion-callback : False|(String -> Tuple<String>) = false
 
 lostanza deftype CompletionInfo :
   t : ptr<?>
@@ -51,10 +52,18 @@ lostanza defn add-history (str:ref<String>) -> ref<False> :
   call-c linenoiseHistoryAdd(addr!(str.chars))
   return false
 
-public defn LineNoisePrompter (prompt:String, continue:String -- completion:False|(String -> Tuple<String>) = false) :
-  defn my-completion (s:String) -> Tuple<String> :
-    [string-join([s s]) string-join([s "123"])]
-  completion-callback = completion     ; set to my-completion for testing
+lostanza defn save-history (path:ref<String>) -> ref<False> :
+  call-c linenoiseHistorySave(addr!(path.chars))
+  return false
+
+lostanza defn load-history (path:ref<String>) -> ref<False> :
+  call-c linenoiseHistoryLoad(addr!(path.chars))
+  return false
+
+public defn LineNoisePrompter (prompt:String, continue:String, -- history-path:False|String = false, completion:False|(String -> Tuple<String>) = false) :
+  match(history-path:String) :
+    attempt : load-history(history-path as String)
+  completion-callback = completion
   var line-counter = to-seq(0 to false)
   new Prompter :
     defmethod get-line (this) :
@@ -63,4 +72,6 @@ public defn LineNoisePrompter (prompt:String, continue:String -- completion:Fals
       val l = line-noise(msg)
       match(l:String) :
         add-history(l)
+        match(history-path:String) :
+          attempt : save-history(history-path as String)
         l
