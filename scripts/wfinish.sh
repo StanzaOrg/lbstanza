@@ -12,8 +12,8 @@ if [[ -z "$CC" ]]; then
     fi
 fi
 
-CCFLAGS="-I include -DPLATFORM_WINDOWS -std=gnu99 -O3 -fPIC -Wall $CCFLAGS"
-CXXFLAGS="-I include -DPLATFORM_WINDOWS -std=c++11 -O3 -fPIC -Wall $CXXFLAGS"
+CCFLAGS="-I include -DPLATFORM_WINDOWS -std=gnu99 -O3 -fPIC $CCFLAGS"
+CXXFLAGS="-I include -DPLATFORM_WINDOWS -std=c++11 -O3 -fPIC $CXXFLAGS"
 LINENOISEFLAG="-D_WIN32 -I runtime/linenoise-ng $CXXFLAGS"
 
 [[ ! -d "build" ]] && mkdir "build"
