@@ -53,8 +53,8 @@ lostanza defn add-history (str:ref<String>) -> ref<False> :
 
 public defn LineNoisePrompter (prompt:String, continue:String -- completion:False|(String -> Tuple<String>) = false) :
   defn my-completion (s:String) -> Tuple<String> :
-    [string-join([s s])]
-  completion-callback = my-completion     ; set to my-completion for testing
+    [string-join([s s]) string-join([s "123"])]
+  completion-callback = completion     ; set to my-completion for testing
   var line-counter = to-seq(0 to false)
   new Prompter :
     defmethod get-line (this) :
