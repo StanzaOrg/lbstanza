@@ -27,7 +27,7 @@ public defn read-input-ir (filenames:Tuple<String>) -> Tuple<IPackage> :
     val form = read-file(filename)
     val expanded = macroexpand(SimpleMacroexpander(), form, List())
     val default-imports = [IImport(`core), IImport(`collections)]
-    to-ipackages(expanded, default-imports)
+    to-ipackages(expanded, false, default-imports)
     
   ;Rename
   val rename-result = rename-il(ipackages)
