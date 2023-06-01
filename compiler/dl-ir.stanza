@@ -11,16 +11,28 @@ defpackage stz/dl-ir :
 ;======================== PackageIO =========================
 ;============================================================
 
+public defstruct ImportedPackage <: Hashable & Equalable:
+  package-name: Symbol
+  imported-defs: Tuple<Symbol>|False
+  forward:True|False
+
+defmethod hash (p : ImportedPackage) :
+  hash(package-name(p))
+
+defmethod equal? (p1 : ImportedPackage, p2 : ImportedPackage) :
+  equal?(package-name(p1), package-name(p2))
+
+
 public defstruct PackageIO :
   package: Symbol
-  imported-packages: Tuple<Symbol> with: (updater => sub-imported-packages)
+  imported-packages: Tuple<ImportedPackage> with: (updater => sub-imported-packages)
   imports: Tuple<Import> with: (updater => sub-imports)
   exports: Tuple<Export> with: (updater => sub-exports)
   documentation?:False|String with: (updater => sub-documentation)
 
 public defstruct PackageExports :
   package: Symbol
-  imported-packages: Tuple<Symbol>
+  imported-packages: Tuple<ImportedPackage>
   exports: Tuple<Export> with: (updater => sub-exports)
 
 ;============================================================
@@ -30,9 +42,12 @@ public defstruct PackageExports :
 public defstruct Export :  
   n: Int with: (updater => sub-n)
   visibility: Visibility
-  rec: Rec
+  rec: Rec with: (updater => sub-rec)
   info: AbsoluteFileInfo|False
   documentation?:False|String
+
+public defn forward-export (e : Export, p : Symbol) -> Export :
+  sub-rec(e, forward-rec(rec(e), p))
 
 public defstruct Import :
   n: Int with: (updater => sub-n)
@@ -46,17 +61,18 @@ public defstruct Import :
 public deftype RecId <: Hashable & Equalable
 public defmulti package (r:RecId) -> Symbol
 public defmulti name (r:RecId) -> Symbol
+public defmulti sub-package (r:RecId, p:Symbol) -> RecId
 
 public defstruct ValId <: RecId :
-  package: Symbol with: (as-method => true)
+  package: Symbol with: (as-method => true, updater => sub-package)
   name: Symbol with: (as-method => true)
 
 public defstruct TypeId <: RecId :
-  package: Symbol with: (as-method => true)
+  package: Symbol with: (as-method => true, updater => sub-package)
   name: Symbol with: (as-method => true)
 
 public defstruct FnId <: RecId :
-  package: Symbol with: (as-method => true)
+  package: Symbol with: (as-method => true, updater => sub-package)
   name: Symbol with: (as-method => true)
   ntargs: Int
   ncargs: Int
@@ -68,48 +84,52 @@ public defstruct FnId <: RecId :
 
 public deftype Rec
 public defmulti id (r:Rec) -> RecId
+public defmulti sub-id (r : Rec, i : RecId) -> Rec
+
+public defn forward-rec (r : Rec, p : Symbol) -> Rec :
+  sub-id(r, (sub-package(id(r), p)))
 
 public defstruct ValRec <: Rec :
-  id: ValId with: (as-method => true)
+  id: ValId with: (as-method => true, updater => sub-id)
   type: DType
   mutable?: True|False
   lostanza?: True|False
 
 public defstruct FnRec <: Rec :
-  id: FnId with: (as-method => true)
+  id: FnId with: (as-method => true, updater => sub-id)
   a2: DType
   lostanza?: True|False
   tail?: True|False
 
 public defstruct MultiRec <: Rec :
-  id: FnId with: (as-method => true)
+  id: FnId with: (as-method => true, updater => sub-id)
   a2: DType
 
 public defstruct ExternFnRec <: Rec :
-  id: FnId with: (as-method => true)
+  id: FnId with: (as-method => true, updater => sub-id)
   a2: DType
   lbl: Symbol|False
 
 public defstruct ExternRec <: Rec :
-  id: ValId with: (as-method => true)
+  id: ValId with: (as-method => true, updater => sub-id)
   type: DType
   lbl: Symbol
 
 public defstruct StructRec <: Rec :
-  id: TypeId with: (as-method => true)
+  id: TypeId with: (as-method => true, updater => sub-id)
   ntargs: Int
   parent: False|DType
   base: Tuple<StructField>
   items: False|StructField
 
 public defstruct TypeRec <: Rec :
-  id: TypeId with: (as-method => true)
+  id: TypeId with: (as-method => true, updater => sub-id)
   ntargs: Int
   parent: False|DType
   children: Tuple<Child>
 
 public defstruct TypeDecl <: Rec :
-  id: TypeId with: (as-method => true)
+  id: TypeId with: (as-method => true, updater => sub-id)
   ntargs: Int
   parent: False|DType
   children: Tuple<Child> with: (updater => sub-children)
@@ -583,7 +603,9 @@ defsyntax dl-ir :
                          ?imports:#import ...
                          ?exports:#export ...) :
     ;[TODO] Add doc string reader macro. Defaulted to false for now.
-    PackageIO(name, to-tuple(ips), to-tuple(imports), to-tuple(exports), false)
+    ; PackageIO(name, to-tuple(ips), to-tuple(imports), to-tuple(exports), false)
+    ; TODO: actually parse the imports
+    PackageIO(name, to-tuple(map({ImportedPackage(_, false, false)}, ips)), to-tuple(imports), to-tuple(exports), false)
 
   defproduction dtype : DType
   defrule dtype = (byte) : DByte()
@@ -1140,7 +1162,7 @@ public defn set-id-env<?T> (f:() -> ?T, e:IDEnv) -> T :
 public defn ensure-consistency! (packageio:PackageIO) :
   #if-not-defined(OPTIMIZE) :
     ;Compute all declared packages and declared types
-    val declared-packages = to-hashset<Symbol>(cat(imported-packages(packageio), [package(packageio)]))
+    val declared-packages = to-hashset<Symbol>(cat(map(package-name, imported-packages(packageio)), [package(packageio)]))
     val declared-types = to-hashset<TypeId>(cat(imp-types, exp-types)) where :
       defn typeids (es:Seqable<Import|Export>) : filter-by<TypeId>(seq(id{rec(_)}, es))
       val imp-types = typeids(imports(packageio))

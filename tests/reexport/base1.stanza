@@ -1,7 +1,7 @@
 ; #use-added-syntax(reexport-syntax)
 
-defpackage base1 :
+defpackage rx/base1 :
     import core
 
 protected defn foo () -> Int : 0 
-protected defn bar () -> Int : 0 
+public defn baz () -> Int : 1

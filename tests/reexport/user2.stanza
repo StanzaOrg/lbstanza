@@ -1,8 +1,8 @@
 ; #use-added-syntax(reexport-syntax)
 
-defpackage user2 :
+defpackage rx/user2 :
     import core
-    import user1 with:
+    import rx/user1 with:
         prefix => A
 
 

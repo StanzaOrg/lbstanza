@@ -1,8 +1,8 @@
 ; #use-added-syntax(reexport-syntax)
 
-defpackage public2 :
+defpackage rx/public2 :
     import core
-    forward base1
-    forward base2 with:
+    forward rx/base1
+    forward rx/base2 with:
         prefix => b
 

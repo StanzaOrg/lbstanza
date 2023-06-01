@@ -159,11 +159,19 @@ defn to-tpackage (ipackage:IPackage) -> TPackage :
       add(tcomms, comm)
   TPackage(to-packageio(ipackage), to-tuple(tcomms))
 
+
+defn to-imported-package (i:IImport) -> ImportedPackage :
+  val defs = 
+    match(only(i)) :
+      (defs:HashSet) : to-tuple(defs)
+      (f:False) : f
+  ImportedPackage(package(i), defs, forward(i))
+
 ;Create a blank PackageIO.
 ;The imported/exported entries will be populated
 ;after type inference.
 defn to-packageio (ipackage:IPackage) -> PackageIO :
-  val imports = to-tuple(seq(package, imports(ipackage)))
+  val imports = to-tuple(seq(to-imported-package, imports(ipackage)))
   val doc? = match(documentation?(ipackage)) :
     (d:IDoc) : value(string(d) as ILiteral) as String
     (f:False) : false

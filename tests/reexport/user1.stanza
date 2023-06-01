@@ -1,14 +1,7 @@
 ; #use-added-syntax(reexport-syntax)
 
-defpackage user1 :
-    import public1 
+defpackage rx/user1 :
+    forward rx/public1 
     import core
-    ;import public1
-    ;import public2
 
-println(public1/foo())
-;println(bbaz())
-;println(public1/foo())
-;println(public1/foo())
-;println(public1/foo())
-;println(public1/foo())
+println(rx/base1/foo())

@@ -1,2 +1,2 @@
-defpackage base2 :
-    forward base1 
+defpackage rx/base2 :
+    forward rx/base1 

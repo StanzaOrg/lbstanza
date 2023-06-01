@@ -139,9 +139,14 @@ defserializer PkgSerializer (include-asm?:True|False) :
   ;==========================================================
   ;======================= PackageIO ========================
   ;==========================================================
+  deftype importedpackage (ImportedPackage) :
+    package-name:symbol
+    imported-defs:opt(tuple(symbol))
+    forward:bool
+
   deftype packageio (PackageIO) :
     package:symbol
-    imported-packages:tuple(symbol)
+    imported-packages:tuple(importedpackage)
     imports:tuple(dimport)
     exports:tuple(dexport)
     documentation?:opt(string)

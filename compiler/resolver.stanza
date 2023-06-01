@@ -136,6 +136,9 @@ Resolution Algorithm:
 ;============================================================
 ;=======================================================<doc>
 
+
+
+
 public defn resolve-il (packages:Tuple<IPackage|PackageExports>, env:Env) -> ResolverResult :
   within log-time(RESOLVER) :
     ;Track all detected errors
@@ -150,6 +153,7 @@ public defn resolve-il (packages:Tuple<IPackage|PackageExports>, env:Env) -> Res
     val ipackages* = Vector<IPackage>()
     val import-lists* = Vector<ImportList>()
     val cond-dependencies = Vector<Symbol>()
+
     let resolve-ipackages () :
       val ds = load-conditional-dependencies(symtables)
       add-all(cond-dependencies, ds)
@@ -163,6 +167,7 @@ public defn resolve-il (packages:Tuple<IPackage|PackageExports>, env:Env) -> Res
 
     ;Resolve type dependencies from pkgs
     check-exported-types(symtables, ipackages*, package-exports(symtables), error-accum)
+
 
     ;Compute initialization order
     defn init-order () :
@@ -182,7 +187,7 @@ public defn resolve-il (packages:Tuple<IPackage|PackageExports>, env:Env) -> Res
           seq(package, imports(p))
       for p in package-exports(symtables) do :
         dependency-graph[package(p)] = to-list $ resolved? $
-          imported-packages(p)
+          map(package-name, imported-packages(p))
         
       ;Compute the input order
       defn get-name (p:IPackage) : name(p)
@@ -717,7 +722,7 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
       (p:IPackage) :
         do(load-package{package(_)}, imports(p))
       (p:PackageExports) :
-        do(load-package, imported-packages(p))
+        do(load-package{package-name(_)}, imported-packages(p))
 
   ;Initialize with source packages,
   ;and load all of their dependencies.
@@ -769,6 +774,7 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
         ;Imported a .pkg file.
         (p:PackageExports) :
           ; TODO: forwarding?
+          println("Importing exports from %_" % [package(p)])
           import(symtable, filter(visible?, exports(p)), ptable, should-import?)
         ;Could not resolve the imported package.
         (f:False) :
@@ -848,6 +854,13 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
     for e in es do :
       if pred(e) : add-entry(e, ptable[name(e)])
 
+  ;Importing a sequence of exports
+  defn import (es:Seqable<Export>, ptable:PrefixTable, pred) :
+    for e in es do :
+      ; println("Importing export %_" % [n(e)])
+      if pred(e) : add-entry(VEntry(e), ptable[name(VEntry(e))])
+
+
   ;Importing a sequence of protected entries when forwarding a package
   defn forward-protected (es:Seqable<VEntry>) :
     for e in es do :
@@ -865,7 +878,7 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
     defmethod import (this, entries:Seqable<VEntry>, ptable:PrefixTable, pred) :
       import(entries, ptable, pred)
     defmethod import (this, exports:Seqable<Export>, ptable:PrefixTable, pred) :
-      import(seq(VEntry,exports), ptable, pred)
+      import(exports, ptable, pred)
     defmethod forward-protected (this, entries:Seqable<VEntry>) :
       forward-protected(entries)
     defmethod forward-protected (this, exports:Seqable<Export>) :

@@ -1,4 +1,6 @@
 ; #use-added-syntax(reexport-syntax)
 
-defpackage public1 :
-    forward base2
+defpackage rx/public1 :
+    forward rx/base1
+
+public defn pub () : 11
