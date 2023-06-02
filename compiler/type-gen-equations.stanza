@@ -179,8 +179,9 @@ defn add-super? (a:LSType, b:LSType) -> False :
 ;Helper: Generate an unsatisfiable equation if t
 ;is a TUVar.
 defn add-unsatisfiable? (t:Type) -> False :
-  match(t:TUVar) :
-    add-equation(UnsatisfiableEqn(n(t)))
+  match(t:TUVar) : add-unsatisfiable(n(t))
+defn add-unsatisfiable (n:Int) -> False :
+  add-equation(UnsatisfiableEqn(n))
 
 ;Helper: Generate a type operation equation.
 defn type-operation (op:TypeOperation, t:LSType) -> UVarT :
@@ -744,10 +745,14 @@ defn compute-expected-arg-type (n:Int, func:TExp, arg-index:Int, arity:Int) -> F
         else :
           val arg-type = a1(func)[arg-index] as Type
           add-equation(EqualEqn(n, arg-type))
+      else :
+        add-unsatisfiable(n)
     ;Instantiated function.
     (func:TMix) :
       if length(exp-args(func)) == arity :
         add-equation(EqualEqn(n, exp-args(func)[arg-index]))
+      else :
+        add-unsatisfiable(n)
     ;Typical case.
     (func) :
       add-equation(InferEqn(n, type!(func), ArgLoc(arity, arg-index), true))

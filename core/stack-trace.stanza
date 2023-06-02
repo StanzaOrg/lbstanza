@@ -27,7 +27,7 @@ StackTraceBuilder:
 
   StackTraceBuilder is the utility for packing stack traces
   into the PackedStackTrace form. It is coded to accept
-  inputs in StackTraceRecord form.  
+  inputs in StackTraceRecord form.
 
 ;============================================================
 ;=======================================================<doc>
@@ -68,7 +68,7 @@ defmethod print (o:OutputStream, s:StackTrace) :
     print(o, "StackTrace: ()")
   else :
     val items = "%n" % [es]
-    print(o, "StackTrace:\n%_" % [Indented(items)])  
+    print(o, "StackTrace:\n%_" % [Indented(items)])
 
 defmethod print (o:OutputStream, e:StackTraceEntry) :
   val sig-str = "" when signature(e) is False else "/%_" % [signature(e)]
