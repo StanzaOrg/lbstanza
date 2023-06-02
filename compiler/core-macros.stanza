@@ -2074,7 +2074,7 @@ defsyntax core :
    val let-var-template = CoreExp $ `(
      let :
        var ~oldv:?
-       val ~v = ~e
+       var ~v:? = ~e
        core/dynamic-wind(
          fn () :
            ~oldv = ~x
@@ -2082,6 +2082,7 @@ defsyntax core :
          fn () :
            ~body
          fn () :
+           ~v = ~x
            ~x = ~oldv))
    defrule exp4 = (let-var ?x:#id! = ?e:#exp! #:! ?body:#exp!) :
      fill(let-var-template, [
@@ -2921,4 +2922,3 @@ defsyntax core :
 val BAD-ARGLIST-MSG = "Incorrect syntax for argument list. Did you forget to put a space between the function name and the argument list?"
 val BAD-MATCH-MSG = "Incorrect syntax for match expression. Is there an extra space between match and the argument list?"
 val BAD-FOR-MSG = "Missing operating function in for expression. Did you forget to put a do after the bindings?"
-
