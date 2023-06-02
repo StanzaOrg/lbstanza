@@ -2074,7 +2074,7 @@ defsyntax core :
    val let-var-template = CoreExp $ `(
      let :
        var ~oldv:?
-       var ~v:? = ~e
+       var ~v = ~e
        core/dynamic-wind(
          fn () :
            ~oldv = ~x
