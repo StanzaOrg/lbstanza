@@ -6,7 +6,10 @@ package stz/line-noise-prompter requires :
     "runtime/linenoise-ng/ConvertUTF.cpp"
     "runtime/linenoise-ng/wcwidth.cpp"
   ccflags:
-    "-std=c++11"
+    on-platform :
+      os-x    : ""
+      linux   : "-std=c++11"
+      windows : "-std=c++11"
 
 package stz/vm requires :
   ccfiles: "build/cvm.o"
