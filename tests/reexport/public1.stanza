@@ -1,6 +1,12 @@
 ; #use-added-syntax(reexport-syntax)
 
 defpackage rx/public1 :
+    import core
     forward rx/base1
 
-public defn pub () : 11
+
+;println(foo())
+;println(bar())
+
+
+public defn baz () : "public1/baz"

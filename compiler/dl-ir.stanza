@@ -11,17 +11,21 @@ defpackage stz/dl-ir :
 ;======================== PackageIO =========================
 ;============================================================
 
+public defstruct ImportPrefix :
+  names:False|Tuple<Symbol>
+  prefix:String
+
 public defstruct ImportedPackage <: Hashable & Equalable:
   package-name: Symbol
-  imported-defs: Tuple<Symbol>|False
-  forward:True|False
+  imported-defs: Tuple<Symbol>|False with: (default => false)
+  forward: True|False with: (default => false)
+  prefix: Tuple<ImportPrefix> with: (default => [])
 
 defmethod hash (p : ImportedPackage) :
   hash(package-name(p))
 
 defmethod equal? (p1 : ImportedPackage, p2 : ImportedPackage) :
   equal?(package-name(p1), package-name(p2))
-
 
 public defstruct PackageIO :
   package: Symbol
@@ -42,12 +46,9 @@ public defstruct PackageExports :
 public defstruct Export :  
   n: Int with: (updater => sub-n)
   visibility: Visibility
-  rec: Rec with: (updater => sub-rec)
+  rec: Rec
   info: AbsoluteFileInfo|False
   documentation?:False|String
-
-public defn forward-export (e : Export, p : Symbol) -> Export :
-  sub-rec(e, forward-rec(rec(e), p))
 
 public defstruct Import :
   n: Int with: (updater => sub-n)
@@ -61,18 +62,17 @@ public defstruct Import :
 public deftype RecId <: Hashable & Equalable
 public defmulti package (r:RecId) -> Symbol
 public defmulti name (r:RecId) -> Symbol
-public defmulti sub-package (r:RecId, p:Symbol) -> RecId
 
 public defstruct ValId <: RecId :
-  package: Symbol with: (as-method => true, updater => sub-package)
+  package: Symbol with: (as-method => true)
   name: Symbol with: (as-method => true)
 
 public defstruct TypeId <: RecId :
-  package: Symbol with: (as-method => true, updater => sub-package)
+  package: Symbol with: (as-method => true)
   name: Symbol with: (as-method => true)
 
 public defstruct FnId <: RecId :
-  package: Symbol with: (as-method => true, updater => sub-package)
+  package: Symbol with: (as-method => true)
   name: Symbol with: (as-method => true)
   ntargs: Int
   ncargs: Int
@@ -84,52 +84,48 @@ public defstruct FnId <: RecId :
 
 public deftype Rec
 public defmulti id (r:Rec) -> RecId
-public defmulti sub-id (r : Rec, i : RecId) -> Rec
-
-public defn forward-rec (r : Rec, p : Symbol) -> Rec :
-  sub-id(r, (sub-package(id(r), p)))
 
 public defstruct ValRec <: Rec :
-  id: ValId with: (as-method => true, updater => sub-id)
+  id: ValId with: (as-method => true)
   type: DType
   mutable?: True|False
   lostanza?: True|False
 
 public defstruct FnRec <: Rec :
-  id: FnId with: (as-method => true, updater => sub-id)
+  id: FnId with: (as-method => true)
   a2: DType
   lostanza?: True|False
   tail?: True|False
 
 public defstruct MultiRec <: Rec :
-  id: FnId with: (as-method => true, updater => sub-id)
+  id: FnId with: (as-method => true)
   a2: DType
 
 public defstruct ExternFnRec <: Rec :
-  id: FnId with: (as-method => true, updater => sub-id)
+  id: FnId with: (as-method => true)
   a2: DType
   lbl: Symbol|False
 
 public defstruct ExternRec <: Rec :
-  id: ValId with: (as-method => true, updater => sub-id)
+  id: ValId with: (as-method => true)
   type: DType
   lbl: Symbol
 
 public defstruct StructRec <: Rec :
-  id: TypeId with: (as-method => true, updater => sub-id)
+  id: TypeId with: (as-method => true)
   ntargs: Int
   parent: False|DType
   base: Tuple<StructField>
   items: False|StructField
 
 public defstruct TypeRec <: Rec :
-  id: TypeId with: (as-method => true, updater => sub-id)
+  id: TypeId with: (as-method => true)
   ntargs: Int
   parent: False|DType
   children: Tuple<Child>
 
 public defstruct TypeDecl <: Rec :
-  id: TypeId with: (as-method => true, updater => sub-id)
+  id: TypeId with: (as-method => true)
   ntargs: Int
   parent: False|DType
   children: Tuple<Child> with: (updater => sub-children)
@@ -603,9 +599,9 @@ defsyntax dl-ir :
                          ?imports:#import ...
                          ?exports:#export ...) :
     ;[TODO] Add doc string reader macro. Defaulted to false for now.
-    ; PackageIO(name, to-tuple(ips), to-tuple(imports), to-tuple(exports), false)
     ; TODO: actually parse the imports
-    PackageIO(name, to-tuple(map({ImportedPackage(_, false, false)}, ips)), to-tuple(imports), to-tuple(exports), false)
+    ; TODO: what is this language even for?
+    PackageIO(name, to-tuple(map({ImportedPackage(_)}, ips)), to-tuple(imports), to-tuple(exports), false)
 
   defproduction dtype : DType
   defrule dtype = (byte) : DByte()

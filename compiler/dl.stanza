@@ -262,8 +262,7 @@ public defn DEnv () :
     defn add-to-export-table (packageio:PackageIO) :
       if add(in-export-table, package(packageio)) :
         for e in exports(packageio) do :
-          val r = rec(e)
-          export-table[id(r)] = r
+          export-table[id(r)] = rec(e)
     do(add-to-export-table, ps)
     do(add-to-export-table, packages)
 

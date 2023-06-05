@@ -12,66 +12,17 @@ defpackage stz/tl-to-dl :
 ;================= Compute PackageIO ========================
 ;============================================================
 
-; Bugs/TODO:
-;  seg fault
-;  check concrete export lists
-
 ;Compute the updated PackageIOs for the typed program.
-public defn compute-packageios (prog:TProg) -> TProg :
-  ; TODO: init table and final table
-  var init-packageios = HashTable<Symbol,PackageIO>() ; packageios indexed by name 
-  var final-packageios = HashTable<Symbol,PackageIO>() ; packageios indexed by name 
-
-  defn forward-from-imports (p : PackageIO, target : Symbol) -> Vector<Export> :
-    val all-exs = Vector<Export>()
-    for i in filter(forward, imported-packages(p)) do :
-      match(get?(init-packageios, package-name(i))) :
-        (i : PackageIO) : 
-          val es : Vector<Export> = forward-from-imports(i, target)
-          ; TODO: can there even be private exports?
-          remove-when(fn (e) : visibility(e) is Private, es)
-          ;println("Package %_ forwards:\n %_" % [package(i), es])
-          ; TODO: simplify type annotations
-          ; TODO: why does map on vectors need an annotation for return type?
-          defn fwd-protected (e : Export) : 
-            if visibility(e) is Protected :
-              forward-export(e, target)
-            else : e
-          val es-new-owner : Vector<Export> = map<Export>(fwd-protected, es) 
-          ;println("Package %_ forwards UPDATED packages:\n %_" % [package(i), es-new-owner])
-          add-all(all-exs, es-new-owner)
-        (f : False) : fatal("Imported PackageIO %_ not found" % [package-name(i)])
-    ; Add exports from original package
-    add-all(all-exs, exports(p))
-    all-exs
-
-  defn extend-packageio (p : TPackage) -> False:
-    val pname = package(packageio(p))
-    match(get?(init-packageios, pname)) :
-      (p : PackageIO) :
-        val new-exs = forward-from-imports(p, pname)
-        ;println("New exports for %_:\n %_" % [pname, new-exs])
-        final-packageios[pname] = sub-exports(p, to-tuple(new-exs))
-      (f : False) : fatal("PackageIO %_ not found" % [pname])
-
-  for p in packages(prog) do :
-    init-packageios[package(packageio(p))] = init-packageio(p, namemap(prog))
-
-  for p in packages(prog) do :
-    extend-packageio(p)
-
-  ; Plug in extended packageios
-  val new-packages =
-    for p in packages(prog) map :
-      sub-packageio(p, final-packageios[package(packageio(p))])
-
-  ; Plug in updated packages
-  sub-packages(prog, new-packages)
+public defn compute-packageios (p:TProg) -> TProg :
+  val new-packages = for package in packages(p) map :
+    val io = compute-packageio(package, namemap(p))
+    sub-packageio(package, io)
+  sub-packages(p, new-packages)
 
 ;Compute the updated PackageIO for the package.
 ;Populates the 'exports' field.
 ;Note that 'imports' field remains empty.
-defn init-packageio (p:TPackage, namemap:NameMap) -> PackageIO :
+defn compute-packageio (p:TPackage, namemap:NameMap) -> PackageIO :
   ;Sanity check: The PackageIO for the package is not
   ;expected to be populated at this time.
   val old-io = packageio(p)

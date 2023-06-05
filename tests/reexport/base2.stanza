@@ -1,2 +1,4 @@
 defpackage rx/base2 :
-    forward rx/base1 
+    import core
+
+public defn foo () : 1 

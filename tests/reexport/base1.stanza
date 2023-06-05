@@ -3,5 +3,5 @@
 defpackage rx/base1 :
     import core
 
-protected defn foo () -> Int : 0 
-public defn baz () -> Int : 1
+public defn foo () : "base1/foo" 
+protected defn bar () :  "base1/bar"
