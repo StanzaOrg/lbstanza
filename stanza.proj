@@ -2,14 +2,24 @@ include "examples/stanza.proj"
 
 package stz/line-noise-prompter requires :
   ccfiles:
-    "runtime/linenoise-ng/linenoise.cpp"
-    "runtime/linenoise-ng/ConvertUTF.cpp"
-    "runtime/linenoise-ng/wcwidth.cpp"
-  ccflags:
-    on-platform :
-      os-x    : ""
-      linux   : "-std=c++11"
-      windows : "-std=c++11"
+    "build/linenoise.o"
+    "build/ConvertUTF.o"
+    "build/wcwidth.o"
+compile file "build/linenoise.o" from "runtime/linenoise-ng/linenoise.cpp" :
+  on-platform :
+    os-x : "cc '{.}/runtime/linenoise-ng/linenoise.cpp' -c -o '{.}/build/linenoise.o' -O3 -D PLATFORM_OS_X"
+    linux : "cc -std=c++11 '{.}/runtime/linenoise-ng/linenoise.cpp' -c -o '{.}/build/linenoise.o' -O3 -D PLATFORM_LINUX -fPIC"
+    windows : "gcc -std=c++11 '{.}\\runtime\\linenoise-ng\\linenoise.cpp' -c -o '{.}\\build\\linenoise.o' -O3 -D PLATFORM_WINDOWS"
+compile file "build/ConvertUTF.o" from "runtime/linenoise-ng/ConvertUTF.cpp" :
+  on-platform :
+    os-x : "cc '{.}/runtime/linenoise-ng/ConvertUTF.cpp' -c -o '{.}/build/ConvertUTF.o' -O3 -D PLATFORM_OS_X"
+    linux : "cc -std=c++11 '{.}/runtime/linenoise-ng/ConvertUTF.cpp' -c -o '{.}/build/ConvertUTF.o' -O3 -D PLATFORM_LINUX -fPIC"
+    windows : "gcc -std=c++11 '{.}\\runtime\\linenoise-ng\\ConvertUTF.cpp' -c -o '{.}\\build\\ConvertUTF.o' -O3 -D PLATFORM_WINDOWS"
+compile file "build/wcwidth.o" from "runtime/linenoise-ng/wcwidth.cpp" :
+  on-platform :
+    os-x : "cc '{.}/runtime/linenoise-ng/wcwidth.cpp' -c -o '{.}/build/wcwidth.o' -O3 -D PLATFORM_OS_X"
+    linux : "cc -std=c++11 '{.}/runtime/linenoise-ng/wcwidth.cpp' -c -o '{.}/build/wcwidth.o' -O3 -D PLATFORM_LINUX -fPIC"
+    windows : "gcc -std=c++11 '{.}\\runtime\\linenoise-ng\\wcwidth.cpp' -c -o '{.}\\build\\wcwidth.o' -O3 -D PLATFORM_WINDOWS"
 
 package stz/vm requires :
   ccfiles: "build/cvm.o"
