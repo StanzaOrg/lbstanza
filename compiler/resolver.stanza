@@ -772,14 +772,14 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
           if include-protected :
             forward-protected(symtable, filter(protected?, toplevel(namemap(p))))
           for imp in filter(forward, imports(p)) do :
-            extend-symtable(symtable, imp, compose(ptable, PrefixTable(prefix(imp))), true, already-forwarded)
+            extend-symtable(symtable, imp, compose(ptable, PrefixTable(prefix(imp))), include-protected, already-forwarded)
         ;Imported a .pkg file: copy all Exports, recursively extend from any forwarded packages
         (p:PackageExports) :
           import(symtable, filter(visible?, exports(p)), ptable, should-import?)
           if include-protected :
             forward-protected(symtable, filter(protected?, exports(p)))
           for imp in filter(forward, imported-packages(p)) do:
-            extend-symtable(symtable, to-iimport(imp), compose(ptable, PrefixTable(prefix(imp))), true, already-forwarded)
+            extend-symtable(symtable, to-iimport(imp), compose(ptable, PrefixTable(prefix(imp))), include-protected, already-forwarded)
         ;Could not resolve the imported package.
         (f:False) :
           add(errors, NoPackage(import-name, package(symtable), info(imp)))
