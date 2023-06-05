@@ -882,7 +882,7 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   ;Importing a sequence of protected entries when forwarding a package
   defn forward-protected (es:Seqable<VEntry>) :
     for e in es do :
-      add-entry(forward-to(e, package-name), false)
+      add-entry(sub-package(e, package-name), false)
 
   ;Initializing the symbol table
   match(base) :

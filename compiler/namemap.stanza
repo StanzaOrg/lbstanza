@@ -47,7 +47,7 @@ public defn NameMap (ns:Seqable<NameMap|PackageExports>) :
 ;of the program. 
 public defstruct VEntry <: Equalable :
   n: Int 
-  package: Symbol with: (updater => forward-to)
+  package: Symbol with: (updater => sub-package)
   name: Symbol
   visibility: Visibility
   type: EType
