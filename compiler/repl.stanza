@@ -238,10 +238,8 @@ defn prompter (style:TerminalStyle, prompt:String, continue:String) -> Prompter 
     SimpleTerminal :
       core/line-prompter/LinePrompter(prompt, continue)
     EditTerminal :
-      #if-defined(PLATFORM-WINDOWS) :
-        fatal("EditTerminal is currently not supported on Windows.")
-      #else :
-        stz/line-noise-prompter/LineNoisePrompter(prompt, continue)
+      val history-path = stz/params/system-filepath(stz/params/StanzaREPLHistory)
+      stz/line-noise-prompter/LineNoisePrompter(prompt, continue, history-path = history-path, completion = REPL-COMPLETION)
 
 ;============================================================
 ;=================== REPL Syntax Packages ===================
@@ -256,6 +254,13 @@ public defn register-initial-repl-syntax (name:Symbol) :
 public val REPL-INITIAL-LOAD-PACKAGES = Vector<Symbol|String>()
 public defn register-initial-repl-package (name:Symbol|String) :
   add(REPL-INITIAL-LOAD-PACKAGES, name)
+
+;============================================================
+;=================== Completion Callback ====================
+;============================================================
+var REPL-COMPLETION : False|(String -> Tuple<String>) = false
+public defn register-repl-completion (f:String -> Tuple<String>) :
+  REPL-COMPLETION = f
 
 ;============================================================
 ;======================= Loading ============================
@@ -977,7 +982,7 @@ public defn repl (args:Tuple<String>,
                   style:TerminalStyle,
                   macro-plugins:Tuple<String>) :
   val repl = REPL(macro-plugins)
- 
+
   ;Create a LoadExp expression out of the command line
   ;arguments. And execute them in the REPL.
   ;If there is an error, then just print them to the
@@ -992,14 +997,14 @@ public defn repl (args:Tuple<String>,
   ;Continuously read the next expression from the user
   ;and execute them in the REPL.
   defn* repl-loop () -> False :
-    val loop? = 
+    val loop? =
       try :
         val exp = read-repl-exp(style)
         match(exp:RExp) :
           eval-exp(repl, exp)
-          true      
+          true
       catch (e:ReplErrors) :
-        ;Print out all errors except ReplHalt 
+        ;Print out all errors except ReplHalt
         val msgs = filter({_ is-not ReplHalt}, messages(e))
         do(println, msgs)
         true
