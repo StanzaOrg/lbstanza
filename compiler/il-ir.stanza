@@ -50,11 +50,12 @@ with:
          IImportExp :
             package: IExp
             forward: True|False
-            prefix: List<IExp>
-            only: False|List<IExp>
+            directives: List<IExp>
          IPrefixExp :
             names: False|List<IExp>
             prefix: IExp
+         IImportList :
+            names : List<IExp>
          IVisibility :
             exp: IExp
             visibility: Visibility
@@ -381,11 +382,13 @@ with:
       IDefPackage :
          ($package name imports ...)
       IImportExp :
-         if forward(e) : if (only(e) != false) : ($forward-only package (only ...) prefix ...) else : ($forward package prefix ...)
-         else : if (only(e) != false) : ($import-only package (only ...) prefix ...) else : ($import package prefix ...)
+         if forward(e) : ($forward package directives ...)
+         else : ($import package directives ...)
       IPrefixExp :
          if names(e) != false : ($prefix-of (names ...) prefix)
          else : ($prefix prefix)
+      IImportList :
+         ($only (names ...))
       IVisibility :
          custom{
            "(%_ %_)" % [tag, exp(e)] where :

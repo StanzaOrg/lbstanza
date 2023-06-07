@@ -739,8 +739,8 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
   load-package(`core)
   
   ; Wrapper to initialize cycle detection set
-  defn extend-symtable (symtable, imp, ptable, include-protected) :
-    extend-symtable(symtable, imp, ptable, include-protected, HashSet<Symbol>())
+  defn extend-symtable (symtable, imp, ptable, reexporting, import-list) -> False :
+    extend-symtable(symtable, imp, ptable, reexporting, import-list, HashSet<Symbol>())
 
   ; For a given import and its prefix table:
   ; Add its public symbols to the table, recursively import any
@@ -748,52 +748,89 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
   defn extend-symtable (
         symtable : SymbolTable, 
         imp:IImport, 
-        ptable:PrefixTable, 
-        include-protected:True|False, 
+        import-ptable:PrefixTable,
+        reexporting:True|False, 
+        import-list : False|HashSet<Symbol>
         already-forwarded : HashSet<Symbol>) -> False :
-    defn should-import? (e: VEntry) :
-        match(only(imp)) :
+
+    ; Compute the intersection of two import lists for propagating them down the dependency chain
+    ; import-list : the list of symbols to import
+    ; forwarded-list : the list of symbols to forward
+    ; ptable : the PrefixTable under which symbols are forwarded. Need to prefix elements of forwarded-list in order to compare them to import-list
+    defn import-list-intersection (il : False, fl : False, ptable) : false
+    defn import-list-intersection (import-list: False, forwarded-list: HashSet, ptable) : import-list
+    defn import-list-intersection (import-list: HashSet, forwarded-list: False, ptable) :
+      to-hashset<Symbol>(seq?(fn (sym) : remove-prefix(ptable[sym], sym), import-list))
+    defn import-list-intersection (import-list: HashSet<Symbol>, forwarded-list: HashSet<Symbol>, ptable : PrefixTable) -> HashSet<Symbol> :
+      defn extend-forwarding-set (set, sym) -> HashSet<Symbol> :
+        if import-list[add-prefix(ptable[sym], sym)] : add(set, sym)
+        set
+      reduce(fn (acc, sym) : extend-forwarding-set(acc, sym), HashSet<Symbol>(), forwarded-list)
+    ; Check if an importable VEntry is in the import list
+    defn should-import? (e: VEntry) -> True|False :
+        match(import-list) :
           (only:HashSet<Symbol>) : only[name(e)]
-          (f:False) : true
+          (f:False) : true 
+    ; Check if a VEntry has public visilibity, unless we are importing all entries
     defn visible? (e:VEntry|Export) :
       if import-private?(imp) : true
       else : visibility(e) is Public
+    ; Check if a VEntry has protected visibility
     defn protected? (e : VEntry|Export) :
       visibility(e) is Protected
+    defn public? (e : VEntry|Export) :
+      visibility(e) is Public 
+    
+    ; Main functionality:
+    ;   Extend symtable with all definitions in IImport, as well as any forwarded imports
     val import-name = package(imp)        
-    if already-forwarded[import-name] : ; Package already seen on this recursion stack: cycle
+    if already-forwarded[import-name] : ; Check for cycles 
       throw(ForwardingCycle(to-seq(already-forwarded)))
     else :
       add(already-forwarded, import-name) ; Record visit for cycle detection 
       match(load-package(import-name)) :
         ;Imported a source file: use visible members of NameMap, recursively import any forwards
         (p:IPackage) :
-          import(symtable, filter(visible?, toplevel(namemap(p))), ptable, should-import?)
-          if include-protected :
+          ; Import public definitions according to the import prefix table
+          ; Import protected definitions without prefixes
+          import(symtable, filter(visible?, toplevel(namemap(p))), import-ptable, should-import?)
+          if reexporting:
             forward-protected(symtable, filter(protected?, toplevel(namemap(p))))
-          for imp in filter(forward, imports(p)) do :
-            extend-symtable(symtable, imp, compose(ptable, PrefixTable(prefix(imp))), include-protected, already-forwarded)
+            forward-public(symtable, filter(public?, toplevel(namemap(p))), import-ptable, should-import?)
+          ; Re-export all packages forwarded by p
+          for fwd in filter(forward, imports(p)) do :
+            ; Update import list and all ptables
+            val import-list* = import-list-intersection(import-list, only(fwd), PrefixTable(prefix(fwd)))
+            val import-ptable* = compose(import-ptable, PrefixTable(prefix(fwd)))
+            extend-symtable(symtable, fwd, import-ptable*, reexporting, import-list*, already-forwarded)
         ;Imported a .pkg file: copy all Exports, recursively extend from any forwarded packages
         (p:PackageExports) :
-          import(symtable, filter(visible?, exports(p)), ptable, should-import?)
-          if include-protected :
+          ; Import public definitions and protected definitions (when necessary)
+          import(symtable, filter(visible?, exports(p)), import-ptable, should-import?)
+          if reexporting:
             forward-protected(symtable, filter(protected?, exports(p)))
-          for imp in filter(forward, imported-packages(p)) do:
-            extend-symtable(symtable, to-iimport(imp), compose(ptable, PrefixTable(prefix(imp))), include-protected, already-forwarded)
+            forward-public(symtable, filter(public?, exports(p)), import-ptable, should-import?)
+          for fwd in filter(forward, imported-packages(p)) do:
+            val forwarded-list =
+              match(imported-defs(fwd)) : 
+                (ids:Tuple) : to-hashset<Symbol>(ids)
+                (f:False) : false
+            val import-list* = import-list-intersection(import-list, forwarded-list, PrefixTable(prefix(fwd)))
+            val import-ptable* = compose(import-ptable, PrefixTable(prefix(fwd)))
+            extend-symtable(symtable, to-iimport(fwd), import-ptable*, reexporting, import-list*, already-forwarded)
         ;Could not resolve the imported package.
         (f:False) :
           add(errors, NoPackage(import-name, package(symtable), info(imp)))
-      remove(already-forwarded, import-name) ; TODO: mDo I care if this fails?
+      remove(already-forwarded, import-name) ; TODO: do I care if this fails?
       false
 
   ;Construct a symbol table from a source package.
   defn make-symtable (p:IPackage) -> SymbolTable :
     ;Initialize symboltable with base mappings
     val symtable = SymbolTable(name(p), namemap(p))
-
     ;Extend symtable from all imports 
     for imp in imports(p) do :
-      extend-symtable(symtable, imp, PrefixTable(prefix(imp)), forward(imp))
+      extend-symtable(symtable, imp, PrefixTable(prefix(imp)), forward(imp), only(imp))
 
     symtable
     
@@ -805,7 +842,11 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
       val symtable = SymbolTable(package(p), exports(p))
       ; Extend symbol table with exports from all forwarded dependencies
       for imp in filter(forward, imported-packages(p)) do :
-        extend-symtable(symtable, imp, PrefixTable(prefix(imp)), true)
+        val import-list* : HashSet<Symbol>|False =
+          match(imported-defs(imp)):
+            (ids:Tuple) : to-hashset<Symbol>(ids)
+            (f:False) : false
+        extend-symtable(symtable, imp, PrefixTable(prefix(imp)), true, import-list*)
 
       symtable
 
@@ -842,6 +883,8 @@ defmulti import (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable, pre
 defmulti import (t:SymbolTable, exports:Seqable<Export>, ptable:PrefixTable, pred) -> False
 defmulti forward-protected (t:SymbolTable, entries:Seqable<VEntry>) -> False
 defmulti forward-protected (t:SymbolTable, exports:Seqable<Export>) -> False
+defmulti forward-public (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable, pred) -> False
+defmulti forward-public (t:SymbolTable, exports:Seqable<Export>, ptable:PrefixTable, pred) -> False
 defmulti push-scope (t:SymbolTable) -> False
 defmulti pop-scope (t:SymbolTable) -> False
 defmulti define (t:SymbolTable, n:Int) -> False
@@ -873,16 +916,16 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
     for e in es do :
       if pred(e) : add-entry(e, ptable[name(e)])
 
-  ;Importing a sequence of exports
-  defn import (es:Seqable<Export>, ptable:PrefixTable, pred) :
-    for e in es do :
-      if pred(e) : add-entry(VEntry(e), ptable[name(VEntry(e))])
-
-
-  ;Importing a sequence of protected entries when forwarding a package
+  ;Forward protected definitions by copying and updating their owner
   defn forward-protected (es:Seqable<VEntry>) :
     for e in es do :
       add-entry(sub-package(e, package-name), false)
+
+  ; Forward public definitions by copying and updating their owner
+  ; Ensures that qualified references will work
+  defn forward-public (es:Seqable<VEntry>, ptable:PrefixTable, pred) :
+    for e in es do :
+      if pred(e) : add-entry(sub-package(e, package-name), ptable[name(e)])
 
   ;Initializing the symbol table
   match(base) :
@@ -896,11 +939,15 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
     defmethod import (this, entries:Seqable<VEntry>, ptable:PrefixTable, pred) :
       import(entries, ptable, pred)
     defmethod import (this, exports:Seqable<Export>, ptable:PrefixTable, pred) :
-      import(exports, ptable, pred)
+      import(seq(VEntry, exports), ptable, pred)
     defmethod forward-protected (this, entries:Seqable<VEntry>) :
       forward-protected(entries)
     defmethod forward-protected (this, exports:Seqable<Export>) :
       forward-protected(seq(VEntry,exports))
+    defmethod forward-public (this, entries:Seqable<VEntry>, ptable:PrefixTable, pred) :
+      forward-public(entries, ptable, pred)
+    defmethod forward-public (this, exports:Seqable<Export>, ptable:PrefixTable, pred) :
+      forward-public(seq(VEntry,exports), ptable, pred)
     defmethod push-scope (this) :
       push-level(table)
     defmethod pop-scope (this) :
@@ -971,6 +1018,17 @@ defn add-prefix (prefix:String|False, x:Symbol) :
       (x:GenSymbol) : gensym(name*)
   else :
     x
+
+; Remove prefix from a symbol, returning None if symbol does not begin with said prefix
+defn remove-prefix (prefix:String|False, x:Symbol) -> Maybe<Symbol>:
+  match(prefix:String) :
+    if prefix?(name(x), prefix) :
+      val name* = get(name(x), length(prefix) to false)
+      match(x):
+        (x:StringSymbol) : One(to-symbol(name*))
+        (x:GenSymbol) : One(gensym(name*))
+    else : None()
+  else : One(x)
     
 ;============================================================
 ;======================= Utilities ==========================

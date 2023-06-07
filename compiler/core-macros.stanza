@@ -995,7 +995,7 @@ defsyntax core :
 
    val TAG-TABLE = HashSet<Symbol>()
    for tag in `(
-      $package $import $import-only $forward $forward-only $prefix-of $prefix 
+      $package $import $forward $only $prefix-of $prefix 
       $public $protected $private $doc $nodoc $deftype $defchild $def
       $defvar $defn $defn* $defmulti $defmethod $defmethod* $fn $fn*
       $multi $begin $let $match $branch $new $as $as? $set $do
@@ -2212,31 +2212,25 @@ defsyntax core :
 
    ;                      DefPackage
    ;                      ==========
-   defproduction prefix-clause!
-   defrule prefix-clause! = (prefix => ?p:#id!) :
+   defproduction directive-clause!
+   defrule directive-clause! = (prefix => ?p:#id!) :
       qquote($prefix ~ p)
-   defrule prefix-clause! = (prefix(?xs:#id! ...) => ?p:#id!) :
+   defrule directive-clause! = (prefix(?xs:#id! ...) => ?p:#id!) :
       qquote($prefix-of ~ xs ~ p)
-   fail-if prefix-clause! = () :
+   defrule directive-clause! = (only => (?xs:#id! ...)) :
+      qquote($only ~ xs)
+   fail-if directive-clause! = () :
       CSE(closest-info(), "Expected prefix clause here.")
 
    defproduction import-clause!
-   defrule import-clause! = (import ?name:#id! with #:! (?ps:#prefix-clause! ...)) :
+   defrule import-clause! = (import ?name:#id! with #:! (?ps:#directive-clause! ...)) :
       qquote($import ~ name ~@ ps)
    defrule import-clause! = (import ?name:#id!) :
       qquote($import ~ name)
-   defrule import-clause! = (from ?name:#id! import [?defs:#id! ...] with #:! (?ps:#prefix-clause! ...)) :
-      qquote($import-only ~ name ~ defs ~@ ps)
-   defrule import-clause! = (from ?name:#id! import [?defs:#id! ...]) :
-      qquote($import-only ~ name ~ defs)
-   defrule import-clause! = (forward ?name:#id! with #:! (?ps:#prefix-clause! ...)) :
+   defrule import-clause! = (forward ?name:#id! with #:! (?ps:#directive-clause! ...)) :
       qquote($forward ~ name ~@ ps)
    defrule import-clause! = (forward ?name:#id!) :
       qquote($forward ~ name)
-   defrule import-clause! = (from ?name:#id! forward [?defs:#id! ...] with #:! (?ps:#prefix-clause! ...)) :
-      qquote($forward-only ~ name ~ defs ~@ ps)
-   defrule import-clause! = (from ?name:#id! forward [?defs:#id! ...]) :
-      qquote($forward-only ~ name ~ defs)
    fail-if import-clause! = () :
       CSE(closest-info(), "Expected import clause here.")
 
