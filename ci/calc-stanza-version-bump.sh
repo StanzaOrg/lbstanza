@@ -27,7 +27,7 @@ TOP="${PWD}"
 >&2 echo "         PARAMSVER:" "${PARAMSVER:=$(git -C "${REPODIR}" log -1 -p -m  \
                                                 | filterdiff -p1 -i compiler/params.stanza \
                                                 | sed -E -n "s/^\+public val STANZA-VERSION = \[(.*)\].*/\1/p" \
-                                                | tr -s ', ' .
+                                                | head -1 | tr -s ', ' .
                                               )}"
 
 if [[ "${PARAMSVER}" != "" ]] ; then

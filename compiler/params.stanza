@@ -18,7 +18,7 @@ public defn compiler-flags () :
   to-tuple(COMPILE-FLAGS)
 
 ;========= Stanza Configuration ========
-public val STANZA-VERSION = [0 18 23]
+public val STANZA-VERSION = [0 18 24]
 public var STANZA-INSTALL-DIR:String = ""
 public var OUTPUT-PLATFORM:Symbol = `platform
 public var STANZA-PKG-DIRS:List<String> = List()
@@ -93,6 +93,7 @@ public defenum SystemFile :
   StanzaIncludeDir
   StanzaAuxFile
   StanzaPkgsDir
+  StanzaREPLHistory
 
 public defn system-filepath (install-dir:String, file:SystemFile) -> String :
   ;Compute path relative to installation folder.
@@ -113,6 +114,7 @@ public defn system-filepath (install-dir:String, file:SystemFile) -> String :
       match(AUX-FILE-OVERRIDE:String) : AUX-FILE-OVERRIDE
       else : relative-to-install("stanza.aux")
     StanzaPkgsDir : relative-to-install("pkgs")
+    StanzaREPLHistory : relative-to-install("repl-history.txt")
 
 public defn system-filepath (file:SystemFile) -> String :
   system-filepath(STANZA-INSTALL-DIR, file)

@@ -1,11 +1,26 @@
 defpackage stz/line-noise-prompter :
   import core
-  import collections
   import reader
+
+;============================================================
+;================== External Definitions ====================
+;============================================================
 
 extern linenoiseSetMultiLine : int -> int
 extern linenoise : ptr<byte> -> ptr<byte>
 extern linenoiseHistoryAdd : ptr<byte> -> int
+extern linenoiseSetCompletionCallback : ptr<((ptr<byte>, ptr<?>) -> int)> -> int
+extern linenoiseAddCompletion : (ptr<?>, ptr<byte>) -> int
+
+;Returns 0 if successful, or -1 otherwise.
+extern linenoiseHistorySave : ptr<byte> -> int
+
+;Returns 0 if successful, or -1 otherwise.
+extern linenoiseHistoryLoad : ptr<byte> -> int
+
+;============================================================
+;================== Multiline Support =======================
+;============================================================
 
 lostanza defn set-multi-line (x:ref<True|False>) -> ref<False> :
   if x == true : call-c linenoiseSetMultiLine(1)
@@ -13,7 +28,68 @@ lostanza defn set-multi-line (x:ref<True|False>) -> ref<False> :
   return false
 set-multi-line(true)
 
+;============================================================
+;=================== Completion Support =====================
+;============================================================
+
+;Holds the currently active completion callback in a global
+;variable so that it can be accessed by a C pointer.
+var COMPLETION-CALLBACK : False|(String -> Tuple<String>) = false
+
+;Pointer wrapper for C linenoiseCompletions object.
+lostanza deftype CompletionInfo :
+  line-noise-completions:ptr<?>
+
+;Add another string to the CompletionInfo, which is returned to the user.
+lostanza defn add-completion (ci:ref<CompletionInfo>, str:ref<String>) -> ref<False> :
+  call-c linenoiseAddCompletion(ci.line-noise-completions, addr!(str.chars))
+  return false
+
+;C callback to provide to LineNoise to implement completion.
+;Just calls COMPLETION-CALLBACK.
+extern defn completion (chars:ptr<byte>, line-noise-completion:ptr<?>) -> int :
+  val info = new CompletionInfo{line-noise-completion}
+  val str = String(chars)
+  hi-completion(str, info)
+  return 1
+
+;Helper: Call COMPLETION-CALLBACK and add results to CompletionInfo.
+defn hi-completion (str:String, ci:CompletionInfo) -> False :
+  match(COMPLETION-CALLBACK) :
+    (f:String -> Tuple<String>) :
+      val ss = f(str)
+      for s in ss do :
+        add-completion(ci, s)
+    (_) :
+      false
+
+;============================================================
+;==================== History Support =======================
+;============================================================
+
+lostanza defn add-history (str:ref<String>) -> ref<False> :
+  call-c linenoiseHistoryAdd(addr!(str.chars))
+  return false
+
+;Currently silently fails if history could not be saved.
+lostanza defn save-history (path:ref<String>) -> ref<False> :
+  call-c linenoiseHistorySave(addr!(path.chars))
+  return false
+
+;Currently silently fails if history could not be loaded.
+lostanza defn load-history (path:ref<String>) -> ref<False> :
+  call-c linenoiseHistoryLoad(addr!(path.chars))
+  return false
+
+;============================================================
+;=================== Prompt for Next Line ===================
+;============================================================
+
+;Prompt for another line and return either a string if one
+;was given or false if not.
 lostanza defn line-noise (prompt:ref<String>) -> ref<String|False> :
+  call-c linenoiseSetCompletionCallback(addr(completion))
+
   val s = call-c linenoise(addr!(prompt.chars))
   if s == 0L as ptr<?> :
     return false
@@ -22,17 +98,43 @@ lostanza defn line-noise (prompt:ref<String>) -> ref<String|False> :
     call-c clib/free(s)
     return str
 
-lostanza defn add-history (str:ref<String>) -> ref<False> :
-  call-c linenoiseHistoryAdd(addr!(str.chars))
-  return false
+;============================================================
+;=================== Creation ===============================
+;============================================================
 
-public defn LineNoisePrompter (prompt:String, continue:String) :
+public defn LineNoisePrompter (prompt:String,
+                               continue:String --
+                               history-path:False|String = false,
+                               completion:False|(String -> Tuple<String>) = false) :
+  ;Load history if requested.
+  match(history-path:String) :
+    load-history(history-path)
+    
+  ;Save completion callback if one is given.
+  COMPLETION-CALLBACK = completion
+
+  ;Count which line we're on.
   var line-counter = to-seq(0 to false)
+  
   new Prompter :
     defmethod get-line (this) :
+
+      ;Prompt for the next line using either the
+      ;'prompt' string or 'continue' string depending on
+      ;whether its the first line or not.
       val msg = prompt when next(line-counter) == 0
            else continue
       val l = line-noise(msg)
+
+      ;If a line was given by the user.
       match(l:String) :
+
+        ;Add the new line to the linenoise history.
         add-history(l)
+
+        ;Save history if requested.
+        match(history-path:String) :
+          save-history(history-path)
+
+        ;Return the new line.
         l
