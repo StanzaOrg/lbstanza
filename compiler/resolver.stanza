@@ -841,12 +841,12 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
       ; Initialize symbol table according to package's exported definitions
       val symtable = SymbolTable(package(p), exports(p))
       ; Extend symbol table with exports from all forwarded dependencies
-      for imp in filter(forward, imported-packages(p)) do :
+      for fwd in filter(forward, imported-packages(p)) do :
         val import-list* : HashSet<Symbol>|False =
-          match(imported-defs(imp)):
+          match(imported-defs(fwd)):
             (ids:Tuple) : to-hashset<Symbol>(ids)
             (f:False) : false
-        extend-symtable(symtable, imp, PrefixTable(prefix(imp)), true, import-list*)
+        extend-symtable(symtable, to-iimport(fwd), PrefixTable(prefix(fwd)), true, import-list*)
 
       symtable
 
