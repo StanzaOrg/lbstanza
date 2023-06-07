@@ -1,4 +1,0 @@
-defpackage rx/base2 :
-    import core
-
-public defn foo () : 1 

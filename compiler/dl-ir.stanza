@@ -599,8 +599,6 @@ defsyntax dl-ir :
                          ?imports:#import ...
                          ?exports:#export ...) :
     ;[TODO] Add doc string reader macro. Defaulted to false for now.
-    ; TODO: actually parse the imports
-    ; TODO: what is this language even for?
     PackageIO(name, to-tuple(map({ImportedPackage(_)}, ips)), to-tuple(imports), to-tuple(exports), false)
 
   defproduction dtype : DType

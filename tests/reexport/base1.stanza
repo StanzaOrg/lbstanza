@@ -1,7 +1,0 @@
-; #use-added-syntax(reexport-syntax)
-
-defpackage rx/base1 :
-    import core
-
-public defn foo () : "base1/foo" 
-protected defn bar () :  "base1/bar"

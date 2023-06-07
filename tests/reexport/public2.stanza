@@ -1,6 +1,0 @@
-defpackage rx/public2 :
-    import core 
-    import rx/public1
-    ;import rx/base2
-
-foo()

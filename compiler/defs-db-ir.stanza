@@ -140,13 +140,9 @@ defmethod print (o:OutputStream, f:DefnAnnotation) :
   match(return-type?:Symbol) : 
     print(o, " -> %_" % [return-type?])
 
-; TODO: should I print the import list as a block?
+; TODO: no import list
 defmethod print (o:OutputStream, p:PackageImport) :
-  val keyword = if forward(p) : "forward" else : "import"
-  val heading = 
-    match(only(p)) :
-      (ds:Tuple<Symbol>) : ("from %_ %_ (%,)" % [name(p), keyword, only(p)])
-      (f:False) : ("%_ %_" % [keyword, name(p)])
+  val heading = to-string("import %_" % [name(p)])
   if empty?(prefixes(p)) :
     print(o, heading)
   else :
