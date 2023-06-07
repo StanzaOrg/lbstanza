@@ -759,8 +759,10 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
     ; ptable : the PrefixTable under which symbols are forwarded. Need to prefix elements of forwarded-list in order to compare them to import-list
     defn import-list-intersection (il : False, fl : False, ptable) : false
     defn import-list-intersection (import-list: False, forwarded-list: HashSet, ptable) : import-list
+    ; Concrete import list, universal forward list: remove prefixes from concrete imports for local reasoning 
     defn import-list-intersection (import-list: HashSet, forwarded-list: False, ptable) :
       to-hashset<Symbol>(seq?(fn (sym) : remove-prefix(ptable[sym], sym), import-list))
+    ; Two concrete import lists: compute intersection (modulo prefixing)
     defn import-list-intersection (import-list: HashSet<Symbol>, forwarded-list: HashSet<Symbol>, ptable : PrefixTable) -> HashSet<Symbol> :
       defn extend-forwarding-set (set, sym) -> HashSet<Symbol> :
         if import-list[add-prefix(ptable[sym], sym)] : add(set, sym)
@@ -806,10 +808,10 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
         ;Imported a .pkg file: copy all Exports, recursively extend from any forwarded packages
         (p:PackageExports) :
           ; Import public definitions and protected definitions (when necessary)
-          import(symtable, filter(visible?, exports(p)), import-ptable, should-import?)
+          import(symtable, seq(VEntry, filter(visible?, exports(p))), import-ptable, should-import?)
           if reexporting:
-            forward-protected(symtable, filter(protected?, exports(p)))
-            forward-public(symtable, filter(public?, exports(p)), import-ptable, should-import?)
+            forward-protected(symtable, seq(VEntry, filter(protected?, exports(p))))
+            forward-public(symtable, seq(VEntry, filter(public?, exports(p))), import-ptable, should-import?)
           for fwd in filter(forward, imported-packages(p)) do:
             val forwarded-list =
               match(imported-defs(fwd)) : 
@@ -879,12 +881,9 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
 
 deftype SymbolTable
 defmulti package (t:SymbolTable) -> Symbol
-defmulti import (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable, pred) -> False
-defmulti import (t:SymbolTable, exports:Seqable<Export>, ptable:PrefixTable, pred) -> False
+defmulti import (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable, pred:(VEntry -> True|False)) -> False
 defmulti forward-protected (t:SymbolTable, entries:Seqable<VEntry>) -> False
-defmulti forward-protected (t:SymbolTable, exports:Seqable<Export>) -> False
-defmulti forward-public (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable, pred) -> False
-defmulti forward-public (t:SymbolTable, exports:Seqable<Export>, ptable:PrefixTable, pred) -> False
+defmulti forward-public (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable, pred:(VEntry -> True|False)) -> False
 defmulti push-scope (t:SymbolTable) -> False
 defmulti pop-scope (t:SymbolTable) -> False
 defmulti define (t:SymbolTable, n:Int) -> False
@@ -912,7 +911,7 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
     do(add-entry{_, false}, es)
 
   ;Importing a sequence of entries
-  defn import (es:Seqable<VEntry>, ptable:PrefixTable, pred) :
+  defn import (es:Seqable<VEntry>, ptable:PrefixTable, pred:(VEntry -> True|False)) :
     for e in es do :
       if pred(e) : add-entry(e, ptable[name(e)])
 
@@ -923,7 +922,7 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
 
   ; Forward public definitions by copying and updating their owner
   ; Ensures that qualified references will work
-  defn forward-public (es:Seqable<VEntry>, ptable:PrefixTable, pred) :
+  defn forward-public (es:Seqable<VEntry>, ptable:PrefixTable, pred:(VEntry -> True|False)) :
     for e in es do :
       if pred(e) : add-entry(sub-package(e, package-name), ptable[name(e)])
 
@@ -938,16 +937,10 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
       package-name
     defmethod import (this, entries:Seqable<VEntry>, ptable:PrefixTable, pred) :
       import(entries, ptable, pred)
-    defmethod import (this, exports:Seqable<Export>, ptable:PrefixTable, pred) :
-      import(seq(VEntry, exports), ptable, pred)
     defmethod forward-protected (this, entries:Seqable<VEntry>) :
       forward-protected(entries)
-    defmethod forward-protected (this, exports:Seqable<Export>) :
-      forward-protected(seq(VEntry,exports))
     defmethod forward-public (this, entries:Seqable<VEntry>, ptable:PrefixTable, pred) :
       forward-public(entries, ptable, pred)
-    defmethod forward-public (this, exports:Seqable<Export>, ptable:PrefixTable, pred) :
-      forward-public(seq(VEntry,exports), ptable, pred)
     defmethod push-scope (this) :
       push-level(table)
     defmethod pop-scope (this) :
