@@ -134,7 +134,7 @@ public defn LineNoisePrompter (prompt:String,
 
         ;Save history if requested.
         match(history-path:String) :
-          save-history(history-path String)
+          save-history(history-path)
 
         ;Return the new line.
         l
