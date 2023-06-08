@@ -11,10 +11,19 @@ defpackage stz/dl-ir :
 ;======================== PackageIO =========================
 ;============================================================
 
+;Represents the prefix to attach to names when a package
+;is forwarded to dependents.
+;- names: The concrete set of symbols to forward.
 public defstruct ImportPrefix :
   names:False|Tuple<Symbol>
   prefix:String
 
+;Represents all information about a package that
+;is imported (and forwarded) into/from this one.
+;- imported-defs: Corresponds to the 'only' list. The set of
+;  concrete symbols to import/forward.
+;  These names will be the user-specified names (as opposed to
+;  their "true" names.) False if every definition is imported.
 public defstruct ImportedPackage <: Hashable & Equalable:
   package-name: Symbol
   imported-defs: Tuple<Symbol>|False with: (default => false)

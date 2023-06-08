@@ -20,6 +20,9 @@ public defstruct IPackage :
 with:
   printer => true
 
+;- forward: True if this package is forwarded: e.g. 'forward mypackage'
+;- only: If given, the set of symbols to import into the current
+;  package or forward onto dependent packages.
 public defstruct IImport :
   package: Symbol
   forward: True|False with: (default => false)
@@ -46,7 +49,7 @@ with:
          ;=== Package Forms ===
          IDefPackage :
             name: IExp
-            imports: List<IExp>
+            imports: List<IExp>            
          IImportExp :
             package: IExp
             forward: True|False
@@ -54,6 +57,7 @@ with:
          IPrefixExp :
             names: False|List<IExp>
             prefix: IExp
+         ;Corresponds to the 'only => ' directive.
          IImportList :
             names : List<IExp>
          IVisibility :
