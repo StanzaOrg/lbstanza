@@ -161,10 +161,9 @@ defn to-tpackage (ipackage:IPackage) -> TPackage :
 
 
 defn to-imported-package (i:IImport) -> ImportedPackage :
-  defn to-prefix (i:IPrefix) -> ImportPrefix :
+  defn convert-prefix (i:IPrefix) -> ImportPrefix :
     ImportPrefix(names(i), prefix(i))
-  val info = if forward(i) : ForwardingInfo(only(i), map(to-prefix, prefix(i))) else : false
-  ImportedPackage(package(i), info)
+  ImportedPackage(package(i), forward(i), only(i), map(convert-prefix, prefix(i)))
 
 ;Create a blank PackageIO.
 ;The imported/exported entries will be populated

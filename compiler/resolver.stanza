@@ -165,6 +165,11 @@ public defn resolve-il (packages:Tuple<IPackage|PackageExports>, env:Env) -> Res
           add(ipackages*, p*)
       resolve-ipackages() when not empty?(ps) or not empty?(ds)
 
+    ; Extend import-lists* from the resolved .pkg files 
+    ; Only used by the REPL
+    for pkg in package-exports(symtables) do :
+      add(import-lists*, ImportList(package(pkg), map(to-iimport, imported-packages(pkg))))
+
     ;Resolve type dependencies from pkgs
     check-exported-types(symtables, ipackages*, package-exports(symtables), error-accum)
 
@@ -858,9 +863,9 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
             import(symtable, filter(should-import?, (seq(VEntry, exports(p)))), import-ptable)
           if forward(mode):
             update-owner(symtable, filter(should-forward?, (seq(VEntry, exports(p)))), import-ptable)
-          for fwd in filter(forwarded-import?, imported-packages(p)) do:
-            val import-list* = import-list-intersection(import-list, only(forward(fwd) as ForwardingInfo), PrefixTable(prefix(forward(fwd) as ForwardingInfo)))
-            val import-ptable* = compose(import-ptable, PrefixTable(prefix(forward(fwd) as ForwardingInfo)))
+          for fwd in filter(forward, imported-packages(p)) do:
+            val import-list* = import-list-intersection(import-list, only(fwd), PrefixTable(prefix(fwd)))
+            val import-ptable* = compose(import-ptable, PrefixTable(prefix(fwd)))
             extend-symtable(symtable, to-iimport(fwd), import-ptable*, mode, import-list*, already-forwarded)
         ;Could not resolve the imported package.
         (f:False) :
@@ -886,9 +891,9 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
       ; Initialize symbol table according to package's exported definitions
       val symtable = SymbolTable(package(p), exports(p))
       ; Extend symbol table with exports from all forwarded dependencies
-      for fwd in filter(forwarded-import?, imported-packages(p)) do :
-        val import-list* = to-import-set(only(forward(fwd) as ForwardingInfo))
-        extend-symtable(symtable, to-iimport(fwd), PrefixTable(prefix(forward(fwd) as ForwardingInfo)), MForward(), import-list*)
+      for fwd in filter(forward, imported-packages(p)) do :
+        val import-list* = to-import-set(only(fwd))
+        extend-symtable(symtable, to-iimport(fwd), PrefixTable(prefix(fwd)), MForward(), import-list*)
 
       symtable
 
@@ -1070,21 +1075,7 @@ defn one? (xs:List) :
   not empty?(xs) and empty?(tail(xs))
 
 defn to-iimport (imp : ImportedPackage) :
-  val only-list = 
-    match(forward(imp)) :
-      (forward:ForwardingInfo) :
-        match(only(forward)) :
-          (ds:Tuple) : ds
-          (f:False) : false
-      (f:False) : false
-  val pref = 
-    match(forward(imp)) :
-      (forward:ForwardingInfo) : prefix(forward)
-      (f:False) : []
-  val forward-flag =
-    match(forward(imp):ForwardingInfo) : true
-    else : false
-  IImport(package-name(imp), forward-flag, only-list, map(to-iprefix, pref), false, false)
+  IImport(package-name(imp), forward(imp), only(imp), map(to-iprefix, prefix(imp)), false, false)
 
 defn to-iprefix (p : ImportPrefix) :
   IPrefix(names(p), prefix(p))

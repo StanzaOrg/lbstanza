@@ -18,15 +18,12 @@ public defstruct ImportPrefix :
   names:False|Tuple<Symbol>
   prefix:String
 
-;Lists of symbols and their prefixes to forward
-public defstruct ForwardingInfo :
-  only:False|Tuple<Symbol>
-  prefix:Tuple<ImportPrefix>
-
-;Represents all information about a package that
+;An imported package and its forwarding status, import list, and prefixes
 public defstruct ImportedPackage <: Hashable & Equalable:
   package-name: Symbol
-  forward: False|ForwardingInfo with: (default => false)
+  forward: True|False with: (default => false)
+  only: False|Tuple<Symbol> with: (default => false)
+  prefix:Tuple<ImportPrefix> with: (default => [])
 
 defmethod hash (p : ImportedPackage) :
   hash(package-name(p))
@@ -450,11 +447,6 @@ public defn to-package-exports (io:PackageIO) :
 public defn to-package-exports? (io:PackageIO|False) :
   match(io:PackageIO) :
     to-package-exports(io)
-
-public defn forwarded-import? (p : ImportedPackage) :
-  match(forward(p):ForwardingInfo) : true
-  else : false
-
 
 ;============================================================
 ;===================== IOTable ==============================

@@ -143,13 +143,11 @@ defserializer PkgSerializer (include-asm?:True|False) :
     names:opt(tuple(symbol))
     prefix:string
 
-  deftype forwardinginfo (ForwardingInfo) :
-    only:opt(tuple(symbol))
-    prefix:tuple(importprefix)
-
   deftype importedpackage (ImportedPackage) :
     package-name:symbol
-    forward:opt(forwardinginfo)
+    forward:bool
+    only:opt(tuple(symbol))
+    prefix:tuple(importprefix)
 
   deftype packageio (PackageIO) :
     package:symbol

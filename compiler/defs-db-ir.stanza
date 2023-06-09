@@ -140,7 +140,7 @@ defmethod print (o:OutputStream, f:DefnAnnotation) :
   match(return-type?:Symbol) : 
     print(o, " -> %_" % [return-type?])
 
-; TODO: no import list
+; Note: does not use forwarding information or import list
 defmethod print (o:OutputStream, p:PackageImport) :
   val heading = to-string("import %_" % [name(p)])
   if empty?(prefixes(p)) :
