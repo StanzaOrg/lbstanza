@@ -13,22 +13,20 @@ defpackage stz/dl-ir :
 
 ;Represents the prefix to attach to names when a package
 ;is forwarded to dependents.
-;- names: The concrete set of symbols to forward.
+;- names: The concrete set of symbols to prefix.
 public defstruct ImportPrefix :
   names:False|Tuple<Symbol>
   prefix:String
 
+;Lists of symbols and their prefixes to forward
+public defstruct ForwardingInfo :
+  only:False|Tuple<Symbol>
+  prefix:Tuple<ImportPrefix>
+
 ;Represents all information about a package that
-;is imported (and forwarded) into/from this one.
-;- imported-defs: Corresponds to the 'only' list. The set of
-;  concrete symbols to import/forward.
-;  These names will be the user-specified names (as opposed to
-;  their "true" names.) False if every definition is imported.
 public defstruct ImportedPackage <: Hashable & Equalable:
   package-name: Symbol
-  imported-defs: Tuple<Symbol>|False with: (default => false)
-  forward: True|False with: (default => false)
-  prefix: Tuple<ImportPrefix> with: (default => [])
+  forward: False|ForwardingInfo with: (default => false)
 
 defmethod hash (p : ImportedPackage) :
   hash(package-name(p))
@@ -452,6 +450,11 @@ public defn to-package-exports (io:PackageIO) :
 public defn to-package-exports? (io:PackageIO|False) :
   match(io:PackageIO) :
     to-package-exports(io)
+
+public defn forwarded-import? (p : ImportedPackage) :
+  match(forward(p):ForwardingInfo) : true
+  else : false
+
 
 ;============================================================
 ;===================== IOTable ==============================

@@ -499,10 +499,15 @@ defn to-iimport (e:IImportExp) -> IImport :
     IPrefix(names, prefix)
   val package = name!(package(e))
   val prefix = to-tuple $ seq(to-iprefix, filter({_ is IPrefixExp}, directives(e)) as Seq<IPrefixExp>)
-  val only = match(find({_ is IImportList}, directives(e))):
-   (il:IExp) : to-hashset<Symbol>(seq(name!, names(il as IImportList))) 
-   (f:False) : false
-  IImport(package, forward(e), only, prefix, info(e))
+  ; Flatten all "only" directives into a single set
+  val only-set = 
+   if any?({_ is IImportList}, directives(e)) :
+      val only-set = HashSet<Symbol>()
+      for o in filter({_ is IImportList}, directives(e)) do :
+         for s in names(o as IImportList) do : add(only-set, name!(s)) 
+      to-tuple(only-set)
+   else : false
+  IImport(package, forward(e), only-set, prefix, info(e))
 
 ;============================================================
 ;================= Syntax Restrictions ======================
@@ -526,7 +531,7 @@ defn to-iimport (e:IImportExp) -> IImport :
       imp("import form") :
          IImportExp: {package:v directives:(pr ...)}
 
-      pr("prefix form") :
+      pr("directive form") :
          IPrefixExp :
             if (names(e) is False) : {prefix:v}
             else : {names:(v ...) prefix:v}
