@@ -165,11 +165,6 @@ public defn resolve-il (packages:Tuple<IPackage|PackageExports>, env:Env) -> Res
           add(ipackages*, p*)
       resolve-ipackages() when not empty?(ps) or not empty?(ds)
 
-    ; Extend import-lists* from the resolved .pkg files 
-    ; Only used by the REPL
-    for pkg in package-exports(symtables) do :
-      add(import-lists*, ImportList(package(pkg), map(to-iimport, imported-packages(pkg))))
-
     ;Resolve type dependencies from pkgs
     check-exported-types(symtables, ipackages*, package-exports(symtables), error-accum)
 
