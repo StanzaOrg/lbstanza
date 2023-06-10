@@ -1036,17 +1036,12 @@ defn PrefixTable (prefixes:Tuple<IPrefix>) :
         (s:String) : s
         (s:False) : all-prefix
 
-; Compose tables t1 and t2 such that:
-; get(compose(t1,t2),x) = get(t1,x) ++ get(t2,x)
+; Compose tables t1 and t2, where t1 depends on t2
 defn compose (t1:PrefixTable, t2:PrefixTable) -> PrefixTable :
   new PrefixTable :
     defmethod get (this, name:Symbol) :
-      match(get(t1, name), get(t2, name)) :
-        (x:String, y:String) : append(x,y)
-        (x:False, y:String)  : y
-        (x:String, y:False)  : x
-        (x,y)                : false
-        
+      get(t1, add-prefix(t2[name], name))
+ 
 defn add-prefix (prefix:String|False, x:Symbol) :
   match(prefix:String) :
     val name* = append(prefix,name(x))
