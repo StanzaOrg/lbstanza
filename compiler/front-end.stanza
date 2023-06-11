@@ -78,7 +78,7 @@ precompiled .pkg packages.
 Inconsistencies will be caused by out-of-date packages loaded from
 .pkg files. Inconsistencies are classified into either unrecoverable
 errors, or errors potentially recoverable by reloading the original
-source file corresponding to the .pkg file. 
+source file corresponding to the .pkg file.
 
 ;============================================================
 ;=======================================================<doc>
@@ -110,6 +110,9 @@ public defmulti conditional-dependencies (inputs:FrontEndInputs,
 
 public defmulti supported-vm-packages (inputs:FrontEndInputs) -> Tuple<String|Symbol> :
   []
+
+public defmulti debug? (inputs:FrontEndInputs) -> True|False :
+  false
 
 public defmulti verbose? (inputs:FrontEndInputs) -> True|False :
   false
@@ -152,7 +155,7 @@ defmethod print (o:OutputStream, r:DependencyResult) :
 defn lnprint-block (o:OutputStream, name:String, xs:Seqable) :
   print(o, "\n")
   print-block(o, name, xs)
-  
+
 defn print-block (o:OutputStream, name:String, xs:Seqable) :
   val xs-items = to-seq(xs)
   if empty?(xs-items) :
@@ -192,6 +195,7 @@ defmulti compile-to-el (f:FrontEnd) -> FrontEndResult
 defmulti dependencies (f:FrontEnd) -> DependencyResult
 
 defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
+  val debug? = debug?(sys)
   ;----------------------------------------------------------
   ;--------------------- State ------------------------------
   ;----------------------------------------------------------
@@ -210,7 +214,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
     val input-package-names = to-tuple $ seq(name, input-objs)
     if verbose?(sys) :
       println("Input packages: %," % [input-package-names])
-    load-package-table!(input-objs)      
+    load-package-table!(input-objs)
     ;Begin the resolver loop.
     let loop () :
       ;Loop again after resolving recovery files.
@@ -222,7 +226,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
           for source in files do :
             println("  package %~ from %~" % [package(source), filename(source)])
         load-package-table! $ read-inputs!(files)
-        loop()        
+        loop()
 
       val [resolved, recovery-files] = resolve-packages-with-recovery!(input-package-names)
       if not empty?(recovery-files) :
@@ -250,7 +254,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
       ;into the program.
       val included-packages = to-hashset<Symbol> $
         seq(name, package-table)
-      
+
       ;Load remaining vm support packages
       val remaining-packages = to-tuple $
         for p in vm-packages filter :
@@ -265,7 +269,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
         for p in package-table seq? :
           if included-packages[name(p)] : None()
           else : One(p)
-          
+
       ;Calculate bindings
       val bindings = extract-bindings(binding-packages)
       val binding-package-names = map(name, binding-packages)
@@ -309,7 +313,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
   defn source-file? (name:Symbol) :
     match(package-location(name)) :
       (l:PkgLocation) : source-file(l)
-      (f:False) : false     
+      (f:False) : false
 
   defn record-pkgstamp (l:PkgLocation) :
     defn hashstamp? (file:String|False) -> ByteArray|False :
@@ -317,7 +321,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
         sha256-hash-file(file) when file-exists?(file)
     val stamp = PackageStamp(l, hashstamp?(source-file(l)), hashstamp?(pkg-file(l)))
     package-stamps[package(l)] = stamp
-    
+
   ;----------------------------------------------------------
   ;------------------- Reading Inputs -----------------------
   ;----------------------------------------------------------
@@ -346,7 +350,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
           else :
             throw(InvalidExtensionError(filename)))
 
-    defn package-matching! (filename:String, package-name:Symbol) -> IPackage|Pkg :      
+    defn package-matching! (filename:String, package-name:Symbol) -> IPackage|Pkg :
       val pkg = for pkg in read-packages(filename) find :
         name(pkg) == package-name
       throw(MissingPackageInFile(filename, package-name)) when pkg is False
@@ -370,15 +374,15 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
           (input:PackageName) :
             val loc = package-location!(package(input))
             add(objects, package-matching!(filename(loc), package(loc)))
-            record-pkgstamp(loc)        
+            record-pkgstamp(loc)
           (input:StanzaFile) :
             val pkgs = read-packages(filename(input))
             do(record-pkgstamp{pkg-location(_, filename(input))}, pkgs)
-            add-all(objects, pkgs)          
+            add-all(objects, pkgs)
           (input:PackageInFile) :
             val pkg = package-matching!(filename(input), package(input))
             record-pkgstamp(pkg-location(pkg, filename(input)))
-            add(objects, pkg)          
+            add(objects, pkg)
           (input:IPackage) :
             add(objects, input)
       catch (e:FrontEndError|IOException|CheckError|CheckErrors|PkgException|LexerException) :
@@ -439,7 +443,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
       add(errors, /errors(renamed) as RenameErrors)
     objects = sub-ipackages(objects, packages(renamed))
     do(add{package-table, _}, objects)
-    
+
   defn load-package-table! (objects:Collection<IPackage|Pkg>) :
     val errors = Vector<Exception>()
     load-package-table(objects, errors)
@@ -516,12 +520,12 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
     ;Include as a resolver input, all the IPackages in the package table.
     defn minus (xs:Seqable<Symbol>, ys:Tuple<Symbol>) :
       for x in xs filter :
-        not contains?(ys, x)    
+        not contains?(ys, x)
     val package-names* = to-tuple(cat(existing-packages, package-names)) where :
       val existing-packages = seq(name, ipackages(package-table)) - package-names
     val resolver-inputs = to-tuple $
       filter-by<IPackage|PackageExports>(seq(to-resolver-input?, package-names*))
-    
+
     val resolved = resolve-il(resolver-inputs, resolver-environment(errorlist))
     match(errors(resolved)) :
       (es:ResolveErrors) : add-all(errorlist, errors(es))
@@ -535,7 +539,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
   defn resolve-packages-with-recovery! (package-names:Tuple<Symbol>) -> [ResolverResult, Tuple<PackageInFile>] :
     val errorlist = Vector<Exception>()
     val resolved = resolve-packages(package-names, errorlist)
-    val new-inputs = HashTable<Symbol,PackageInFile>()    
+    val new-inputs = HashTable<Symbol,PackageInFile>()
     for e in errorlist do :
       match(e:MissingType) :
         match(source-file?(src-package(e))) :
@@ -559,9 +563,9 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
       defmethod stz/type/exports (this, package:Symbol) :
         match(environment-package?(sys, package)) :
           (io:PackageIO) : package-exports(io)
-          (f:False) : package-exports-table[package]        
+          (f:False) : package-exports-table[package]
     val typed = type-program!(resolved, env)
-    to-el(typed, transient?(sys))
+    to-el(typed, transient?(sys), debug?)
 
   ;----------------------------------------------------------
   ;------------------- Order Packages -----------------------
@@ -578,7 +582,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
   ;Returns false is successful.
   ;Otherwise, returns a collection of PackageInFile to use to
   ;try on the next iteration.
-  
+
   defn load-into-denv! (pkgs:Seqable<EPackage|Pkg>) -> Tuple<PackageInFile>|False :
     val packageios = to-tuple $ seq(packageio, pkgs)
     val result = load-into-denv(sys, packageios)
@@ -678,8 +682,8 @@ backed up by a source file.
 
 deftype InputSource :
   IPackage <: InputSource
-  PkgLocation <: InputSource  
-  
+  PkgLocation <: InputSource
+
 defstruct StanzaFile <: InputSource :
   filename: String
 

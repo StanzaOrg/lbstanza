@@ -213,6 +213,7 @@ public defn allocate-registers (context-id:Int,
                                 emitter:CodeEmitter,
                                 backend:Backend,
                                 stubs:AsmStubs,
+                                debug?:True|False,
                                 print?:True|False) -> False :
   take-ids(ins)
 
@@ -266,7 +267,7 @@ public defn allocate-registers (context-id:Int,
     println("==== Collapse Blocks ====")
     print-prog()
 
-  assemble(emitter, context-id, smap, stubs, print?)
+  assemble(emitter, context-id, smap, stubs, debug?, print?)
   clear-working-set()
 
 ;============================================================
@@ -1368,7 +1369,7 @@ defn add-annotations (blk:Block, b:Int) :
           else :
             val killed = to-list(filter({not live?(_)}, used-vars(e)))
             emit(attach-killed(e, to-list(killed)))
-            
+
           ;Cross call boundary
           if crosses-boundary?(e) :
             val live-set = IntSet()
@@ -1377,7 +1378,7 @@ defn add-annotations (blk:Block, b:Int) :
               requires-save[x] = true
               prefers-load[x] = false
             val live-vars = to-tuple(seq(Var,live-set))
-            emit(Op(RecordLiveOp(live-vars), List(), List(), List()))            
+            emit(Op(RecordLiveOp(live-vars), List(), List(), List()))
 
         ;Used
         fn (x:Var) :
@@ -2519,6 +2520,7 @@ defn assemble (emitter:CodeEmitter,
                context-id:Int,
                stackmap:StackMap,
                stubs:AsmStubs,
+               debug?:True|False,
                print?:True|False) :
   ;============================
   ;==== Assembly Utilities ====
@@ -2545,7 +2547,7 @@ defn assemble (emitter:CodeEmitter,
   ;====================
   ;==== VarContext ====
   ;====================
-  val safepoints-enabled? = contains?(EXPERIMENTAL-FEATURES, `safepoints)
+  val safepoints-enabled? = debug? and contains?(EXPERIMENTAL-FEATURES, `safepoints)
   val named-vars = Vector<asm-NamedVar>()
   val named-var-table = IntTable<Int>()
   for (v in 0 to false, name in VAR-NAMES) do :
@@ -2608,9 +2610,9 @@ defn assemble (emitter:CodeEmitter,
       (e:Call) :
         defn emit-info-label (label-id:Int, info:CallInfo) :
           val vmap = varmap(/named-vars(info)) when safepoints-enabled?
-          E $ asm-Label(label-id, 
+          E $ asm-Label(label-id,
                         trace-entry(info)
-                        vmap)            
+                        vmap)
 
         match(type(e)) :
           (t:ExtendStack) :

@@ -61,7 +61,7 @@ public defn AuxFile (path:String) -> AuxFile :
   ;Call read-records() to re-read the auxfile if
   ;we detect that it has changed on-disk.
   defn read-records-if-changed () -> False :
-    val changed? = 
+    val changed? =
       if file-exists?(path) :
         match(records-stamp:FileStamp) :
           not up-to-date?(records-stamp)
@@ -172,6 +172,7 @@ public defstruct BuildRecordSettings <: Hashable & Equalable :
   external-dependencies: String|False
   pkg-dir: String|False
   optimize?: True|False
+  debug?: True|False
   ccfiles: Tuple<String>
   ccflags: Tuple<String|Tuple<String>>
   flags: Tuple<Symbol>
@@ -221,7 +222,7 @@ defmethod print (o:OutputStream, f:AuxFile) :
 
 defmethod print (o:OutputStream, r:AuxRecords) :
   val version-str = string-join(stanza-version(r), ".")
-  val items = [    
+  val items = [
     simple-field("stanza-version", version-str)
     inline-fields(records(r))]
   print(o, "AuxRecords%_" % [colon-field-list(items)])
@@ -232,7 +233,7 @@ defmethod print (o:OutputStream, r:PkgRecord) :
     simple-field("source-stamp", source-stamp(r))
     named-list-fields("flags", flags(r))
     bool-flag-field("optimize", optimize?(r))]
-  print(o, "PkgRecord %~%_" % [package(r), colon-field-list(items)])  
+  print(o, "PkgRecord %~%_" % [package(r), colon-field-list(items)])
 
 defmethod print (o:OutputStream, r:ExternalFileRecord) :
   val file-str = match(filetype(r)) :
@@ -263,6 +264,7 @@ defmethod print (o:OutputStream, s:BuildRecordSettings) :
     falseable-field("external-dependencies", external-dependencies(s))
     falseable-field("pkg-dir", pkg-dir(s))
     simple-field("optimize?", optimize?(s))
+    simple-field("debug?", debug?(s))
     named-emptyable-list-fields("ccfiles", ccfiles(s))
     named-emptyable-list-fields("ccflags", ccflags(s))
     named-emptyable-list-fields("flags", flags(s))]

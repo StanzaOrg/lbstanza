@@ -41,11 +41,11 @@ public defstruct DefsDbInput :
   optimize?: True|False
   merge-db?: String|False
   macro-plugins: Tuple<String>
-with : 
+with :
   printer => true
 
-; Main entry point, given the input data and an output filename, 
-; compile to IL-IR, create the definitions database, and serialize it 
+; Main entry point, given the input data and an output filename,
+; compile to IL-IR, create the definitions database, and serialize it
 ; to the output file.
 public defn defs-db (input:DefsDbInput, filename:String) :
   ;First analyze the input.
@@ -60,7 +60,7 @@ public defn defs-db (input:DefsDbInput, filename:String) :
       try : read-definitions-database(file)
       catch (e) : false
     (f:False) :
-      false    
+      false
 
   ;If a previous database exists, then merge the
   ;previous database against the new database.
@@ -95,15 +95,16 @@ protected-when(TESTING) defn analyze-input (input:DefsDbInput) -> DependencyResu
     false,                                  ;external dependencies
     false,                                  ;pkg-dir
     optimize?(input),                       ;optimize?
+    false,                                  ;debug?
     [],                                     ;ccfiles
     [],                                     ;ccflags
     flags(input)                            ;flags
     macro-plugins(input)                    ;macro-plugin
     false)                                  ;link-type
-    
+
   ;Compute dependencies (compiles to IL-IR)
   dependencies(build-settings, true)
-  
+
 ;============================================================
 ;============= Building the Database ========================
 ;============================================================
@@ -121,7 +122,7 @@ protected-when(TESTING) defn gen-defs-db (deps:DependencyResult) -> DefinitionsD
     val stamp = package-stamp-table[name(pkg)]
     build-package-defs(pkg, stamp, namemap(deps))
 
-  val unresolved-symbols = to-tuple $ 
+  val unresolved-symbols = to-tuple $
     for e in filter-by<NoResolve>(errors(deps)) seq :
       UnresolvedSymbol(name(e), /info?(info(e)))
 
@@ -142,7 +143,7 @@ defn build-package-defs (pkg:Pkg, stamp:PackageStamp, nm:NameMap) -> PackageDefi
   val exports-with-infos = filter({info(_) is-not False}, exports(packageio))
 
   ;Convert each of the exports into the database Definition objects.
-  val definitions = to-tuple $     
+  val definitions = to-tuple $
     for e in exports-with-infos seq :
       Definition(name, info, kind, visibility, annotation?, documentation?) where :
         val name = name(id(rec(e)))
@@ -164,20 +165,20 @@ defn build-package-defs (pkg:Pkg, stamp:PackageStamp, nm:NameMap) -> PackageDefi
 ;------------------------------------------------------------
 ; Index a package from source code. First index the expressions, then convert to a `Definition`
 ; object that can be serialized.
-protected-when(TESTING) defn build-package-defs (ipackage:IPackage, 
-                                                 stamp:PackageStamp, 
+protected-when(TESTING) defn build-package-defs (ipackage:IPackage,
+                                                 stamp:PackageStamp,
                                                  nm:NameMap) -> PackageDefinitions :
   ;Convert the IImport expression into a PackageImport.
   defn to-package-import (iimport:IImport) -> PackageImport :
-    val prefixes = for iprefix in prefix(iimport) map : 
+    val prefixes = for iprefix in prefix(iimport) map :
       PackageImportPrefix(names(iprefix), prefix(iprefix))
     PackageImport(package(iimport), prefixes)
 
   ;Index the expressions in the package to assemble the definitions.
   val indexed-exps = index-expressions(exps(ipackage), nm)
   val definitions = to-tuple $
-    for indexed in indexed-exps seq :  
-      Definition(name, info, kind, visibility, annotation?, documentation?) where : 
+    for indexed in indexed-exps seq :
+      Definition(name, info, kind, visibility, annotation?, documentation?) where :
         val name = name(indexed)
         val info = info(indexed)
         val kind = kind(indexed)
@@ -193,7 +194,7 @@ protected-when(TESTING) defn build-package-defs (ipackage:IPackage,
                      map(to-package-import, imports(ipackage)),
                      definitions)
 
-; Depth first walk of the IL-IR to flatten into a sequence of `Indexed`, or 
+; Depth first walk of the IL-IR to flatten into a sequence of `Indexed`, or
 ; IExp nodes that have a meaningful name and FileInfo
 ;
 ; Input: The top level IExp nodes from IL-IR, and a NameMap to lookup associated
@@ -201,13 +202,13 @@ protected-when(TESTING) defn build-package-defs (ipackage:IPackage,
 ;
 ; Output: A sequence of indexed expressions.
 ;
-; Expected Behavior : 
+; Expected Behavior :
 ; - When encountering an `IVisibility` node, traverse its child using that node's visibility
 ; - When encountering an `IBegin`, traverse its children with the current visibility.
 ; - The initial visibility is `Private`
 ; - If an expression is not `Indexable`, it is skipped
 ; - If an `Indexable` does not have an `info`, it is skipped
-; - If an `Indexable`'s name cannot be found, it is skipped 
+; - If an `Indexable`'s name cannot be found, it is skipped
 protected-when(TESTING) defn index-expressions (exps:List<IExp>, nm:NameMap) -> Seq<Indexed> :
   generate<Indexed> :
     ;Returns the documentation that should be used for the next expression
@@ -215,7 +216,7 @@ protected-when(TESTING) defn index-expressions (exps:List<IExp>, nm:NameMap) -> 
     defn loop (e:IExp,
                current-visibility:Visibility,
                documentation?:False|String) -> String|False :
-      match(e) : 
+      match(e) :
         ; Case 0: We encounter a doc string. Attribute it with
         ;         the next expression.
         (d:IDoc) :
@@ -223,9 +224,9 @@ protected-when(TESTING) defn index-expressions (exps:List<IExp>, nm:NameMap) -> 
 
         ; Case 1: We encounter a visibility node. Walk its
         ;         child with the new visibility.
-        (v:IVisibility) : 
+        (v:IVisibility) :
           loop(exp(v), visibility(v), documentation?)
-          
+
         ; Case 2: We encounter a `Begin` node. Walk its children
         ;         reusing the current visibility
         (b:IBegin) :
@@ -233,7 +234,7 @@ protected-when(TESTING) defn index-expressions (exps:List<IExp>, nm:NameMap) -> 
 
         ; Case 3: We find an Indexable. Attempt to index it.
         (i:Indexable&IExp) :
-          ; Extract metadata from the IExp. 
+          ; Extract metadata from the IExp.
           val name = name?(i, nm)
           val info = info(i as IExp)
           val kind = kindof(i)
@@ -242,7 +243,7 @@ protected-when(TESTING) defn index-expressions (exps:List<IExp>, nm:NameMap) -> 
 
           ; Case 4a.: Successfully found info and name, yield
           ; Case 4b.: (implicit) If name or info is not found, skip.
-          match(info:AbsoluteFileInfo, name:Symbol) : 
+          match(info:AbsoluteFileInfo, name:Symbol) :
             yield(Indexed(kind, current-visibility, name, /info(info), annotation?, documentation?))
 
           ; Return false to indicate that the documentation has been attributed.
@@ -264,7 +265,7 @@ protected-when(TESTING) defn index-expressions (exps:List<IExp>, nm:NameMap) -> 
       else :
         val new-doc? = loop(head(es), current-visibility, documentation?)
         loop(tail(es), current-visibility, new-doc?)
-          
+
     ; launch!
     loop(exps, Private, false)
 
@@ -276,34 +277,34 @@ protected-when(TESTING) defn index-expressions (exps:List<IExp>, nm:NameMap) -> 
 defn annotate? (iexp:IExp, nm:NameMap) -> False|DefinitionAnnotation :
   match(iexp) :
     (idefn:IDefn|IDefmethod|ILSDefn|ILSDefmethod) :
-      DefnAnnotation(targs, args, return-type?) where :  
+      DefnAnnotation(targs, args, return-type?) where :
         val return-type? = stringify?(a2(idefn), nm)
-        val targs = to-tuple $ 
-          for arg in targs(idefn) seq : 
+        val targs = to-tuple $
+          for arg in targs(idefn) seq :
             stringify?(arg, nm) as Symbol
-        val args = to-tuple $ 
-          for (arg in args(idefn), type in a1(idefn)) seq : 
+        val args = to-tuple $
+          for (arg in args(idefn), type in a1(idefn)) seq :
             val arg-name = stringify?(arg, nm)
             val type-name = stringify?(type, nm)
             FnArgAnnotation(arg-name, type-name)
     (iexp) :
       false
-    
+
 ;Create an annotation for a PackageIO Export expression.
-defn annotate? (export:Export, nm:NameMap) -> False|DefinitionAnnotation : 
+defn annotate? (export:Export, nm:NameMap) -> False|DefinitionAnnotation :
   match(rec(export)) :
-    (rec:FnRec|MultiRec) : 
-      DefnAnnotation(targs, args, return-type?) where : 
+    (rec:FnRec|MultiRec) :
+      DefnAnnotation(targs, args, return-type?) where :
         val fnid = id(rec) as FnId
         val return-type? = stringify?(a2(rec), nm)
-        val targs = to-tuple $ 
-          for n in 0 to (ntargs(fnid) + ncargs(fnid)) seq : 
-            if n < ntargs(fnid) : 
+        val targs = to-tuple $
+          for n in 0 to (ntargs(fnid) + ncargs(fnid)) seq :
+            if n < ntargs(fnid) :
               to-symbol("TV%_" % [n])
-            else : 
+            else :
               to-symbol("?TV%_" % [n])
-        val args = to-tuple $ 
-          for (arg-type in a1(id(rec) as FnId), n in 0 to false) seq : 
+        val args = to-tuple $
+          for (arg-type in a1(id(rec) as FnId), n in 0 to false) seq :
             FnArgAnnotation(to-symbol("_%_" % [n]), stringify?(arg-type, nm))
     (r:?) :
       false
@@ -317,9 +318,9 @@ val STANZA-RESERVED-WORDS = [
   "package" "import" "prefix-of" "prefix" "public" "protected" "private" "doc" "deftype" "defchild" "def"
   "defpackage" "defvar" "defn" "defn*" "defmulti" "defmethod" "defmethod*" "fn" "fn*"
   "multi" "begin" "let" "match" "branch" "new" "as" "as?" "set" "do"
-  "prim" "tuple" "quote" "none" "of" "and" "or" "->" 
+  "prim" "tuple" "quote" "none" "of" "and" "or" "->"
   "cap" "void" "new" "struct" "addr" "addr!" "deref"
-  "slot" "field" "do" "call-c" "prim" "sizeof" "tagof" 
+  "slot" "field" "do" "call-c" "prim" "sizeof" "tagof"
   "letexp" "and" "or" "set" "label" "labels" "block" "goto" "return"
   "let" "if" "match" "branch" "func" "def" "defvar" "deftype" "deffield"
   "extern" "extern-fn" "byte" "int" "long" "float" "double"
@@ -330,8 +331,8 @@ val STANZA-RESERVED-WORDS = [
 ;------------------------------------------------------------
 
 ; Report the "kind" of an IExp.
-public defn kindof (e:IExp) -> SrcDefinitionKind : 
-  match(e) : 
+public defn kindof (e:IExp) -> SrcDefinitionKind :
+  match(e) :
     (e:IDefmulti) : SrcDefMulti
     (e:IDefmethod|ILSDefmethod) : SrcDefMethod
     (e:IDefn|ILSDefn) : SrcDefFunction
@@ -340,8 +341,8 @@ public defn kindof (e:IExp) -> SrcDefinitionKind :
     (e) : SrcDefUnknown
 
 ; Returns the "kind" of an Rec.
-public defn kindof (r:Rec) -> SrcDefinitionKind : 
-  match(r) : 
+public defn kindof (r:Rec) -> SrcDefinitionKind :
+  match(r) :
     (v:ValRec|ExternRec) : SrcDefVariable
     (f:FnRec|ExternFnRec) : SrcDefFunction
     (m:MultiRec) : SrcDefMulti
@@ -352,10 +353,10 @@ public defn kindof (r:Rec) -> SrcDefinitionKind :
 ;------------------ Indexable Type --------------------------
 ;------------------------------------------------------------
 
-; An Indexable is an IExp that can be meaningfully indexed in the DefinitionsDatabase 
+; An Indexable is an IExp that can be meaningfully indexed in the DefinitionsDatabase
 ; structure. Currently supported are functions, multis, methods, types, and children
 ; in both Hi and Lo stanza.
-deftype Indexable :  
+deftype Indexable :
   VarN         <: Indexable
   IDef         <: Indexable
   IDefn        <: Indexable
@@ -373,27 +374,27 @@ deftype Indexable :
 ;------------------------------------------------------------
 
 ; The `Indexed` struct is a helper that contains extracted metadata from IL-IR.
-; before being associated with a package. 
+; before being associated with a package.
 ;
 ;- kind:       The kind of originating expression (see SrcDefinitionKind)
 ;- visibility: The visibility of the expression (public|private|protected)
 ;- name:       The extracted name of the indexed expression
 ;- info:       The associated file info of the expression.
-protected defstruct Indexed <: Equalable : 
+protected defstruct Indexed <: Equalable :
   kind:SrcDefinitionKind
   visibility:Visibility
   name:Symbol
   info:FileInfo
   annotation?:False|DefinitionAnnotation
   documentation?:False|String
-with : 
+with :
   printer => true
 
 ; Index entries are `Equalable` for testing.
 defmethod equal? (l:Indexed, r:Indexed) :
-  kind(l) == kind(r) and 
-  visibility(l) == visibility(r) and 
-  name(l) == name(r) and 
+  kind(l) == kind(r) and
+  visibility(l) == visibility(r) and
+  name(l) == name(r) and
   info(l) == info(r)
 
 ;============================================================
@@ -405,7 +406,7 @@ defn stringify? (a:FArg<DType>, nm:NameMap) :
 
 ; A helper multi that converts some IR that represents a named
 ; "thing" (type, identifier, etc) into human readable text.
-defmulti stringify? (i:DType|IExp, nm:NameMap) -> False|Symbol : 
+defmulti stringify? (i:DType|IExp, nm:NameMap) -> False|Symbol :
   false
 
 ; Stringify types from lostanza types in pkg/fpkg files
@@ -416,7 +417,7 @@ defmethod stringify? (dtype:DFloat, nm:NameMap)    : `float
 defmethod stringify? (dtype:DDouble, nm:NameMap)   : `double
 defmethod stringify? (dtype:DUnknown, nm:NameMap)  : `?
 
-defmethod stringify? (dptr:DPtrT, nm:NameMap) : 
+defmethod stringify? (dptr:DPtrT, nm:NameMap) :
   to-symbol $ "ptr<%_>" % [stringify?(type(dptr), nm)]
 
 defmethod stringify? (dfn:DFnT, nm:NameMap) :
@@ -431,40 +432,40 @@ defmethod stringify? (dfn:DFnT, nm:NameMap) :
         if rstr is Symbol :
           to-symbol("fn (%, ...) -> %_" % [cat(a,[rstr]), b])
 
-defmethod stringify? (dtype:DOf, nm:NameMap) : 
-  if empty?(targs(dtype)) : 
+defmethod stringify? (dtype:DOf, nm:NameMap) :
+  if empty?(targs(dtype)) :
     name(id(dtype))
-  else : 
-    to-symbol $ "%_<%,>" % [name(id(dtype)), seq(stringify?{_, nm}, targs(dtype))]     
-  
-defmethod stringify? (dtype:DTVar, nm:NameMap) : 
+  else :
+    to-symbol $ "%_<%,>" % [name(id(dtype)), seq(stringify?{_, nm}, targs(dtype))]
+
+defmethod stringify? (dtype:DTVar, nm:NameMap) :
   to-symbol $ "TV%_" % [index(dtype)]
 
-defmethod stringify? (dtype:DCap, nm:NameMap) : 
+defmethod stringify? (dtype:DCap, nm:NameMap) :
   to-symbol $ "?%_" % [tvar(dtype)]
 
-defmethod stringify? (dtype:DAnd, nm:NameMap) : 
+defmethod stringify? (dtype:DAnd, nm:NameMap) :
   to-symbol $ string-join(seq(stringify?{_, nm}, types(dtype)), "&")
 
-defmethod stringify? (dtype:DOr, nm:NameMap) : 
+defmethod stringify? (dtype:DOr, nm:NameMap) :
   to-symbol $ string-join(seq(stringify?{_, nm}, types(dtype)), "|")
 
-defmethod stringify? (dtype:DTop, nm:NameMap) : 
+defmethod stringify? (dtype:DTop, nm:NameMap) :
   `?
 
-defmethod stringify? (dtype:DBot, nm:NameMap) : 
+defmethod stringify? (dtype:DBot, nm:NameMap) :
   `Void
 
-defmethod stringify? (dtype:DTuple, nm:NameMap) : 
+defmethod stringify? (dtype:DTuple, nm:NameMap) :
   to-symbol $ "[%,]" % [seq(stringify?{_, nm}, types(dtype))]
 
-defmethod stringify? (dtype:DArrow, nm:NameMap) : 
+defmethod stringify? (dtype:DArrow, nm:NameMap) :
   to-symbol $ "(%,) -> %_" % [
-    seq(stringify?{_, nm}, a1(dtype)), 
+    seq(stringify?{_, nm}, a1(dtype)),
     stringify?(a2(dtype), nm)]
 
-defmethod stringify? (e:VarN, nm:NameMap) : 
-  if key?(nm, n(e)) : 
+defmethod stringify? (e:VarN, nm:NameMap) :
+  if key?(nm, n(e)) :
     name(nm[n(e)])
 
 defmethod stringify? (e:IOptional, nm:NameMap) :
@@ -479,13 +480,13 @@ defmethod stringify? (e:IOptionalKeyword, nm:NameMap) :
 defmethod stringify? (e:IRest, nm:NameMap) :
   stringify?(name(e), nm)
 
-defmethod stringify? (r:Raw, nm:NameMap) : 
+defmethod stringify? (r:Raw, nm:NameMap) :
   stringify?(class(r), nm)
 
-defmethod stringify? (iof:IOf, nm:NameMap) : 
+defmethod stringify? (iof:IOf, nm:NameMap) :
   to-symbol("%_<%,>" % [stringify?(class(iof), nm),  seq(stringify?{_, nm}, args(iof))])
 
-defmethod stringify? (ior:IOr, nm:NameMap) : 
+defmethod stringify? (ior:IOr, nm:NameMap) :
   val l = stringify?(a(ior), nm)
   val r = stringify?(b(ior), nm)
   match(l:Symbol, r:Symbol) :
@@ -498,12 +499,12 @@ defmethod stringify? (iand:IAnd, nm:NameMap) :
     to-symbol("%_&%_" % [l, r])
 
 defmethod stringify? (igrad:IGradual, nm:NameMap) :
-  `? 
+  `?
 
 defmethod stringify? (inone:INone, nm:NameMap) :
   false
 
-defmethod stringify? (iarrow:IArrow, nm:NameMap) : 
+defmethod stringify? (iarrow:IArrow, nm:NameMap) :
   val l = map(stringify?{_, nm}, a1(iarrow))
   val r = stringify?(a2(iarrow), nm)
   if all?({_ is Symbol}, l) and r is Symbol :
@@ -512,12 +513,12 @@ defmethod stringify? (iarrow:IArrow, nm:NameMap) :
 defmethod stringify? (ivoid:IVoid, nm:NameMap) :
   `Void
 
-defmethod stringify? (icap:ICap, nm:NameMap) : 
+defmethod stringify? (icap:ICap, nm:NameMap) :
   val type = stringify?(name(icap), nm)
   match(type:Symbol) :
     to-symbol("?%_" % [type])
 
-defmethod stringify? (ituple:ITuple, nm:NameMap) : 
+defmethod stringify? (ituple:ITuple, nm:NameMap) :
   to-symbol("[%,]" % [seq(stringify?{_, nm}, exps(ituple))])
 
 ; Lookup the name of an Indexable from the name map.
@@ -525,15 +526,15 @@ defn name? (i:Indexable&IExp, nm:NameMap) -> False|Symbol :
   val exp-name =
     match(i) :
       (e:VarN) : e
-      (e:IDef|ILSDef|ILSDefType|IDef|IDefVar|ILSDefn|IDefn|IDefmulti|IDefChild) : 
+      (e:IDef|ILSDef|ILSDefType|IDef|IDefVar|ILSDefn|IDefn|IDefmulti|IDefChild) :
         name(e)
-      (e:IDefType) : 
+      (e:IDefType) :
         class(e)
-      (e:IDefmethod|ILSDefmethod) : 
+      (e:IDefmethod|ILSDefmethod) :
         val name = multi(e)
         match(name:Mix) :
           head(exps(name))
-        else : 
+        else :
           name
   stringify?(exp-name, nm)
 
@@ -549,8 +550,8 @@ defn merge (old-db:DefinitionsDatabase, new-db:DefinitionsDatabase) -> Definitio
   ;Convert a tuple of package definitions into a table.
   defn to-table (defs:Tuple<PackageDefinitions>) :
     to-hashtable<Symbol,PackageDefinitions> $
-      for def in defs seq : name(def) => def  
-  val old-package-table = to-table(packages(old-db))    
+      for def in defs seq : name(def) => def
+  val old-package-table = to-table(packages(old-db))
   val new-package-table = to-table(packages(new-db))
 
   ;Compute the set of packages that appear on either table.
@@ -580,7 +581,7 @@ defn merge (old-db:DefinitionsDatabase, new-db:DefinitionsDatabase) -> Definitio
 ;================= Small Utilities ==========================
 ;============================================================
 
-;Retrieve all existing files in project. 
+;Retrieve all existing files in project.
 defn all-package-files (proj-file:ProjFile) -> Tuple<String> :
   ;Collect all paths.
   val paths = HashSet<String>()
@@ -598,7 +599,7 @@ defn all-package-files (proj-file:ProjFile) -> Tuple<String> :
 
   ;Return all paths
   to-tuple(paths)
-  
+
 ;Retrieve all stanza files listed (directly or indirectly) within
 ;a directory.
 defn get-all-stanza-files (return:String -> ?, path:String) -> False :
