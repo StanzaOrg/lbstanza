@@ -102,11 +102,15 @@ defn ls-name-args (e:IExp) -> [IExp, List<IExp>] :
       ($package name:e imports:e ...) :
          IDefPackage(name, imports, add-base-dir(info))
       ($import name:e prefixes:e ...) :
-         IImportExp(name, prefixes, add-base-dir(info))
+         IImportExp(name, false, prefixes, add-base-dir(info))
+      ($forward name:e prefixes:e ...) :
+         IImportExp(name, true, prefixes, add-base-dir(info))
       ($prefix-of (names:e ...) p:e) :
          IPrefixExp(names, p, add-base-dir(info))
       ($prefix p:e) :
          IPrefixExp(false, p, add-base-dir(info))
+      ($only (names:e ...)) :
+         IImportList(names, add-base-dir(info))
       ($public e:e es:e ...) :
          val es* = Begin(e, es, add-base-dir(info))
          IVisibility(es*, Public, add-base-dir(info))
@@ -494,8 +498,14 @@ defn to-iimport (e:IImportExp) -> IImport :
     val prefix = to-string(name!(prefix(e)))
     IPrefix(names, prefix)
   val package = name!(package(e))
-  val prefix = to-tuple $ seq(to-iprefix, prefix(e) as List<IPrefixExp>)
-  IImport(package, prefix, info(e))
+  val prefix = to-tuple $ seq(to-iprefix, filter-by<IPrefixExp>(directives(e)))
+  ; Flatten all "only" directives into a single set
+  val only-set =
+    if any?({_ is IImportList}, directives(e)) :
+      to-tuple $ to-hashset<Symbol> $
+        for o in filter-by<IImportList>(directives(e)) seq-cat :
+          seq(name!, names(o))      
+  IImport(package, forward(e), only-set, prefix, info(e))
 
 ;============================================================
 ;================= Syntax Restrictions ======================
@@ -517,12 +527,14 @@ defn to-iimport (e:IImportExp) -> IImport :
          + te
 
       imp("import form") :
-         IImportExp: {package:v prefix:(pr ...)}
+         IImportExp: {package:v directives:(pr ...)}
 
-      pr("prefix form") :
+      pr("directive form") :
          IPrefixExp :
             if (names(e) is False) : {prefix:v}
             else : {names:(v ...) prefix:v}
+         IImportList :
+            {names:(v ...)}
 
       te("top level form") :
          IVisibility: {exp:te}

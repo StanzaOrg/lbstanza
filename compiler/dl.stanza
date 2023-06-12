@@ -288,7 +288,7 @@ public defn DEnv () :
     defn affected? (p:PackageIO) :
       defn reloaded? (name:Symbol) : reloaded-packages[name]
       if not reloaded?(package(p)) :
-        any?(reloaded?, imported-packages(p))
+        any?(reloaded?{package-name(_)}, imported-packages(p))
 
     ;Check imports in package
     defn check-imports (p:PackageIO) :
@@ -320,7 +320,7 @@ public defn DEnv () :
     ;ie. if it is not itself one of the packages to be removed, but it imports from a package
     ;to be removed.
     defn affected? (p:PackageIO) :
-      not remove-set[package(p)] and any?({remove-set[_]}, imported-packages(p))
+      not remove-set[package(p)] and any?({remove-set[package-name(_)]}, imported-packages(p))
     ;Check whether the given record creates a dependency
     defn check-dependency (src:DependencySource, imported:Rec) :
       if remove-set[package(id(imported))] :
@@ -382,7 +382,7 @@ public defn DEnv () :
 public defn package-dependency-graph (env:DEnv) :
   to-hashtable<Symbol,List<Symbol>> $
     for io in packageios(env) seq :
-      package(io) => to-list(imported-packages(io))
+      package(io) => to-list(map(package-name, imported-packages(io)))
 
 ;Retrieve all exported entries from packageio
 defn exported-entries (p:PackageIO) :

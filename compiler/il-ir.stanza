@@ -20,8 +20,13 @@ public defstruct IPackage :
 with:
   printer => true
 
+;- forward: True if this package is forwarded: e.g. 'forward mypackage'
+;- only: If given, the set of symbols to import into the current
+;  package or forward onto dependent packages.
 public defstruct IImport :
   package: Symbol
+  forward: True|False with: (default => false)
+  only: False|Tuple<Symbol> with: (default => false)
   prefix: Tuple<IPrefix> with: (default => [])
   info: AbsoluteFileInfo|False with: (default => false)
   import-private?: True|False with: (default => false, updater => sub-import-private?)
@@ -44,13 +49,17 @@ with:
          ;=== Package Forms ===
          IDefPackage :
             name: IExp
-            imports: List<IExp>
+            imports: List<IExp>            
          IImportExp :
             package: IExp
-            prefix: List<IExp>
+            forward: True|False
+            directives: List<IExp>
          IPrefixExp :
             names: False|List<IExp>
             prefix: IExp
+         ;Corresponds to the 'only => ' directive.
+         IImportList :
+            names : List<IExp>
          IVisibility :
             exp: IExp
             visibility: Visibility
@@ -377,10 +386,13 @@ with:
       IDefPackage :
          ($package name imports ...)
       IImportExp :
-         ($import package prefix ...)
+         if forward(e) : ($forward package directives ...)
+         else : ($import package directives ...)
       IPrefixExp :
          if names(e) != false : ($prefix-of (names ...) prefix)
          else : ($prefix prefix)
+      IImportList :
+         ($only (names ...))
       IVisibility :
          custom{
            "(%_ %_)" % [tag, exp(e)] where :
