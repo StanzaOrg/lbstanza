@@ -44,7 +44,6 @@ defn compute-packageio (p:TPackage, namemap:NameMap) -> PackageIO :
         val ex = Export(n, visibility(e), rec, info(e), prev-doc-string)
         add(export-list, ex)
       prev-doc-string = false
-
   ;Fill the exports in the old PackageIO structure.
   sub-exports(old-io, to-tuple(export-list))
 
