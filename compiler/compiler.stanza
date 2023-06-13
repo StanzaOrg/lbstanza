@@ -45,6 +45,9 @@ public defmulti delete-temporary-file (s:System, file:String) -> False
 ;================== Compute Build Settings ==================
 ;============================================================
 
+;Compute the final build settings to use for this build.
+;Some settings are explicitly provided by the user on the command-line, and some settings
+;are stored in the build target in the .proj file.
 defn compute-build-settings (projenv:StandardProjEnv,
                              settings:BuildSettings,
                              platform:Symbol) -> [ProjFile, BuildSettings] :
@@ -63,6 +66,8 @@ defn compute-build-settings (projenv:StandardProjEnv,
       remove-duplicates!(build-flags)
       ;Compute build optimization level
       val build-optimization = optimize?(settings) or optimize(s)
+      ;Compute build optimization level
+      val build-debug = debug?(settings)
       ;Compute assembly
       val build-asm = string-or?(original-asm(settings), value?(assembly(s)))
       ;Compute output
@@ -99,6 +104,7 @@ defn compute-build-settings (projenv:StandardProjEnv,
         build-ext-deps,
         build-pkg-dir,
         build-optimization,
+        build-debug,
         build-ccfiles,
         build-ccflags,
         to-tuple(build-flags),
@@ -233,8 +239,8 @@ public defn compile (settings:BuildSettings, system:System, verbose?:True|False)
       setup-system-flags(settings*)
       val proj-manager = ProjManager(proj, ProjParams(compiler-flags(), optimize?(settings*)), auxfile)
       val comp-result = compile(proj-manager, build-inputs!(settings*), vm-packages(settings*), asm?(settings*), pkg-dir(settings*),
-                                backend(platform(settings*) as Symbol), optimize?(settings*), verbose?, macro-plugins(settings*),
-                                inputs(settings) is BuildTarget)
+                                backend(platform(settings*) as Symbol), optimize?(settings*), debug?(settings*), verbose?,
+                                macro-plugins(settings*), inputs(settings) is BuildTarget)
       save(auxfile)
       within delete-temporary-file-on-finish(settings*) :
         link-output-file(projenv, settings*, comp-result, proj, auxfile)
@@ -266,7 +272,7 @@ public defn compile (settings:BuildSettings, system:System, verbose?:True|False)
         body()
       finally :
         try: delete-temporary-file(system, temp-file?)
-        catch (e) : false      
+        catch (e) : false
     else :
       body()
 
@@ -370,4 +376,3 @@ defn non-files-to-symbols (ss:Seqable<String|Symbol>) :
     match(s) :
       (s:String) : s when has-extension?(s) else to-symbol(s)
       (s:Symbol) : s
-

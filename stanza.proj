@@ -50,6 +50,14 @@ package core/threaded-reader requires :
 package core/dynamic-library requires :
   ccfiles: "core/dynamic-library.c"
 
+package core/sighandler requires :
+  ccfiles: "core/sighandler.c"
+  ccflags:
+    on-platform:
+      os-x :
+        "-D_XOPEN_SOURCE"
+      else : ()
+
 package stz/asmjit requires :
   ccflags:
     on-platform :
