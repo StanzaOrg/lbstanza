@@ -54,7 +54,7 @@ val REPL-CREATION = TimerLabel("Repl Creation")
 val REPL-FIND-PACKAGE = TimerLabel("Repl Find Package")
 val REPL-EXP-EVALUATION = TimerLabel("Repl Exp Evaluation")
   val REPL-PROJ-MANAGER = TimerLabel("Repl Proj Manager", REPL-EXP-EVALUATION)
-  val REPL-COMPILE-TO-VMPACKAGES = TimerLabel("Repl Compile To Vmpackages", REPL-EXP-EVALUATION)  
+  val REPL-COMPILE-TO-VMPACKAGES = TimerLabel("Repl Compile To Vmpackages", REPL-EXP-EVALUATION)
     val REPL-LOWERING-AND-COMPILATION = TimerLabel("Repl Lowering And Compilation", REPL-COMPILE-TO-VMPACKAGES)
       val REPL-LOWER-TO-UNOPTIMIZED = TimerLabel("Repl Lower To Unoptimized", REPL-LOWERING-AND-COMPILATION)
       val REPL-COMPILE-LOWERED = TimerLabel("Repl Compile Lowered", REPL-LOWERING-AND-COMPILATION)
@@ -365,7 +365,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
         load-files([package])
 
   ;Clear all repl definitions
-  defn clear-repl () :  
+  defn clear-repl () :
     ;Compute what live repl records are required
     val live = compute-live(vm, repl-packages(repl-env))
     ;Unload from DEnvironment
@@ -402,7 +402,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
         fatal("Could not unload repl definitions.") when r is LoadErrors
         unload(vm, repl-packages(repl-env))
         clear(repl-env)
-        
+
         ;Rerun package initializers
         init-packages(ordered-pkg-names) where :
           val pkg-names = to-tuple $ seq(package,packageios(denv))
@@ -479,7 +479,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
               val lowered = within log-time(REPL-LOWER-TO-UNOPTIMIZED) :
                 lower-unoptimized(p)
               within log-time(REPL-COMPILE-LOWERED) :
-                compile(lowered)
+                compile(lowered, false)
             vprintln("REPL: Done Compiling EPackage %_ to VMPackage." % [name(p)])
             vmp
           (p:StdPkg) :
@@ -537,7 +537,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
       ;Ensure that the syntax packages exist.
       val new-packages = to-list(cat(syntaxes,packages)) when add-to-existing?
                     else to-list(packages)
-      try :              
+      try :
         match(syntax-packages-exist?(macroexpander, new-packages)) :
           (t:True) : false
           (e:MissingPackages) : throw(ReplErrors([e]))
@@ -556,7 +556,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
 ;Retrieve all the extern symbols defined in the given packages.
 defn extern-symbols (vmps:Tuple<VMPackage>) -> Tuple<ExternSymbol> :
   ;Create ExternSymbol.
-  to-tuple $ 
+  to-tuple $
     for package in vmps seq-cat :
       for e in externs(package) seq :
         ExternSymbol(name(package), name(e))
@@ -598,7 +598,7 @@ defn FileEnv () :
 
   ;Determine whether a PackageStamp is still up-to-date.
   ;If it is no longer up-to-date, then return
-  ;the file to reload. 
+  ;the file to reload.
   defn changed? (stamp:PackageStamp) -> Maybe<String> :
     if not up-to-date?(stamp) :
       match(source-file(location(stamp)), pkg-file(location(stamp))) :
@@ -636,7 +636,7 @@ defn core-imports () :
 All of the REPL packages, in the order that they were loaded, are
 stored in repl-packages.
 
-The currently active import statements are stored in imports. 
+The currently active import statements are stored in imports.
 
 The package that the REPL is currently "inside" is stored in
 inside-package. If the REPL is not currently inside any package, then
@@ -672,7 +672,7 @@ numbers indicate higher priority.
 Definitions from the current repl expression have the highest priority
 (INT-MAX), followed by definitions from earlier repl expressions. More
 recent repl definitions have higher priority than older repl
-definitions. Finally, all other packages have equal prioriity. 
+definitions. Finally, all other packages have equal prioriity.
 
 # Private Use: Registering the imports of a source package #
 
@@ -711,7 +711,7 @@ in these packages.
 
   unimport (repl:REPLEnv, package:Symbol) -> UnimportResult
 
-Removes a package from the import list. 
+Removes a package from the import list.
 
 ;============================================================
 ;=======================================================<doc>
@@ -751,7 +751,7 @@ defn REPLEnv () :
     ;Create the appropriate import list
     val exp-imports = HashTable<Symbol,IImport>()
     defn add-import (i:IImport) : exp-imports[package(i)] = i
-    
+
     ;Previous REPL packages are imported (with visibility into their
     ;private definitions.)
     for p in previous-packages do :
@@ -805,7 +805,7 @@ defn REPLEnv () :
         val result = match(inside-package, package) :
           (p0:Symbol, p1:Symbol) : ChangedInside(p0, p1)
           (p0:False, p1:Symbol) : WentInside(p1)
-          (p0:Symbol, p1:False) : WentOutside(p0)          
+          (p0:Symbol, p1:False) : WentOutside(p0)
         if package is False : init-imports()
         else : clear(repl-imports)
         inside-package = package
@@ -842,7 +842,7 @@ defn ensure-repl-expression (expression:IExp) :
 
   ;Throw errors if there are any
   throw(ReplErrors(errors)) when not empty?(errors)
-  
+
 defn import-list (p:IPackage) :
   ImportList(name(p), imports(p))
 
@@ -893,7 +893,7 @@ defn wrap-display-result (e:IExp) -> IExp :
         IDo(
           IVar(`core/display-repl-result, false),  ;func
           List(e),                                 ;args
-          false)                                   ;info      
+          false)                                   ;info
       ;Otherwise, assume that it doesn't have
       ;a result to print.
       else :
@@ -1046,7 +1046,7 @@ public defn run-in-repl (args:Tuple<String>,
       eval-exp(repl, make-load-exp(args, false))
   finally:
     shutdown(repl)
-  
+
 defn make-load-exp (args:Tuple<String>, go-inside?:True|False) :
   val inputs = for a in args map :
     if index-of-char(a, '.') is Int : a
