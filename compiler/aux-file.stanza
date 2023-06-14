@@ -142,6 +142,7 @@ public defstruct PkgRecord <: AuxRecord & Hashable & Equalable :
   source-stamp: FileStamp
   flags: Tuple<Symbol>
   optimize?: True|False
+  debug?: True|False
 with:
   constructor => #PkgRecord
   hashable => true
@@ -160,7 +161,7 @@ public defstruct ExternalFileRecord <: AuxRecord & Hashable & Equalable :
   commands: Tuple<String>
 with:
   hashable => true
-  equalable => true  
+  equalable => true
 
 public deftype ExtFileType <: Equalable & Hashable
 
@@ -169,8 +170,8 @@ public defstruct ExternalFile <: ExtFileType:
 with:
   printer => true
   hashable => true
-  equalable => true  
-  
+  equalable => true
+
 public defstruct ExternalFlag <: ExtFileType:
   flag:String|Tuple<String>
 with:
@@ -203,9 +204,10 @@ public defn PkgRecord (package:Symbol,
                        filestamp:FileStamp,
                        source-stamp:FileStamp,
                        flags:Tuple<Symbol>,
-                       optimize?:True|False) :
+                       optimize?:True|False,
+                       debug?:True|False) :
   #PkgRecord(package, filestamp, source-stamp,
-             qsort(flags), optimize?)
+             qsort(flags), optimize?, debug?)
 
 ;============================================================
 ;======================== Printer ===========================
@@ -226,7 +228,8 @@ defmethod print (o:OutputStream, r:PkgRecord) :
     simple-field("filestamp", filestamp(r))
     simple-field("source-stamp", source-stamp(r))
     named-list-fields("flags", flags(r))
-    bool-flag-field("optimize", optimize?(r))]
+    bool-flag-field("optimize", optimize?(r))
+    bool-flag-field("debug", debug?(r))]
   print(o, "PkgRecord %~%_" % [package(r), colon-field-list(items)])
 
 defmethod print (o:OutputStream, r:ExternalFileRecord) :

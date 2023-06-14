@@ -51,7 +51,7 @@ defserializer AuxFileSerializer () :
 
   defunion auxrecord (AuxRecord) :
     PkgRecord: (package:symbol, filestamp:filestamp, source-stamp:filestamp,
-                flags:tuple(symbol), optimize?:bool)
+                flags:tuple(symbol), optimize?:bool, debug?:bool)
     ExternalFileRecord: (filetype:filetype, dependencies:tuple(filestamp), commands:tuple(string))
     BuildRecord: (target:symbol, packages:tuple(pkgstamp), files:tuple(filestamp), settings:build-record-settings, proj-isolate:isolate)
 

@@ -28,7 +28,7 @@ The ProjManager handles all things related to Stanza packages:
 
 Input: The name of the package
 
-Output: The PkgLocation structure if the package is found. 
+Output: The PkgLocation structure if the package is found.
 
 ### Updating the Auxiliary File ###
 
@@ -40,7 +40,7 @@ The statistics corresponding to all the saved packages.
 
 Input:
 
-The names of the packages that have currently been loaded. 
+The names of the packages that have currently been loaded.
 
 Output:
 
@@ -77,7 +77,7 @@ public defmulti all-listed-syntax-packages (l:ProjManager) -> Tuple<SyntaxPackag
 
 ;If there is a build-macros target for the given file, then return the name of the
 ;build target. Otherwise return false.
-public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symbol|False 
+public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symbol|False
 
 ;Given the Stanza packages, return the list of dynamic libraries that must be loaded, and
 ;the folders to load them from.
@@ -87,7 +87,7 @@ public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> Req
 public defstruct RequiredLibraries :
   packages: Tuple<KeyValue<Symbol,Tuple<String>>>
   folders: Tuple<String>
-  
+
 ;============================================================
 ;====================== Implementation ======================
 ;============================================================
@@ -110,7 +110,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
   ;Build macro build target table.
   val macro-target-table = to-hashtable<String,Symbol> $
-    for s in filter-by<BuildStmt>(stmts(proj)) seq? :      
+    for s in filter-by<BuildStmt>(stmts(proj)) seq? :
       if type(s) == MacroTarget :
         if not empty?(output(s)) :
           One(value!(output(s)) => name(s))
@@ -120,7 +120,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
   ;Build set of dynamic library directories.
   val dynamic-library-directories = let :
     val visited = HashSet<String>()
-    to-tuple $  
+    to-tuple $
       for stmt in filter-by<DylibDirectoryStmt>(stmts(proj)) seq-cat :
         for dir in directories(stmt) seq? :
           if add(visited,dir) : One(dir)
@@ -144,6 +144,9 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
         match(path:String) :
           path when file-exists?(path)
 
+  defn make-pkg-record (name:Symbol, pkg:FileStamp, src:FileStamp) :
+    PkgRecord(name, pkg, src, flags(params), optimize?(params), debug?(params))
+
   ;Find a package
   defn find-package (name:Symbol) -> PkgLocation|False :
     val pkg-path = find-pkg(name, optimize?(params))
@@ -152,10 +155,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       (pkg-path:String, src-path:String) :
         match(auxfile:AuxFile) :
           if file-exists?(src-path) :
-            val rec = PkgRecord(name,
-                                filestamp(pkg-path), filestamp(src-path)
-                                flags(params), optimize?(params))
-            key?(auxfile, rec)
+            key?(auxfile, make-pkg-record(name, filestamp(pkg-path), filestamp(src-path)))
       (pkg-path:String, src-path:False) : true
       (pkg-path:False, src-path) : false
     if pkg-path is-not False or src-path is-not False :
@@ -178,15 +178,13 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
     value? $ for stmt in syntax-packages first :
       val added-packages = cat(`(core tests), packages(stmt))
       if superset-of-names?(added-packages) : One(filename(stmt))
-      else : None()      
+      else : None()
 
   ;Updating the auxiliary file
   defn update-aux-file (pkgs:Seqable<SavedPkg>) :
     fatal("No auxiliary file provided to project manager.") when auxfile is False
     for pkg in pkgs do :
-      val r = PkgRecord(package(pkg), filestamp(pkg), source(pkg),
-                        flags(params), optimize?(params))
-      add(auxfile as AuxFile, r)    
+      add(auxfile as AuxFile, make-pkg-record(package(pkg), filestamp(pkg), source(pkg)))
 
   ;Retrieve conditional imports
   defn conditional-imports (packages:Seqable<Symbol>) :
@@ -218,7 +216,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
     defmethod find-macro-build-target (this, filename:String) -> Symbol|False :
       get?(macro-target-table, filename)
 
-    ;Return the dynamic libraries for each of the given packages. 
+    ;Return the dynamic libraries for each of the given packages.
     defmethod dynamic-libraries (this, packages:Tuple<Symbol>) :
       ;Gather the dylib folders.
       val folders = to-tuple(dynamic-library-directories)
@@ -238,6 +236,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 public defstruct ProjParams :
   flags: Tuple<Symbol>
   optimize?: True|False
+  debug?: True|False
 
 public defstruct SavedPkg :
   package: Symbol
@@ -330,7 +329,7 @@ defn filename (tree:PackageTree, package:Symbol) -> String|False :
             NamedPath(to-string("%_.stanza" % [parts[i]]))
           else :
             NamedPath(parts[i])
-            
+
       ;Get the path in the tree.
       val dir-path = parse-path(path(subtree) as String)
 
