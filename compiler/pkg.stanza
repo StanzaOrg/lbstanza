@@ -92,11 +92,6 @@ defn ensure-expected-optimization! (pkg:Pkg, filename:String, optimized?:True|Fa
 ;===================== Pkg Search ===========================
 ;============================================================
 
-public defn find-pkg! (name:Symbol, optimized?:True|False) -> String :
-  val filename = find-pkg(name, optimized?)
-  match(filename:String) : filename
-  else : throw(NoPackageException(name))
-
 public defn find-pkg (name:Symbol, optimized?:True|False) -> String|False :
   val mangled = mangle-as-filename(name)
   label<String|False> return :
@@ -111,4 +106,3 @@ public defn find-pkg (name:Symbol, optimized?:True|False) -> String|False :
     ;Check normal folders
     do(check-dir, STANZA-PKG-DIRS)
     check-dir(system-filepath(StanzaPkgsDir))
-

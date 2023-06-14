@@ -10,6 +10,7 @@ wpkgs
 *.*~
 *.swp
 *.swo
+repl-history.txt
 
 build
 *.s
@@ -18,3 +19,4 @@ build
 *.o
 *.exe
 stanza.aux
+

@@ -221,6 +221,8 @@ val COMMON-STANZA-FLAGS = [
     "The name of the output assembly file.")
   Flag("pkg", ZeroOrOneFlag, OptionalFlag,
     "Requests the compiler to output the .pkg files. The name of the folder to store the output .pkg files can be optionally provided.")
+  Flag("proj-pkgs", OneFlag, OptionalFlag,
+    "Directory for caching compiled .pkg files")
   Flag("optimize", ZeroFlag, OptionalFlag,
     "Requests the compiler to compile in optimized mode.")
   Flag("link", OneFlag, OptionalFlag,
@@ -304,6 +306,7 @@ defn compile-command () :
         get?(cmd-args, "o", false)
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
+        get?(cmd-args, "proj-pkgs", false)
         flag?(cmd-args, "optimize")
         get?(cmd-args, "ccfiles", [])
         ccflags
@@ -355,6 +358,7 @@ defn build-command () :
         get?(cmd-args, "o", false)
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
+        get?(cmd-args, "proj-pkgs", false)
         flag?(cmd-args, "optimize")
         []
         ccflags
@@ -422,6 +426,7 @@ defn extend-command () :
         AsmFile?(get?(cmd-args, "s", false))
         get?(cmd-args, "o", false)
         get?(cmd-args, "external-dependencies", false)
+        false
         false
         flag?(cmd-args, "optimize")
         get?(cmd-args, "ccfiles", [])
@@ -494,6 +499,7 @@ defn compile-test-command () :
         get?(cmd-args, "o", false)
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
+        get?(cmd-args, "proj-pkgs", false)
         flag?(cmd-args, "optimize")
         get?(cmd-args, "ccfiles", [])
         ccflags
@@ -561,6 +567,7 @@ defn compile-macros-command () :
         get?(cmd-args, "o", false)
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
+        get?(cmd-args, "proj-pkgs", false)
         flag?(cmd-args, "optimize")
         get?(cmd-args, "ccfiles", [])
         ccflags
@@ -677,6 +684,8 @@ defn repl-command () :
     Flag("pkg", ZeroOrMoreFlag, OptionalFlag,
       "The set of additional directories to look in for .pkg files during \
        this REPL session.")
+    Flag("proj-pkgs", OneFlag, OptionalFlag,
+      "The directory to cache .pkg files compiled from source during REPL starup.")
     Flag("flags", ZeroOrMoreFlag, OptionalFlag,
       "The set of compile-time flags to be set before beginning this REPL session.")
     Flag("confirm-before-exit", ZeroFlag, OptionalFlag,
@@ -709,21 +718,6 @@ defn repl-command () :
         ;Read configuration file
         read-config-file()
 
-        ;Add pkg directories to pkg-dirs
-        for dir in get?(cmd-args, "pkg", []) do :
-          STANZA-PKG-DIRS = cons(dir, STANZA-PKG-DIRS)
-
-        ;Add flags
-        for flag in get?(cmd-args, "flags", []) do :
-          add-flag(to-symbol(flag))
-
-        ;Add platform flag
-        add-flag(platform-flag(OUTPUT-PLATFORM))
-
-        ;Setup command line arguments.
-        val new-cmd-args = to-tuple $ cat(["repl"], get?(cmd-args, "-", []))
-        set-command-line-arguments(new-cmd-args)
-
         ;Get the desired terminal style.
         val terminal-style =
           if flag?(cmd-args, "terminal-style") :
@@ -731,10 +725,27 @@ defn repl-command () :
           else :
             default-terminal-style()
 
+        ;Compute settings
+        val macro-plugins = get?(cmd-args, "macros", [])
+        val pkg-cache-dir = get?(cmd-args, "proj-pkgs", false)
+        val pkg-dirs = get?(cmd-args, "pkg", [])
+        val flags = map(to-symbol, get?(cmd-args, "flags", []))
+        val cmd-line-args = to-tuple $ cat(
+          ["repl"]
+          get?(cmd-args, "-", []))
+        val repl-settings = REPLSettings(
+          macro-plugins
+          pkg-cache-dir
+          pkg-dirs
+          flags
+          OUTPUT-PLATFORM
+          cmd-line-args
+        )
+
         ;Launch REPL  
         repl(args(cmd-args),
              terminal-style,
-             get?(cmd-args, "macros", []))
+             repl-settings)
 
     ;Confirm exit
     if flag?(cmd-args, "confirm-before-exit") :
@@ -785,25 +796,28 @@ defn run-command () :
         within log-time(READ-CONFIG-FILE) :
           read-config-file()
 
-        ;Add pkg directories to pkg-dirs
-        for dir in get?(cmd-args, "pkg", []) do :
-          STANZA-PKG-DIRS = cons(dir, STANZA-PKG-DIRS)
-
-        ;Add flags
-        for flag in get?(cmd-args, "flags", []) do :
-          add-flag(to-symbol(flag))
-
-        ;Add platform flag
-        add-flag(platform-flag(OUTPUT-PLATFORM))
-
-        ;Setup command line arguments.
-        val new-cmd-args = to-tuple $ cat(["run"], get?(cmd-args, "-", []))
-        set-command-line-arguments(new-cmd-args)
+        ;Compute REPL settings
+        val macro-plugins = get?(cmd-args, "macros", [])
+        val pkg-cache-dir = get?(cmd-args, "proj-pkgs", false)
+        val pkg-dirs = get?(cmd-args, "pkg", [])
+        val flags = map(to-symbol, get?(cmd-args, "flags", []))
+        val cmd-line-args = to-tuple $ cat(
+          ["run"] 
+          get?(cmd-args, "-", []))
+        val repl-settings = REPLSettings(
+          macro-plugins
+          pkg-cache-dir
+          pkg-dirs
+          flags
+          OUTPUT-PLATFORM
+          cmd-line-args
+        )
 
         ;Run in REPL
         run-in-repl(args(cmd-args),
-                    get?(cmd-args, "macros", []))
-
+                    repl-settings)
+                    ;get?(cmd-args, "macros", []))
+  
   ;Command definition
   Command("run",
           AtLeastOneArg, "the .stanza/.proj input files or Stanza package names to execute in the virtual machine.",
@@ -841,26 +855,21 @@ defn run-test-command () :
       ;Read configuration file
       read-config-file()
 
-      ;Add pkg directories to pkg-dirs
-      for dir in get?(cmd-args, "pkg", []) do :
-        STANZA-PKG-DIRS = cons(dir, STANZA-PKG-DIRS)
-
-      ;Add flags
-      for flag in get?(cmd-args, "flags", []) do :
-        add-flag(to-symbol(flag))
-
-      ;Add platform flag
-      add-flag(platform-flag(OUTPUT-PLATFORM))
-
-      ;Add testing flag
-      add-flag(`TESTING)
-
       ;New arguments
       val new-args = to-tuple $ cat(
         args(cmd-args)
         ["stz/test-driver"])
      
-      ;Create new command-line arguments for test driver
+      ; Compute all settings
+      val macro-plugins = get?(cmd-args, "macros", [])
+      val pkg-cache-dir = get?(cmd-args, "proj-pkgs", false)
+      val pkg-dirs = get?(cmd-args, "pkg", [])
+      ; Add TESTING flag
+      val flags = to-tuple $ cat(
+        map(to-symbol, get?(cmd-args, "flags", [])) 
+        [`TESTING])
+
+      ;Compute test driver flags
       val driver-flags = Vector<String>()
       defn emit-flag (s:String) : add(driver-flags, s)
       defn emit-flags (ss:Seqable<String>) : do(emit-flag, ss)
@@ -875,11 +884,22 @@ defn run-test-command () :
       if flag?(cmd-args, "log") :
         emit-flag $ "-log"
         emit-flag $ cmd-args["log"]
-      set-command-line-arguments(to-tuple(driver-flags))
+      val cmd-line-args = to-tuple(driver-flags) 
+
+      val repl-settings = REPLSettings(
+        macro-plugins
+        pkg-cache-dir
+        pkg-dirs
+        flags
+        OUTPUT-PLATFORM 
+        cmd-line-args
+      )
 
       ;Run in REPL
       run-in-repl(new-args,
-                  get?(cmd-args, "macros", []))
+                  repl-settings)
+                  ;get?(cmd-args, "macros", []))
+
 
   ;Command definition
   Command("run-test",
@@ -945,6 +965,7 @@ defn analyze-dependencies-command () :
         false
         false
         pkg-dir
+        false
         flag?(cmd-args, "optimize")
         []
         []
@@ -1016,6 +1037,7 @@ defn auto-doc-command () :
         false
         false
         pkg-dir
+        false
         flag?(cmd-args, "optimize")
         []
         []
