@@ -14,6 +14,10 @@ public lostanza defn sha256-hash (bytes:ref<ByteArray>) -> ref<ByteArray> :
 public defn sha256-hash-file (filename:String) -> ByteArray :
   sha256-hash(read-bytes(filename))
 
+public defn sha256-hash-str (str:String) -> ByteArray :
+  sha256-hash(read-bytes(str))
+
+
 ;============================================================
 ;=================== External Function ======================
 ;============================================================
@@ -28,7 +32,13 @@ defn read-bytes (filename:String) :
     bytes
   finally :
     close(file)
-  
+
+defn string-to-bytes (str:String) :
+  val bytes = ByteArray(length(str))
+  for (idx in 0 to false, b in seq(to-byte, str)) do:
+    bytes[idx] = b
+  bytes
+
 defn truncate-filesize (x:Long) :
   val max = to-long(INT-MAX)
   fatal("File is too big for current implementation.") when x > max

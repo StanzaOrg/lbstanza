@@ -3,6 +3,7 @@ defpackage stz/proj-manager :
   import collections
   import core/parsed-path
   import stz/pkg
+  import stz/pkg-ir
   import stz/proj
   import stz/proj-ir
   import stz/utils
@@ -82,6 +83,8 @@ public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symb
 ;Given the Stanza packages, return the list of dynamic libraries that must be loaded, and
 ;the folders to load them from.
 public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> RequiredLibraries
+
+public defmulti save-pkg (l:ProjManager, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) -> SavedPkg
 
 ;Represents the required libraries and folders for a set of Stanza packages.
 public defstruct RequiredLibraries :
@@ -201,6 +204,14 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
             progress()
     to-tuple(next-load-set)
 
+  defn save-pkg (pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) :
+    val filename = save-package(dir, pkg)
+    val stamp = pkgstamp-table[name(pkg)]
+    val filestamp = filestamp(filename)
+    val full-source-path = resolve-path!(source-file(location(stamp)) as String)
+    val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
+    SavedPkg(name(pkg), filestamp, sourcestamp)
+
   ;Return new project manager
   new ProjManager :
     defmethod find-package (this, name:Symbol) : find-package(name)
@@ -230,6 +241,10 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
             (f:False) : None()
       ;Return bundled result
       RequiredLibraries(package-libs, folders)
+
+
+    defmethod save-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) :
+      save-pkg(pkg, pkgstamp-table, dir)
 
 ;============================================================
 ;===================== Structures ===========================

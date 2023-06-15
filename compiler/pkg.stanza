@@ -29,6 +29,7 @@ defpackage stz/pkg :
   import stz/pkg-errors
   import stz/pkg-serializer
   import stz/dir-utils
+  import core/sha256
 
 ;============================================================
 ;==================== Timers ================================
@@ -39,6 +40,13 @@ val READ-PACKAGE = TimerLabel("Read Package")
 ;============================================================
 ;=================== Package IO =============================
 ;============================================================
+
+;Cache a package, computing a sub-directory name by sorting and hashing a list of build params
+public defn cache-build (dir:String, build-params:Vector<Symbol>, p:Pkg) -> String :
+  val build-dir = to-string(sha256-hash-str(string-join(seq(to-string,qsort(build-params)))))
+  val full-build-dir = to-string(relative-to-dir(parse-path(dir), build-dir)) 
+  save-package(full-build-dir, p)
+
 
 public defn save-package (dir:String, p:Pkg) -> String :
   val pkg-file = string-join([mangle-as-filename(name(p)), extension(p)])

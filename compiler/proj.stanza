@@ -202,22 +202,13 @@ defn combine (fs:Tuple<ProjFileS0>) -> ProjFileS0 :
   ;Get all statements in a vector.
   val all-stmts = to-vector<ProjStmt>(seq-cat(stmts, fs))
 
-  ;First pass: remove duplicate ProjPkgStmts, prioritizing leftmost occurence
+ 
+  ;Remove all other duplicate statements, prioritizing first occurrence.
   val visited-set = HashSet<?>()
-  for stmt in all-stmts remove-when :
-    val key = duplication-key(stmt)
-    if stmt is ProjPkgStmtS0 :
-      if key is False : false
-      else : not add(visited-set, key)
-  
-  ;Remove all other duplicate statements, prioritizing rightmost occurrence.
-  reverse!(all-stmts)
-  clear(visited-set) ; restart with fresh visited set
   for stmt in all-stmts remove-when :
     val key = duplication-key(stmt)
     if key is False : false
     else : not add(visited-set, key)
-  reverse!(all-stmts)
 
   ;Return combined project file.
   sub-stmts(fs[0], to-tuple(all-stmts))
