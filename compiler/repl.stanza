@@ -474,6 +474,12 @@ public defn REPL (settings: REPLSettings) :
   defn live-recs (ios:Tuple<PackageIO>) :
     compute-live(vm, seq(package,ios))
 
+  defn cache-vmpackage (vmp:VMPackage,
+                        proj:ProjManager,
+                        pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False :
+    val pkg:Pkg = StdPkg(vmp, false, false) 
+    cache-pkg(proj, pkg, pkgstamp-table)
+
   defn compile-to-vmpackages (inputs:Tuple<String|Symbol|IPackage>,
                               live-recs: Tuple<PackageIO> -> Tuple<Rec>,
                               repl-package?:Symbol|False) -> Tuple<VMPackage> :
@@ -519,6 +525,8 @@ public defn REPL (settings: REPLSettings) :
               within log-time(REPL-COMPILE-LOWERED) :
                 compile(lowered)
             vprintln("REPL: Done Compiling EPackage %_ to VMPackage." % [name(p)])
+            val pkgstamp-table = to-hashtable(package, pkgstamps(result))
+            cache-vmpackage(vmp, proj-manager, pkgstamp-table)
             vmp
           (p:StdPkg) :
             vprintln("REPL: Skipping VMPackage compilation of %_. Loaded directly from .pkg." % [name(p)])

@@ -11,6 +11,7 @@ defpackage stz/proj-manager :
   import stz/aux-file
   import stz/package-stamps
   import stz/file-stamps
+  import stz/params
 
 ;<doc>=======================================================
 ;=================== Project Manager ========================
@@ -85,6 +86,7 @@ public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symb
 public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> RequiredLibraries
 
 public defmulti save-pkg (l:ProjManager, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) -> SavedPkg
+public defmulti cache-pkg (l:ProjManager, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False 
 
 ;Represents the required libraries and folders for a set of Stanza packages.
 public defstruct RequiredLibraries :
@@ -98,6 +100,12 @@ public defstruct RequiredLibraries :
 public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False) :
   ;Build package tree
   val package-tree = PackageTree(filter-by<PackagesDefinedInStmt>(stmts(proj)))
+
+  ;Extract cache directory
+  val cache-dir = 
+    match(find({_ is ProjPkgStmt}, stmts(proj))) :
+      (stmt:ProjPkgStmt) : directory(stmt)
+      (f:False) : false
 
   ;Accumulate list of SyntaxPackagesDefinedInStmt.
   ;List is sorted such that packages containing the most syntax packages
@@ -204,8 +212,11 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
             progress()
     to-tuple(next-load-set)
 
-  defn save-pkg (pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) :
-    val filename = save-package(dir, pkg)
+  defn save-pkg (pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String, mode:SaveMode) :
+    val filename = 
+      match(mode) :
+        (f:Final) : save-package(dir, pkg)
+        (c:Cache) : cache-build(dir, pkg)
     val stamp = pkgstamp-table[name(pkg)]
     val filestamp = filestamp(filename)
     val full-source-path = resolve-path!(source-file(location(stamp)) as String)
@@ -243,8 +254,17 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       RequiredLibraries(package-libs, folders)
 
 
-    defmethod save-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) :
-      save-pkg(pkg, pkgstamp-table, dir)
+    defmethod save-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) -> SavedPkg :
+      save-pkg(pkg, pkgstamp-table, dir, Final())
+
+    defmethod cache-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False :
+      match(cache-dir):
+        (cache-dir:String) : 
+          val saved-pkg = save-pkg(pkg, pkgstamp-table, cache-dir, Cache())
+          update-aux-file([saved-pkg])
+        ; do I even need the false case?
+
+
 
 ;============================================================
 ;===================== Structures ===========================
@@ -258,6 +278,10 @@ public defstruct SavedPkg :
   package: Symbol
   filestamp: FileStamp
   source: FileStamp
+
+deftype SaveMode
+defstruct Cache <: SaveMode
+defstruct Final <: SaveMode
 
 ;============================================================
 ;===================== Package Tree =========================

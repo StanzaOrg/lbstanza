@@ -228,15 +228,8 @@ public defn compile (proj-manager:ProjManager,
         val saved-pkg = save-pkg(proj-manager, pkg, pkgstamp-table, pkg-dir as String)
         add(output-pkgs, filestamp(saved-pkg))
         add(saved-pkgs, saved-pkg)
-        ;val filename = save-package(pkg-dir as String, pkg)
-        ;val stamp = pkgstamp-table[name(pkg)]      
-        ;val filestamp = filestamp(filename)
-        ;add(output-pkgs, filestamp)
-        ;val full-source-path = resolve-path!(source-file(location(stamp)) as String)
-        ;val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
-        ;add(saved-pkgs, SavedPkg(name(pkg), filestamp, sourcestamp))
       body(save)
-      update-aux-file(proj-manager, saved-pkgs)
+      update-aux-file(proj-manager, saved-pkgs) ; TODO: can I move this to proj-manager?
     else :
       defn save (pkg:Pkg) : false
       body(save)

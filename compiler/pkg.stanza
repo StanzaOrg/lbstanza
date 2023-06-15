@@ -41,15 +41,21 @@ val READ-PACKAGE = TimerLabel("Read Package")
 ;=================== Package IO =============================
 ;============================================================
 
-;Cache a package, computing a sub-directory name by sorting and hashing a list of build params
-public defn cache-build (dir:String, build-params:Vector<Symbol>, p:Pkg) -> String :
-  val build-dir = to-string(sha256-hash-str(string-join(seq(to-string,qsort(build-params)))))
-  val full-build-dir = to-string(relative-to-dir(parse-path(dir), build-dir)) 
-  save-package(full-build-dir, p)
-
+;Cache a package, computing suffix representing given vector of build params
+public defn cache-build (dir:String, p:Pkg) -> String :
+  save-package(dir, p, cache-name(name(p)))
 
 public defn save-package (dir:String, p:Pkg) -> String :
-  val pkg-file = string-join([mangle-as-filename(name(p)), extension(p)])
+  save-package(dir, p, std-name(name(p)))
+
+defn std-name (pkg-name:Symbol) : mangle-as-filename(pkg-name)
+defn cache-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-suffix())
+
+defn param-suffix () -> String :
+  to-string(sha256-hash-str(string-join(seq(to-string,qsort(compiler-flags())))))
+
+defn save-package (dir:String, p:Pkg, name) -> String :
+  val pkg-file = string-join([name, extension(p)])
   val filename = to-string(relative-to-dir(parse-path(dir), pkg-file))
   ensure-directory-exists(dir)
   try : serialize-pkg(filename, p)
@@ -101,16 +107,19 @@ defn ensure-expected-optimization! (pkg:Pkg, filename:String, optimized?:True|Fa
 ;============================================================
 
 public defn find-pkg (name:Symbol, optimized?:True|False) -> String|False :
-  val mangled = mangle-as-filename(name)
   label<String|False> return :
     ;Check functions
     defn check-file (filename:String) :
       return(filename) when file-exists?(filename)
-    defn check-dir (dir:String) :
+    defn check-dir (dir:String, mangled-name:String) :
       val extension = ".fpkg" when optimized? else ".pkg"
-      val pkgfile = string-join([mangle-as-filename(name), extension])
+      val pkgfile = string-join([mangled-name, extension])
       val filename = to-string(relative-to-dir(parse-path(dir), parse-path(pkgfile)))
       check-file(filename)
+    ;Check cache 
+    match(STANZA-PKG-CACHE:String) :
+      check-dir(STANZA-PKG-CACHE as String, cache-name(name))
     ;Check normal folders
-    do(check-dir, STANZA-PKG-DIRS)
-    check-dir(system-filepath(StanzaPkgsDir))
+    for dir in STANZA-PKG-DIRS do :
+      check-dir(dir, std-name(name))
+    check-dir(system-filepath(StanzaPkgsDir), std-name(name))
