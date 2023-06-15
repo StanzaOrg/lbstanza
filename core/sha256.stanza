@@ -15,7 +15,7 @@ public defn sha256-hash-file (filename:String) -> ByteArray :
   sha256-hash(read-bytes(filename))
 
 public defn sha256-hash-str (str:String) -> ByteArray :
-  sha256-hash(read-bytes(str))
+  sha256-hash(string-to-bytes(str))
 
 
 ;============================================================
