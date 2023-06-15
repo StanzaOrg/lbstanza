@@ -372,6 +372,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
             add(objects, package-matching!(filename(loc), package(loc)))
             record-pkgstamp(loc)        
           (input:StanzaFile) :
+            ; TODO: look in the cache
             val pkgs = read-packages(filename(input))
             do(record-pkgstamp{pkg-location(_, filename(input))}, pkgs)
             add-all(objects, pkgs)          

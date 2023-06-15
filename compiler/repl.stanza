@@ -69,13 +69,21 @@ val REPL-RELOAD = TimerLabel("Repl Reload")
 ;Represents the set of configuration options for running the REPL
 public defstruct REPLSettings :
   macro-plugins: Tuple<String>
-  pkg-cache-dir: String|False
+  pkg-cache-dir: String|False with: (updater => sub-pkg-cache-dir)
   pkg-dirs: Tuple<String>
   flags: Tuple<Symbol>
   platform: Symbol
   cmd-line-args: Tuple<String>
 
-defn setup-repl (settings: REPLSettings) :
+; Update repl settings based on .proj file
+defn update-repl-settings (pm:ProjManager) :
+  ; Set package cache (if not already set)
+  STANZA-PKG-CACHE = 
+    match(STANZA-PKG-CACHE):
+      (c:String) : STANZA-PKG-CACHE
+      (f:False) : pkg-cache-dir(pm)
+
+defn setup-repl (settings:REPLSettings) :
 
   ;Add pkg directors to pkg-dirs
   for dir in pkg-dirs(settings) do :
@@ -314,9 +322,8 @@ defmulti use-syntax (repl:REPL, inputs:Tuple<Symbol>, add-to-existing?:True|Fals
 defmulti shutdown (repl:REPL) -> False
 
 public defn REPL (settings: REPLSettings) :
-  ;Initialize system
-  setup-repl(settings)
 
+  setup-repl(settings)
   ;============================================================
   ;===================== REPL State ===========================
   ;============================================================
@@ -343,7 +350,9 @@ public defn REPL (settings: REPLSettings) :
     within log-time(REPL-PROJ-MANAGER) :
       val proj = read-proj-files(proj-files, OUTPUT-PLATFORM, `dynamic, StandardProjEnv())
       val params = ProjParams(compiler-flags(), false)
-      ProjManager(proj, params, AuxFile())
+      val pm = ProjManager(proj, params, AuxFile())
+      update-repl-settings(pm)
+      pm
 
   add-all(proj-files, default-proj-files())
   defn add-proj-file (file:String) :
@@ -474,12 +483,6 @@ public defn REPL (settings: REPLSettings) :
   defn live-recs (ios:Tuple<PackageIO>) :
     compute-live(vm, seq(package,ios))
 
-  defn cache-vmpackage (vmp:VMPackage,
-                        proj:ProjManager,
-                        pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False :
-    val pkg:Pkg = StdPkg(vmp, false, false) 
-    cache-pkg(proj, pkg, pkgstamp-table)
-
   defn compile-to-vmpackages (inputs:Tuple<String|Symbol|IPackage>,
                               live-recs: Tuple<PackageIO> -> Tuple<Rec>,
                               repl-package?:Symbol|False) -> Tuple<VMPackage> :
@@ -526,7 +529,7 @@ public defn REPL (settings: REPLSettings) :
                 compile(lowered)
             vprintln("REPL: Done Compiling EPackage %_ to VMPackage." % [name(p)])
             val pkgstamp-table = to-hashtable(package, pkgstamps(result))
-            cache-vmpackage(vmp, proj-manager, pkgstamp-table)
+            cache-repl-pkg(proj-manager, StdPkg(vmp, false, false), pkgstamp-table)
             vmp
           (p:StdPkg) :
             vprintln("REPL: Skipping VMPackage compilation of %_. Loaded directly from .pkg." % [name(p)])
@@ -1062,20 +1065,6 @@ public defn repl (args:Tuple<String>,
     repl-loop()
   finally :
     shutdown(repl)
-
-;============================================================
-;=================== Convenience Overloads ==================
-;============================================================
-;Default args is [].
-;Default macro-plugins is [].
-;Default terminal-style is default-terminal-style().
-
-;public defn repl (style:TerminalStyle) :
-;  repl([], style, [])
-;public defn repl (args:Tuple<String>) :
-;  repl(args, default-terminal-style(), [])
-;public defn repl () :
-;  repl([], default-terminal-style(), [])
 
 ;============================================================
 ;==================== Run Immediately =======================

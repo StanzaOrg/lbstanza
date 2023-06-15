@@ -85,8 +85,10 @@ public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symb
 ;the folders to load them from.
 public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> RequiredLibraries
 
+public defmulti pkg-cache-dir (l:ProjManager) -> String|False 
 public defmulti save-pkg (l:ProjManager, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) -> SavedPkg
 public defmulti cache-pkg (l:ProjManager, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False 
+public defmulti cache-repl-pkg (l:ProjManager, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False 
 
 ;Represents the required libraries and folders for a set of Stanza packages.
 public defstruct RequiredLibraries :
@@ -212,16 +214,26 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
             progress()
     to-tuple(next-load-set)
 
+  ;Pkg save kernel, picks backend implementation
   defn save-pkg (pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String, mode:SaveMode) :
     val filename = 
       match(mode) :
         (f:Final) : save-package(dir, pkg)
-        (c:Cache) : cache-build(dir, pkg)
+        (c:ReplCache) : cache-build(dir, pkg, false)
+        (c:StdCache) : cache-build(dir, pkg, true)
     val stamp = pkgstamp-table[name(pkg)]
     val filestamp = filestamp(filename)
     val full-source-path = resolve-path!(source-file(location(stamp)) as String)
     val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
     SavedPkg(name(pkg), filestamp, sourcestamp)
+
+  ;Caching kernel, updates auxfile after saving pkg 
+  defn cache-pkg (pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, mode:ReplCache|StdCache) :
+    match(cache-dir):
+      (cache-dir:String) : 
+        val saved-pkg = save-pkg(pkg, pkgstamp-table, cache-dir, mode)
+        update-aux-file([saved-pkg])
+      ; do I even need the false case?
 
   ;Return new project manager
   new ProjManager :
@@ -253,16 +265,16 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       ;Return bundled result
       RequiredLibraries(package-libs, folders)
 
+    defmethod pkg-cache-dir (this) : cache-dir
 
     defmethod save-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) -> SavedPkg :
       save-pkg(pkg, pkgstamp-table, dir, Final())
 
     defmethod cache-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False :
-      match(cache-dir):
-        (cache-dir:String) : 
-          val saved-pkg = save-pkg(pkg, pkgstamp-table, cache-dir, Cache())
-          update-aux-file([saved-pkg])
-        ; do I even need the false case?
+      cache-pkg(pkg, pkgstamp-table, StdCache())
+
+    defmethod cache-repl-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False :
+      cache-pkg(pkg, pkgstamp-table, ReplCache())
 
 
 
@@ -280,8 +292,9 @@ public defstruct SavedPkg :
   source: FileStamp
 
 deftype SaveMode
-defstruct Cache <: SaveMode
-defstruct Final <: SaveMode
+defstruct ReplCache <: SaveMode ; No assembly 
+defstruct StdCache <: SaveMode  ; Full package, save asm
+defstruct Final <: SaveMode     ; Always save asm  
 
 ;============================================================
 ;===================== Package Tree =========================

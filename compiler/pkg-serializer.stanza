@@ -60,6 +60,14 @@ public defn serialize-pkg (filename:String, pkg:Pkg) -> False :
                 serialize-pkg,
                 pkg)
 
+;Write a .pkg file for use by the REPL
+public defn serialize-repl-pkg (filename:String, pkg:Pkg) -> False :
+  write-to-file(filename,
+                PkgSerializer(false),
+                serialize-pkg,
+                pkg)
+
+
 ;============================================================
 ;================== Serializer Definition ===================
 ;============================================================
@@ -83,7 +91,11 @@ defserializer PkgSerializer (include-asm?:True|False) :
   ;Choice between which stdpkg we want.
   defatom choose-stdpkg (p:StdPkg) :
     writer :
-      #write[stdpkg](p)
+      if include-asm? :
+        #write[stdpkg](p)
+      else :
+        #write[stanza-version](stanza-version(p))
+        #write[vmpackage](vmp(p))
     reader :
       if include-asm? :
         #read[stdpkg]

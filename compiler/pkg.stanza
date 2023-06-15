@@ -42,11 +42,11 @@ val READ-PACKAGE = TimerLabel("Read Package")
 ;============================================================
 
 ;Cache a package, computing suffix representing given vector of build params
-public defn cache-build (dir:String, p:Pkg) -> String :
-  save-package(dir, p, cache-name(name(p)))
+public defn cache-build (dir:String, p:Pkg, include-asm?:True|False) -> String :
+  save-package(dir, p, cache-name(name(p)), include-asm?)
 
 public defn save-package (dir:String, p:Pkg) -> String :
-  save-package(dir, p, std-name(name(p)))
+  save-package(dir, p, std-name(name(p)), true)
 
 defn std-name (pkg-name:Symbol) : mangle-as-filename(pkg-name)
 defn cache-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-suffix())
@@ -54,11 +54,15 @@ defn cache-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-suffix())
 defn param-suffix () -> String :
   to-string(sha256-hash-str(string-join(seq(to-string,qsort(compiler-flags())))))
 
-defn save-package (dir:String, p:Pkg, name) -> String :
+defn save-package (dir:String, p:Pkg, name, include-asm?:True|False) -> String :
   val pkg-file = string-join([name, extension(p)])
   val filename = to-string(relative-to-dir(parse-path(dir), pkg-file))
   ensure-directory-exists(dir)
-  try : serialize-pkg(filename, p)
+  try :
+    if include-asm?:
+      serialize-pkg(filename, p)
+    else:
+      serialize-repl-pkg(filename, p)
   catch (e:IOException|FastIOError) : throw(PackageWriteException(filename))
   filename
 
@@ -116,9 +120,6 @@ public defn find-pkg (name:Symbol, optimized?:True|False) -> String|False :
       val pkgfile = string-join([mangled-name, extension])
       val filename = to-string(relative-to-dir(parse-path(dir), parse-path(pkgfile)))
       check-file(filename)
-    ;Check cache 
-    match(STANZA-PKG-CACHE:String) :
-      check-dir(STANZA-PKG-CACHE as String, cache-name(name))
     ;Check normal folders
     for dir in STANZA-PKG-DIRS do :
       check-dir(dir, std-name(name))
