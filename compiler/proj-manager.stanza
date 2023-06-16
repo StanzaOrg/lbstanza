@@ -207,7 +207,8 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
             progress()
     to-tuple(next-load-set)
 
-  ;Pkg save kernel, picks backend implementation
+  ;Save a .pkg, update all stamps and auxfile
+  ;Select function that places and names the .pkg based on mode
   defn save-pkg (pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String, mode:SaveMode) :
     val filename = 
       match(mode) :

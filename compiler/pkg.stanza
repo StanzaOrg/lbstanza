@@ -41,37 +41,32 @@ val READ-PACKAGE = TimerLabel("Read Package")
 ;=================== Package IO =============================
 ;============================================================
 
-;Cache a package, computing suffix representing given vector of build params
+;Cache a .pkg build by the REPL
 public defn cache-repl-build (dir:String, p:Pkg) -> String :
   val cname = repl-cache-pkg-name(name(p))
-  if verbose?(sys) :
-    println("Caching REPL package %_" % [cname])
   save-package(dir, p, cname, false)
 
+;Cache a fully-compiled .pkg
 public defn cache-std-build (dir:String, p:Pkg) -> String :
   val cname = cache-pkg-name(name(p))
-  if verbose?(sys) :
-    println("Caching package %_" % [cname])
   save-package(dir, p, cname, true)
 
+;Save a .pkg to output directory
 public defn save-package (dir:String, p:Pkg) -> String :
   save-package(dir, p, std-pkg-name(name(p)), true)
 
-; Do not include suffix
+;Default output mode: no suffix
 defn std-pkg-name (pkg-name:Symbol) : mangle-as-filename(pkg-name)
-; Include default parameter suffix
+;Default cache mode: Include default parameter suffix
 defn cache-pkg-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-suffix())
-; Include REPL symbol in parameter suffix -- a bit of a hack to prevent normal compilation
-;  flows from attempting to decode partially compiled REPL pkgs 
+;REPL cache mode:
+;Include REPL symbol in parameter suffix: this is a hack to prevent normal compilation
+; flows from attempting to decode partially compiled REPL pkgs 
 defn repl-cache-pkg-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-suffix(`REPL))
 
-;Default: use flags
+;Compute file suffix representing build configuration
 defn param-suffix () -> String : param-suffix(compiler-flags())
-
-;Include an extra flag
 defn param-suffix (extra:Symbol) -> String : param-suffix(cat([extra], compiler-flags()))
-
-;Base implementation
 defn param-suffix (flags:Seqable<Symbol>) -> String :
   to-hex(sha256-hash-str(string-join(seq(to-string,qsort(flags)))))
 
@@ -147,7 +142,7 @@ public defn find-pkg (name:Symbol, optimized?:True|False, for-repl?:True|False) 
     ;Check cache for default .pkg name
     match(STANZA-PKG-CACHE:String) :
       check-dir(STANZA-PKG-CACHE as String, cache-pkg-name(name))
-   ;Check normal folders
+    ;Check normal folders
     for dir in STANZA-PKG-DIRS do :
       check-dir(dir, std-pkg-name(name))
     check-dir(system-filepath(StanzaPkgsDir), std-pkg-name(name))

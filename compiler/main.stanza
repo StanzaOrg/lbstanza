@@ -902,7 +902,6 @@ defn run-test-command () :
       ;Run in REPL
       run-in-repl(new-args,
                   repl-settings)
-                  ;get?(cmd-args, "macros", []))
 
 
   ;Command definition

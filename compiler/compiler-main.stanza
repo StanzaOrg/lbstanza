@@ -244,6 +244,7 @@ public defn compile (proj-manager:ProjManager,
       else : p as EPackage
     compile(lower-optimized(epackages))
 
+  ;save-or-cache-pkgs?: flag indicating if emitter should store instructions for writing
   defn compile-vmpackages (save-pkg:Pkg -> ?,
                            packages:Tuple<VMPackage|StdPkg>,
                            bindings:Bindings|False,
