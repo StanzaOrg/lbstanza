@@ -229,6 +229,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       (cache-dir:String) : 
         val saved-pkg = save-pkg(pkg, pkgstamp-table, cache-dir, mode)
         update-aux-file([saved-pkg])
+      (f:False) : false
 
   ;Return new project manager
   new ProjManager :
