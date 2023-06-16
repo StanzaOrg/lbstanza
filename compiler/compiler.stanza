@@ -73,6 +73,8 @@ defn compute-build-settings (projenv:StandardProjEnv,
       val build-ext-deps = string-or?(external-dependencies(settings), value?(external-dependencies(s)))
       ;Compute build pkg directory
       val build-pkg-dir = string-or?(pkg-dir(settings), value?(pkg(s)))
+      ;Compute cache directory
+      val pkg-cache-dir* = string-or?(pkg-cache-dir(settings), pkg-cache-dir(proj))
       ;Compute input packages
       val build-packages = Vector<String|Symbol>()
       add-all(build-packages, /inputs(s))
@@ -98,7 +100,7 @@ defn compute-build-settings (projenv:StandardProjEnv,
         build-out,
         build-ext-deps,
         build-pkg-dir,
-        pkg-cache-dir(settings),
+        pkg-cache-dir*,
         build-optimization,
         build-ccfiles,
         build-ccflags,
@@ -117,11 +119,13 @@ defn compute-build-settings (projenv:StandardProjEnv,
       val inputs* = BuildPackages $ to-tuple $ non-files-to-symbols $ non-proj-files $ names $ inputs
       val vm-packages* = to-tuple $ non-files-to-symbols $ vm-packages $ settings
       val build-out = add-exe-suffix?(output(settings), platform)
+      val pkg-cache-dir* = string-or?(pkg-cache-dir(settings), pkg-cache-dir(proj))
       val settings* = sub-inputs{_, inputs*} $
                       sub-vm-packages{_, vm-packages*} $
                       sub-platform{_, platform} $
                       sub-output{_, build-out} $
                       sub-link-type{_, link-type*} $
+                      sub-pkg-cache-dir{_, pkg-cache-dir*} $
                       settings
 
       ;Return new settings.

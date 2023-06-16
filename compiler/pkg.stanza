@@ -120,6 +120,9 @@ public defn find-pkg (name:Symbol, optimized?:True|False) -> String|False :
       val pkgfile = string-join([mangled-name, extension])
       val filename = to-string(relative-to-dir(parse-path(dir), parse-path(pkgfile)))
       check-file(filename)
+    ; Check cache
+    match(STANZA-PKG-CACHE:String) :
+      check-dir(STANZA-PKG-CACHE as String, cache-name(name))
     ;Check normal folders
     for dir in STANZA-PKG-DIRS do :
       check-dir(dir, std-name(name))

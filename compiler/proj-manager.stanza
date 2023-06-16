@@ -103,12 +103,6 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
   ;Build package tree
   val package-tree = PackageTree(filter-by<PackagesDefinedInStmt>(stmts(proj)))
 
-  ;Extract cache directory
-  val cache-dir = 
-    match(find({_ is ProjPkgStmt}, stmts(proj))) :
-      (stmt:ProjPkgStmt) : directory(stmt)
-      (f:False) : false
-
   ;Accumulate list of SyntaxPackagesDefinedInStmt.
   ;List is sorted such that packages containing the most syntax packages
   ;appear first.
@@ -233,7 +227,6 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       (cache-dir:String) : 
         val saved-pkg = save-pkg(pkg, pkgstamp-table, cache-dir, mode)
         update-aux-file([saved-pkg])
-      ; do I even need the false case?
 
   ;Return new project manager
   new ProjManager :
@@ -265,7 +258,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       ;Return bundled result
       RequiredLibraries(package-libs, folders)
 
-    defmethod pkg-cache-dir (this) : cache-dir
+    defmethod pkg-cache-dir (this) : pkg-cache-dir(proj)
 
     defmethod save-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) -> SavedPkg :
       save-pkg(pkg, pkgstamp-table, dir, Final())

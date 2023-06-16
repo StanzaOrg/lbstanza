@@ -309,7 +309,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
   defn source-file? (name:Symbol) :
     match(package-location(name)) :
       (l:PkgLocation) : source-file(l)
-      (f:False) : false     
+      (f:False) : false
 
   defn record-pkgstamp (l:PkgLocation) :
     defn hashstamp? (file:String|False) -> ByteArray|False :
