@@ -7,7 +7,7 @@ defpackage stz/compiler-build-settings :
 ;============================================================
 
 ;Represents the full set of input options for starting
-;a Stanza compilation job. 
+;a Stanza compilation job.
 public defstruct BuildSettings :
   inputs: BuildInputs with: (updater => sub-inputs)
   vm-packages: Tuple<String|Symbol> with: (updater => sub-vm-packages)
@@ -18,6 +18,7 @@ public defstruct BuildSettings :
   pkg-dir: String|False
   pkg-cache-dir: String|False with: (updater => sub-pkg-cache-dir)
   optimize?: True|False
+  debug?: True|False
   ccfiles: Tuple<String>
   ccflags: Tuple<String|Tuple<String>>
   flags: Tuple<Symbol>
@@ -88,13 +89,13 @@ public defn build-inputs! (s:BuildSettings) -> Tuple<String|Symbol> :
 public defn build-target? (s:BuildSettings) -> Symbol|False :
   match(inputs(s)) :
     (t:BuildTarget) : target(t)
-    (p:BuildPackages) : original-target(p)  
+    (p:BuildPackages) : original-target(p)
 
 ;Returns true if an output executable is desired.
 ;This is the only condition that requires the build commands
 ;to be executed.
 public defn output-required? (s:BuildSettings) -> True|False :
-  output(s) is-not False  
+  output(s) is-not False
 
 ;Returns true if an output assembly file is desired,
 ;but the output is not. This condition is important because
@@ -116,7 +117,7 @@ public defn only-pkgs-required? (s:BuildSettings) -> True|False :
 ;============================================================
 
 ;This ensures that the BuildSettings was correctly computed
-;and ready to use as input for compilation. 
+;and ready to use as input for compilation.
 public defn ensure-ready-for-compilation! (s:BuildSettings) -> False :
   ;Requirements:
   ;1. Build inputs is BuildPackages, not BuildTarget.
@@ -140,4 +141,3 @@ public defn ensure-ready-for-compilation! (s:BuildSettings) -> False :
   if external-dependencies(s) is-not False :
     if assembly(s) is False and output(s) is False :
       fatal("External dependencies requires either assembly or output executable.")
-

@@ -119,7 +119,7 @@ defmethod print (o:OutputStream, v:ProjTable) :
   defn str (e:KeyValue<Symbol,?>) : "%~: %~" % [key(e), value(e)]
   if length(entries(v)) <= 1 :
     print(o, "{%,}" % [seq(str, entries(v))])
-  else :    
+  else :
     print(o, "{%_\n}" % [indented-field-list(seq(str, entries(v)))])
 
 ;============================================================

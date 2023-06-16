@@ -24,11 +24,11 @@ Input:
   denv: DEnv
   packages: Seqable<EPackage|VMPackage|Pkg>
   input-order: Tuple<Symbol>
-  
+
 Output:
   packages: Tuple<EPackage|VMPackage|Pkg>
 
-Reorders the given input by their proper dependency order. 
+Reorders the given input by their proper dependency order.
 
 # Combine multiple EL packages into a single optimized VMPackage #
 
@@ -152,9 +152,10 @@ public defn compile (proj-manager:ProjManager,
                      pkg-dir:False|String,
                      backend:Backend,
                      optimize?:True|False,
+                     debug?:True|False,
                      verbose?:True|False,
                      macro-plugins:Tuple<String>,
-                     force-build-macros?:True|False) -> CompilationResult :  
+                     force-build-macros?:True|False) -> CompilationResult :
   defn driver () :
     val denv = DEnv()
     val macroexpander = StanzaMacroexpander(force-build-macros?, proj-manager, macro-plugins)
@@ -165,6 +166,7 @@ public defn compile (proj-manager:ProjManager,
       defmethod load-into-denv (this, ios:Tuple<PackageIO>) : load(denv, ios, [])
       defmethod conditional-dependencies (this, pkgs:Seqable<Symbol>) : conditional-imports(proj-manager, pkgs)
       defmethod supported-vm-packages (this) : supported-vm-packages
+      defmethod debug? (this) : debug?
       defmethod verbose? (this) : verbose?
       defmethod macroexpander (this) : macroexpander
 
@@ -173,7 +175,7 @@ public defn compile (proj-manager:ProjManager,
 
     ;Record filestamp of any output pkgs
     val output-pkgs = Vector<FileStamp>()
-    
+
     ;Save optimized packages if necessary
     if pkg-dir is String and optimize? :
       within save = save-pkgs(pkgstamp-table, output-pkgs) :
@@ -234,6 +236,7 @@ public defn compile (proj-manager:ProjManager,
         val saved-pkg = save-pkg(proj-manager, pkg, pkgstamp-table, pkg-dir as String)
         add(output-pkgs, filestamp(saved-pkg))
       body(save)
+
     else :
       defn save (pkg:Pkg) : cache-pkg(proj-manager, pkg, pkgstamp-table)
       body(save)
@@ -267,7 +270,7 @@ public defn compile (proj-manager:ProjManager,
             compile-stdpkg(filestream, std-pkg, stitcher)
       emit-all-system-stubs(filestream, stitcher, stubs, includes-stz-vm?)
       emit-text-section-markers(filestream, stubs, `stanza_text_section_end)
-      
+
     ;Create filestream and compile to it.
     ensure-containing-directory-exists(filename)
     val filestream = FileOutputStream(filename)
@@ -289,7 +292,7 @@ public defn compile (proj-manager:ProjManager,
     if return-instructions? :
       val buffer = Vector<Ins>()
       val emitter = buffer-emitter(buffer, emitter(stitcher, name(npkg), file-emitter(filestream, stubs)))
-      emit-normalized-package(npkg, emitter, stubs)      
+      emit-normalized-package(npkg, emitter, stubs)
       to-tuple(buffer)
     else :
       val emitter = emitter(stitcher, name(npkg), file-emitter(filestream, stubs))
@@ -303,7 +306,7 @@ public defn compile (proj-manager:ProjManager,
       val buffer = Vector<Ins>()
       emit-normalized-package(npkg, buffer-emitter(buffer, stubs), stubs)
       save-pkg(StdPkg(vmpackage, to-tuple(buffer), datas(npkg)))
-    
+
   defn emit-normalized-package (npkg:NormVMPackage, emitter:CodeEmitter, stubs:AsmStubs) :
     ;Create the debug table so that we can add debug comments
     ;to each function.
@@ -330,7 +333,7 @@ public defn compile (proj-manager:ProjManager,
       vprintln("[Function %_ of %_] Allocating registers for function %_ (%_)" % [index + 1, num-funcs, id(f), fcomment])
       emit(emitter, fcomment)
       emit(emitter, LinkLabel(id(f)))
-      allocate-registers(id(f), func(f), emitter, backend, stubs, false)
+      allocate-registers(id(f), func(f), emitter, backend, stubs, debug?, false)
 
   defn emit-all-system-stubs (filestream:OutputStream, stitcher:Stitcher, stubs:AsmStubs, vm-stubs?:True|False) :
     val emitter = file-emitter(filestream, stubs)
@@ -360,10 +363,10 @@ public defn compile (proj-manager:ProjManager,
         add(buffer, i)
       defmethod unique-label (this) :
         unique-id(stubs)
-        
+
   ;Launch
   driver()
-  
+
 ;============================================================
 ;============= Collapsing a Normalized Package ==============
 ;============================================================
@@ -386,4 +389,3 @@ defn collapse (p:NormVMPackage|StdPkg) :
     defmethod debug-table (this) : debug-table(vmp)
     defmethod safepoint-table (this) : safepoint-table(vmp)
     defmethod debug-name-table (this): debug-name-table(vmp)
-

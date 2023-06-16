@@ -213,7 +213,7 @@ defsyntax repl :
 
   defproduction import-clause : IImport
   defrule import-clause = (import ?package:#symbol ?ps:#prefix-clauses) :
-    IImport(package, ps)
+    IImport(package, false, false, ps)
 
   ;===== Primitives =====
   defproduction int : Int
@@ -804,7 +804,7 @@ defn REPLEnv () :
     ;Previous REPL packages are imported (with visibility into their
     ;private definitions.)
     for p in previous-packages do :
-      add-import(IImport(p, [], false, true))
+      add-import(IImport(p, false, false, [], false, true))
     ;If we are inside a package, then inherit all of the imports from
     ;that package, and import the package itself (with visibility into private bindings).
     match(inside-package) :
@@ -813,7 +813,7 @@ defn REPLEnv () :
         ;Packages loaded as .pkgs don't have imports.
         if key?(import-list-table, p) :
           do(add-import, imports(import-list-table[p]))
-        add-import(IImport(p, [], false, true))
+        add-import(IImport(p, false, false, [], false, true))
       (p:False) : false
 
     ;If we have custom imports from user interaction, then import those.

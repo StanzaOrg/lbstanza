@@ -62,7 +62,7 @@ defserializer AuxFileSerializer () :
   defunion build-record-settings (BuildRecordSettings) :
     BuildRecordSettings: (inputs:tuple(string-or-symbol), vm-packages:tuple(string-or-symbol),
                           platform:opt(symbol), assembly:opt(string), output:opt(string), external-dependencies:opt(string),
-                          pkg-dir:opt(string), optimize?:bool, ccfiles:tuple(string), ccflags:tuple(string-or-tuple), flags:tuple(symbol))
+                          pkg-dir:opt(string), optimize?:bool, debug?:bool, ccfiles:tuple(string), ccflags:tuple(string-or-tuple), flags:tuple(symbol))
 
   defunion pkgstamp (PackageStamp) :
     PackageStamp: (location:pkglocation, source-hashstamp:opt(bytearray), pkg-hashstamp:opt(bytearray))

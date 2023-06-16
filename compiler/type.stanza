@@ -94,7 +94,7 @@ defn gather-exports (ipackages:Tuple<IPackage>, env:Env) -> Tuple<Export> :
   ;imports to 'export-accum'.
   defn include-package (pex:PackageExports) -> False :
     add-all(export-accum, exports(pex))
-    do(include-package, imported-packages(pex))
+    do(include-package{package-name(_)}, imported-packages(pex))
 
   ;Include all imports from packages.
   for p in ipackages do :

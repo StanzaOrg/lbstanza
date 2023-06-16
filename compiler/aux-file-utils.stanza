@@ -16,6 +16,7 @@ public defn BuildRecordSettings (settings:BuildSettings) -> BuildRecordSettings 
     external-dependencies(settings)  ;external-dependencies
     pkg-dir(settings)                ;pkg-dir
     optimize?(settings)              ;optimize?
+    debug?(settings)                 ;optimize?
     ccfiles(settings)                ;ccfiles
     ccflags(settings)                ;ccflags
     flags(settings))                 ;flags

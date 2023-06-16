@@ -11,16 +11,36 @@ defpackage stz/dl-ir :
 ;======================== PackageIO =========================
 ;============================================================
 
+;Represents the prefix to attach to names when a package
+;is forwarded to dependents.
+;- names: The concrete set of symbols to prefix.
+public defstruct ImportPrefix :
+  names:False|Tuple<Symbol>
+  prefix:String
+
+;An imported package and its forwarding status, import list, and prefixes
+public defstruct ImportedPackage <: Hashable & Equalable:
+  package-name: Symbol
+  forward: True|False with: (default => false)
+  only: False|Tuple<Symbol> with: (default => false)
+  prefix:Tuple<ImportPrefix> with: (default => [])
+
+defmethod hash (p : ImportedPackage) :
+  hash(package-name(p))
+
+defmethod equal? (p1 : ImportedPackage, p2 : ImportedPackage) :
+  equal?(package-name(p1), package-name(p2))
+
 public defstruct PackageIO :
   package: Symbol
-  imported-packages: Tuple<Symbol> with: (updater => sub-imported-packages)
+  imported-packages: Tuple<ImportedPackage> with: (updater => sub-imported-packages)
   imports: Tuple<Import> with: (updater => sub-imports)
   exports: Tuple<Export> with: (updater => sub-exports)
   documentation?:False|String with: (updater => sub-documentation)
 
 public defstruct PackageExports :
   package: Symbol
-  imported-packages: Tuple<Symbol>
+  imported-packages: Tuple<ImportedPackage>
   exports: Tuple<Export> with: (updater => sub-exports)
 
 ;============================================================
@@ -583,7 +603,7 @@ defsyntax dl-ir :
                          ?imports:#import ...
                          ?exports:#export ...) :
     ;[TODO] Add doc string reader macro. Defaulted to false for now.
-    PackageIO(name, to-tuple(ips), to-tuple(imports), to-tuple(exports), false)
+    PackageIO(name, to-tuple(map({ImportedPackage(_)}, ips)), to-tuple(imports), to-tuple(exports), false)
 
   defproduction dtype : DType
   defrule dtype = (byte) : DByte()
@@ -1140,7 +1160,7 @@ public defn set-id-env<?T> (f:() -> ?T, e:IDEnv) -> T :
 public defn ensure-consistency! (packageio:PackageIO) :
   #if-not-defined(OPTIMIZE) :
     ;Compute all declared packages and declared types
-    val declared-packages = to-hashset<Symbol>(cat(imported-packages(packageio), [package(packageio)]))
+    val declared-packages = to-hashset<Symbol>(cat(map(package-name, imported-packages(packageio)), [package(packageio)]))
     val declared-types = to-hashset<TypeId>(cat(imp-types, exp-types)) where :
       defn typeids (es:Seqable<Import|Export>) : filter-by<TypeId>(seq(id{rec(_)}, es))
       val imp-types = typeids(imports(packageio))

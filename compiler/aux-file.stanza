@@ -61,7 +61,7 @@ public defn AuxFile (path:String) -> AuxFile :
   ;Call read-records() to re-read the auxfile if
   ;we detect that it has changed on-disk.
   defn read-records-if-changed () -> False :
-    val changed? = 
+    val changed? =
       if file-exists?(path) :
         match(records-stamp:FileStamp) :
           not up-to-date?(records-stamp)
@@ -144,6 +144,8 @@ public defstruct PkgRecord <: AuxRecord & Hashable & Equalable :
   optimize?: True|False
 with:
   constructor => #PkgRecord
+  hashable => true
+  equalable => true
 
 public defstruct BuildRecord <: AuxRecord :
   target: Symbol
@@ -156,12 +158,25 @@ public defstruct ExternalFileRecord <: AuxRecord & Hashable & Equalable :
   filetype: ExtFileType
   dependencies: Tuple<FileStamp>
   commands: Tuple<String>
+with:
+  hashable => true
+  equalable => true  
 
 public deftype ExtFileType <: Equalable & Hashable
-public defstruct ExternalFile <: ExtFileType: (filestamp:FileStamp)
-with: (printer => true)
-public defstruct ExternalFlag <: ExtFileType: (flag:String|Tuple<String>)
-with: (printer => true)
+
+public defstruct ExternalFile <: ExtFileType:
+  filestamp:FileStamp
+with:
+  printer => true
+  hashable => true
+  equalable => true  
+  
+public defstruct ExternalFlag <: ExtFileType:
+  flag:String|Tuple<String>
+with:
+  printer => true
+  hashable => true
+  equalable => true
 
 public defstruct BuildRecordSettings <: Hashable & Equalable :
   inputs: Tuple<String|Symbol>
@@ -172,9 +187,13 @@ public defstruct BuildRecordSettings <: Hashable & Equalable :
   external-dependencies: String|False
   pkg-dir: String|False
   optimize?: True|False
+  debug?: True|False
   ccfiles: Tuple<String>
   ccflags: Tuple<String|Tuple<String>>
   flags: Tuple<Symbol>
+with:
+  hashable => true
+  equalable => true
 
 ;------------------------------------------------------------
 ;---------------- Canonical Constructor ---------------------
@@ -188,30 +207,6 @@ public defn PkgRecord (package:Symbol,
   #PkgRecord(package, filestamp, source-stamp,
              qsort(flags), optimize?)
 
-;------------------------------------------------------------
-;------------------ Hashing and Equality --------------------
-;------------------------------------------------------------
-
-defn key (r:PkgRecord) :
-  [package(r), filestamp(r), source-stamp(r), flags(r), optimize?(r)]
-defmethod equal? (a:PkgRecord, b:PkgRecord) : key(a) == key(b)
-defmethod hash (r:PkgRecord) : hash $ key(r)
-
-defn key (r:ExternalFileRecord) : [filetype(r), dependencies(r), commands(r)]
-defmethod equal? (a:ExternalFileRecord, b:ExternalFileRecord) : key(a) == key(b)
-defmethod hash (r:ExternalFileRecord) : hash $ key(r)
-
-defmethod equal? (a:ExternalFile, b:ExternalFile) : filestamp(a) == filestamp(b)
-defmethod hash (f:ExternalFile) : hash(filestamp(f))
-defmethod equal? (a:ExternalFlag, b:ExternalFlag) : flag(a) == flag(b)
-defmethod hash (f:ExternalFlag) : hash(flag(f))
-
-defn key (r:BuildRecordSettings) :
-  [inputs(r), vm-packages(r), platform(r), assembly(r), output(r), external-dependencies(r),
-   pkg-dir(r), optimize?(r), ccfiles(r), ccflags(r), flags(r)]
-defmethod equal? (a:BuildRecordSettings, b:BuildRecordSettings) : key(a) == key(b)
-defmethod hash (r:BuildRecordSettings) : hash $ key(r)
-
 ;============================================================
 ;======================== Printer ===========================
 ;============================================================
@@ -221,7 +216,7 @@ defmethod print (o:OutputStream, f:AuxFile) :
 
 defmethod print (o:OutputStream, r:AuxRecords) :
   val version-str = string-join(stanza-version(r), ".")
-  val items = [    
+  val items = [
     simple-field("stanza-version", version-str)
     inline-fields(records(r))]
   print(o, "AuxRecords%_" % [colon-field-list(items)])
@@ -232,7 +227,7 @@ defmethod print (o:OutputStream, r:PkgRecord) :
     simple-field("source-stamp", source-stamp(r))
     named-list-fields("flags", flags(r))
     bool-flag-field("optimize", optimize?(r))]
-  print(o, "PkgRecord %~%_" % [package(r), colon-field-list(items)])  
+  print(o, "PkgRecord %~%_" % [package(r), colon-field-list(items)])
 
 defmethod print (o:OutputStream, r:ExternalFileRecord) :
   val file-str = match(filetype(r)) :
@@ -263,6 +258,7 @@ defmethod print (o:OutputStream, s:BuildRecordSettings) :
     falseable-field("external-dependencies", external-dependencies(s))
     falseable-field("pkg-dir", pkg-dir(s))
     simple-field("optimize?", optimize?(s))
+    simple-field("debug?", debug?(s))
     named-emptyable-list-fields("ccfiles", ccfiles(s))
     named-emptyable-list-fields("ccflags", ccflags(s))
     named-emptyable-list-fields("flags", flags(s))]
