@@ -68,6 +68,13 @@ defn repl-cache-pkg-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-
 defn param-suffix () -> String : param-suffix(compiler-flags())
 defn param-suffix (extra:Symbol) -> String : param-suffix(cat([extra], compiler-flags()))
 defn param-suffix (flags:Seqable<Symbol>) -> String :
+  defn string-to-bytes (str:String) :
+    val bytes = ByteArray(length(str))
+    for (idx in 0 to false, b in seq(to-byte, str)) do:
+      bytes[idx] = b
+    bytes
+  defn sha256-hash-str (str:String) -> ByteArray :
+    sha256-hash(string-to-bytes(str))
   to-hex(sha256-hash-str(string-join(seq(to-string,qsort(flags)))))
 
 defn save-package (dir:String, p:Pkg, name, include-asm?:True|False) -> String :
