@@ -42,17 +42,38 @@ val READ-PACKAGE = TimerLabel("Read Package")
 ;============================================================
 
 ;Cache a package, computing suffix representing given vector of build params
-public defn cache-build (dir:String, p:Pkg, include-asm?:True|False) -> String :
-  save-package(dir, p, cache-name(name(p)), include-asm?)
+public defn cache-repl-build (dir:String, p:Pkg) -> String :
+  val cname = repl-cache-pkg-name(name(p))
+  if verbose?(sys) :
+    println("Caching REPL package %_" % [cname])
+  save-package(dir, p, cname, false)
+
+public defn cache-std-build (dir:String, p:Pkg) -> String :
+  val cname = cache-pkg-name(name(p))
+  if verbose?(sys) :
+    println("Caching package %_" % [cname])
+  save-package(dir, p, cname, true)
 
 public defn save-package (dir:String, p:Pkg) -> String :
-  save-package(dir, p, std-name(name(p)), true)
+  save-package(dir, p, std-pkg-name(name(p)), true)
 
-defn std-name (pkg-name:Symbol) : mangle-as-filename(pkg-name)
-defn cache-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-suffix())
+; Do not include suffix
+defn std-pkg-name (pkg-name:Symbol) : mangle-as-filename(pkg-name)
+; Include default parameter suffix
+defn cache-pkg-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-suffix())
+; Include REPL symbol in parameter suffix -- a bit of a hack to prevent normal compilation
+;  flows from attempting to decode partially compiled REPL pkgs 
+defn repl-cache-pkg-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-suffix(`REPL))
 
-defn param-suffix () -> String :
-  to-string(sha256-hash-str(string-join(seq(to-string,qsort(compiler-flags())))))
+;Default: use flags
+defn param-suffix () -> String : param-suffix(compiler-flags())
+
+;Include an extra flag
+defn param-suffix (extra:Symbol) -> String : param-suffix(cat([extra], compiler-flags()))
+
+;Base implementation
+defn param-suffix (flags:Seqable<Symbol>) -> String :
+  to-hex(sha256-hash-str(string-join(seq(to-string,qsort(flags)))))
 
 defn save-package (dir:String, p:Pkg, name, include-asm?:True|False) -> String :
   val pkg-file = string-join([name, extension(p)])
@@ -110,7 +131,7 @@ defn ensure-expected-optimization! (pkg:Pkg, filename:String, optimized?:True|Fa
 ;===================== Pkg Search ===========================
 ;============================================================
 
-public defn find-pkg (name:Symbol, optimized?:True|False) -> String|False :
+public defn find-pkg (name:Symbol, optimized?:True|False, for-repl?:True|False) -> String|False :
   label<String|False> return :
     ;Check functions
     defn check-file (filename:String) :
@@ -119,11 +140,14 @@ public defn find-pkg (name:Symbol, optimized?:True|False) -> String|False :
       val extension = ".fpkg" when optimized? else ".pkg"
       val pkgfile = string-join([mangled-name, extension])
       val filename = to-string(relative-to-dir(parse-path(dir), parse-path(pkgfile)))
-      check-file(filename)
-    ; Check cache
+      check-file(filename)    
+    if for-repl? : ;If pkg will be used in repl, try the repl-specific key
+      match(STANZA-PKG-CACHE:String) :
+        check-dir(STANZA-PKG-CACHE as String, repl-cache-pkg-name(name))
+    ;Check cache for default .pkg name
     match(STANZA-PKG-CACHE:String) :
-      check-dir(STANZA-PKG-CACHE as String, cache-name(name))
-    ;Check normal folders
+      check-dir(STANZA-PKG-CACHE as String, cache-pkg-name(name))
+   ;Check normal folders
     for dir in STANZA-PKG-DIRS do :
-      check-dir(dir, std-name(name))
-    check-dir(system-filepath(StanzaPkgsDir), std-name(name))
+      check-dir(dir, std-pkg-name(name))
+    check-dir(system-filepath(StanzaPkgsDir), std-pkg-name(name))

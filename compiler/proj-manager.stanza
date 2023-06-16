@@ -66,7 +66,6 @@ syntax packages, if there is one.
 
 public deftype ProjManager
 public defmulti find-package (l:ProjManager, name:Symbol) -> PkgLocation|False
-public defmulti update-aux-file (l:ProjManager, pkgs:Seqable<SavedPkg>) -> False
 public defmulti conditional-imports (l:ProjManager, packages:Seqable<Symbol>) -> Tuple<Symbol>
 
 ;Given the set of syntax packages we need, find the name of the plugin
@@ -153,7 +152,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
   ;Find a package
   defn find-package (name:Symbol) -> PkgLocation|False :
-    val pkg-path = find-pkg(name, optimize?(params))
+    val pkg-path = find-pkg(name, optimize?(params), in-repl?(params))
     val src-path = source-file?(name)
     val read-pkg? = match(pkg-path, src-path) :
       (pkg-path:String, src-path:String) :
@@ -213,13 +212,15 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
     val filename = 
       match(mode) :
         (f:Final) : save-package(dir, pkg)
-        (c:ReplCache) : cache-build(dir, pkg, false)
-        (c:StdCache) : cache-build(dir, pkg, true)
+        (c:ReplCache) : cache-repl-build(dir, pkg)
+        (c:StdCache) : cache-std-build(dir, pkg)
     val stamp = pkgstamp-table[name(pkg)]
     val filestamp = filestamp(filename)
     val full-source-path = resolve-path!(source-file(location(stamp)) as String)
     val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
-    SavedPkg(name(pkg), filestamp, sourcestamp)
+    val saved-pkg = SavedPkg(name(pkg), filestamp, sourcestamp)
+    update-aux-file([saved-pkg])
+    saved-pkg
 
   ;Caching kernel, updates auxfile after saving pkg 
   defn cache-pkg (pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, mode:ReplCache|StdCache) :
@@ -231,7 +232,6 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
   ;Return new project manager
   new ProjManager :
     defmethod find-package (this, name:Symbol) : find-package(name)
-    defmethod update-aux-file (this, pkgs:Seqable<SavedPkg>) : update-aux-file(pkgs)
     defmethod conditional-imports (this, packages:Seqable<Symbol>) : conditional-imports(packages)
     defmethod find-syntax-packages (this, names:Tuple<Symbol>) : find-syntax-packages(names)
 
@@ -278,6 +278,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 public defstruct ProjParams :
   flags: Tuple<Symbol>
   optimize?: True|False
+  in-repl?: True|False
 
 public defstruct SavedPkg :
   package: Symbol

@@ -229,14 +229,11 @@ public defn compile (proj-manager:ProjManager,
                   pkgstamp-table:HashTable<Symbol,PackageStamp>,
                   output-pkgs:Vector<FileStamp>) :
     match(pkg-dir:String) :
-      val saved-pkgs = Vector<SavedPkg>()
       defn save (pkg:Pkg) :
         cache-pkg(proj-manager, pkg, pkgstamp-table)
         val saved-pkg = save-pkg(proj-manager, pkg, pkgstamp-table, pkg-dir as String)
         add(output-pkgs, filestamp(saved-pkg))
-        add(saved-pkgs, saved-pkg)
       body(save)
-      update-aux-file(proj-manager, saved-pkgs) ; TODO: can I move this to proj-manager?
     else :
       defn save (pkg:Pkg) : cache-pkg(proj-manager, pkg, pkgstamp-table)
       body(save)
