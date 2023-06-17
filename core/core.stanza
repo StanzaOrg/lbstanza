@@ -853,7 +853,28 @@ lostanza defn extend-heap (size:long) -> ref<False> :
 lostanza defn collect-garbage (size:long) -> long :
   ;Retrieve state
   val vms:ptr<VMState> = call-prim flush-vm()
-  return collect-garbage(size, vms)
+
+  ;Measure the number of bytes allocated since last GC.
+  if heap-top-after-last-gc != null :
+    val bytes-allocated = vms.heap.top - heap-top-after-last-gc
+    total-bytes-allocated = total-bytes-allocated + bytes-allocated
+
+  ;Measure the current time before we start running GC.
+  val time-before-gc = call-c clib/current_time_ms()
+
+  ;Run the GC algorithm.
+  val num-bytes-remaining = collect-garbage(size, vms)
+
+  ;Measure the time elapsed in GC, and add to counter.
+  val time-after-gc = call-c clib/current_time_ms()
+  val time-elapsed = time-after-gc - time-before-gc
+  total-ms-in-gc = total-ms-in-gc + time-elapsed
+
+  ;Record the heap top after GC.
+  heap-top-after-last-gc = vms.heap.top
+
+  ;Return to extend-heap.
+  return num-bytes-remaining
 
 ;============================================================
 ;====================== Stack Pool ==========================
@@ -2403,11 +2424,24 @@ public lostanza defn collect-garbage (allocation-size:long, vms:ptr<VMState>) ->
 
     ;Step 1. Define the desired size of the nursery.
     val nursery-size = compute-nursery-size(allocation-size, heap)
-    ;Fail if we cannot possibly free enough space with a partial GC.
+    
+    ;Determine whether we should attempt a partial GC at all.
+    ;Skip the partial GC if the desired nursery size is less than the
+    ;amount of space available.
     if nursery-size <= available-space(heap) :
+
+      ;Measure the size of old generation before evacuation.
+      val old-gen-end-before-gc = heap.old-objects-end
 
       ;Step 2. Try the partial GC.
       evacuate-nursery(vms)
+
+      ;Measure the size of old generation after evacuation.
+      ;The difference after and before is the number of bytes promoted
+      ;from the nursery to the old generation.
+      val old-gen-end-after-gc = heap.old-objects-end
+      val bytes-promoted = old-gen-end-after-gc - old-gen-end-before-gc
+      total-bytes-promoted = total-bytes-promoted + bytes-promoted
 
       ;Fail if the partial GC didn't recover enough space.
       if nursery-size <= available-space(heap) :
@@ -2416,7 +2450,19 @@ public lostanza defn collect-garbage (allocation-size:long, vms:ptr<VMState>) ->
         set-limit(heap.old-objects-end + nursery-size, heap)
         ;Return the space remaining
         return heap.limit - heap.top
+
+      ;At this point, the nursery has been evacuated entirely to
+      ;TO-SPACE, but there still isn't enough space left to satisfy
+      ;the allocation, so we need to prepare for a full GC.
       heap.limit = heap.top
+
+    ;By skipping the partial GC, we are effectively promoting
+    ;the entire nursery to the old generation.
+    else :
+      ;Compute the total number of bytes currently in the nursery,
+      ;and consider it promoted to old gen.
+      val bytes-in-nursery = vms.heap.top - nursery-start(heap)
+      total-bytes-promoted = total-bytes-promoted + bytes-in-nursery
 
     ;Step 3. Try using a full GC to create space.
     mark-compact(vms)
@@ -2439,6 +2485,49 @@ public lostanza defn ensure-heap-space (size:long, vms:ptr<VMState>) -> ref<Fals
   if collect-garbage(size, vms) < size : fatal!("Out of memory.")
   ;No meaningful return value
   return false
+
+;============================================================
+;============== Garbage Collector Statistics ================
+;============================================================
+
+;The total number of milliseconds spent in GC since program
+;start.
+lostanza var total-ms-in-gc:long = 0L
+
+;The total number of bytes allocated by program since
+;program start up to the last call to GC.
+lostanza var total-bytes-allocated:long = 0L
+
+;The total number of bytes promoted from young generation
+;to old generation.
+lostanza var total-bytes-promoted:long = 0L
+
+;The heap top pointer at the end of the last GC.
+lostanza var heap-top-after-last-gc:ptr<long> = 0L as ptr<?>
+
+;Initialize the statistics counters for the GC.
+lostanza defn initialize-gc-statistics () -> ref<False> :
+  val vms:ptr<VMState> = call-prim flush-vm()
+  heap-top-after-last-gc = vms.heap.top
+  return false
+
+;Return the total time in milliseconds spent in GC since
+;program start.
+public lostanza defn time-in-gc-ms () -> ref<Long> :
+  return new Long{total-ms-in-gc}
+
+;Return the total number of bytes allocated by the program.
+public lostanza defn bytes-allocated-by-program () -> ref<Long> :
+  ;Count the number of bytes allocated since the last GC.
+  val vms:ptr<VMState> = call-prim flush-vm()
+  val new-bytes = vms.heap.top - heap-top-after-last-gc
+  ;Add that to the number of bytes allocated up to the last GC.
+  return new Long{total-bytes-allocated + new-bytes}
+
+;Return the total number of bytes promoted from young
+;generation to old generation.
+public lostanza defn bytes-promoted-to-old-generation () -> ref<Long> :
+  return new Long{total-bytes-promoted}
 
 ;============================================================
 ;============================================================
@@ -4061,6 +4150,7 @@ initialize-error-handler()
 initialize-command-launcher()
 initialize-coroutines()
 initialize-gc-notifiers()
+initialize-gc-statistics()
 initialize-liveness-handlers()
 initialize-symbol-table()
 
