@@ -206,7 +206,7 @@ public defn compile (proj-manager:ProjManager,
         val packages = Vector<VMPackage|StdPkg>()
         for p in /packages(result) do :
           match(p) :
-            (p:EPackage) : add(packages, compile(lower-unoptimized(p)))
+            (p:EPackage) : add(packages, compile(lower-unoptimized(p), debug?))
             (p:StdPkg)  : add(packages, p)
         within save = save-pkgs(pkgstamp-table, output-pkgs) :
           compile-vmpackages(save, to-tuple(packages), bindings(result), output as String, pkg-dir is String, includes-stz-vm?)
@@ -244,7 +244,7 @@ public defn compile (proj-manager:ProjManager,
     val epackages = for p in packages map :
       match(p:FastPkg) : EPackage(packageio(p), exps(p))
       else : p as EPackage
-    compile(lower-optimized(epackages))
+    compile(lower-optimized(epackages), debug?)
 
   defn compile-vmpackages (save-pkg:Pkg -> ?,
                            packages:Tuple<VMPackage|StdPkg>,
@@ -299,7 +299,7 @@ public defn compile (proj-manager:ProjManager,
   defn compile-to-pkgs (save-pkg:Pkg -> ?, epackages:Tuple<EPackage>) :
     val stubs = AsmStubs(backend)
     for epackage in epackages do :
-      val vmpackage = compile(lower-unoptimized(epackage))
+      val vmpackage = compile(lower-unoptimized(epackage), debug?)
       val npkg = normalize(vmpackage, backend)
       val buffer = Vector<Ins>()
       emit-normalized-package(npkg, buffer-emitter(buffer, stubs), stubs)
