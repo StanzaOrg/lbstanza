@@ -10,6 +10,7 @@ defpackage stz/aux-file :
   import stz/aux-file-serializer
   import stz/file-stamps
   import stz/printing-utils
+  import stz/verbose
 
 ;============================================================
 ;==================== Aux File Definition ===================
@@ -52,9 +53,11 @@ public defn AuxFile (path:String) -> AuxFile :
   ;Initialize records and records-stamp.
   defn read-records () :
     if file-exists?(path) :
+      vprintln("Read Stanza auxiliary file from %~." % [path])
       records = read-aux-records(path)
       records-stamp = filestamp(path)
     else :
+      vprintln("Stanza auxiliary file at %~ does not exist." % [path])
       records = AuxRecords(STANZA-VERSION, [])
       records-stamp = false
 

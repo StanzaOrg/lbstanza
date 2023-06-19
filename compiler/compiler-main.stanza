@@ -233,6 +233,9 @@ public defn compile (proj-manager:ProjManager,
         add(output-pkgs, filestamp)
         val full-source-path = resolve-path!(source-file(location(stamp)) as String)
         val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
+        vprintln("Save output .pkg for package %~:" % [name(pkg)])
+        vprintln("  source-hashstamp: %_" % [sourcestamp])
+        vprintln("  pkg-hashstamp: %_" % [filestamp])
         add(saved-pkgs, SavedPkg(name(pkg), filestamp, sourcestamp))
       body(save-pkg)
       update-aux-file(proj-manager, saved-pkgs)
@@ -328,7 +331,7 @@ public defn compile (proj-manager:ProjManager,
     val num-funcs = length(funcs(vmpackage(npkg)))
     for (f in funcs(vmpackage(npkg)), index in 0 to false) do :
       val fcomment = function-comment(id(f))
-      vprintln("[Function %_ of %_] Allocating registers for function %_ (%_)" % [index + 1, num-funcs, id(f), fcomment])
+      vprintln(3, "[Function %_ of %_] Allocating registers for function %_ (%_)" % [index + 1, num-funcs, id(f), fcomment])
       emit(emitter, fcomment)
       emit(emitter, LinkLabel(id(f)))
       allocate-registers(id(f), func(f), emitter, backend, stubs, debug?, false)
