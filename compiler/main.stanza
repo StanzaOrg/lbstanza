@@ -71,7 +71,10 @@ defn run-with-timing-log<?T> (body:() -> ?T, cmd-args:CommandArgs) -> T :
 ;for verbosity level.
 defn run-with-verbose-flag<?T> (body:() -> ?T, cmd-args:CommandArgs) -> T :
   if flag?(cmd-args, "verbose") :
-    run-with-verbose-level(body, 1)
+    val setting:Maybe<String> = cmd-args["verbose"]
+    val level = if empty?(setting) : 1
+                else : to-int!(value!(setting))
+    run-with-verbose-level(body, level)
   else :
     body()
 
@@ -233,7 +236,7 @@ val COMMON-STANZA-FLAGS = [
     "The set of flags to pass to the linker to link the final generated assembly to produce the final executable.")
   Flag("flags", ZeroOrMoreFlag, OptionalFlag,
     "The set of compile-time flags to be set before compilation of the source code.")
-  Flag("verbose", ZeroFlag, OptionalFlag,
+  Flag("verbose", ZeroOrOneFlag, OptionalFlag,
     "Controls whether the compiler should output verbose messages indicating status of compilation.")
   Flag("supported-vm-packages", ZeroOrMoreFlag, OptionalFlag,
     "The list of Stanza packages with extern definitions that the Stanza REPL should support.")
@@ -260,6 +263,17 @@ defn ensure-supported-platform! (cmd-args:CommandArgs) :
 defn ensure-supported-link! (cmd-args:CommandArgs) :
   if flag?(cmd-args, "link") :
     ensure-supported-link-types(to-symbol(cmd-args["link"]))
+
+defn ensure-proper-verbose-level! (cmd-args:CommandArgs) :
+  if flag?(cmd-args, "verbose") :
+    val setting:Maybe<String> = cmd-args["verbose"]
+    if not empty?(setting) :
+      match(to-int(value!(setting))) :
+        (v:Int) : 
+          if v < 1 or v > 10 :
+            throw(ArgParseError("The '-verbose' flag requires an integer between 1 and 10."))
+        (f:False) :
+          throw(ArgParseError("The '-verbose' flag requires an integer between 1 and 10."))
 
 ;Extract the CC flags from the given command line arguments as a tuple.
 ;Handles tokenization.
@@ -295,6 +309,7 @@ defn compile-command () :
     ensure-supported-link!(cmd-args)
     ensure-output-flag!()
     ensure-output-for-dependencies!()
+    ensure-proper-verbose-level!(cmd-args)
 
   ;Main action for command
   val compile-msg = "Compile the given Stanza input files to either executable, \
@@ -341,6 +356,7 @@ defn build-command () :
   ;Verify wellformed arguments.
   defn verify-args (cmd-args:CommandArgs) :
     ensure-supported-link!(cmd-args)
+    ensure-proper-verbose-level!(cmd-args)
 
   ;Main action for command
   val build-msg = "Build one of the targets defined in the .proj file."
@@ -405,6 +421,7 @@ defn extend-command () :
     val has-output? = flag?(cmd-args, "s") or flag?(cmd-args, "o")
     if not has-output? :
       throw(ArgParseError("The 'extend' command requires either a -s or -o flag."))
+    ensure-proper-verbose-level!(cmd-args)
 
   ;Main action for command
   val extend-msg = "Extends the Stanza compiler with additional syntax packages and external bindings."
@@ -464,6 +481,7 @@ defn compile-test-command () :
     ensure-supported-link!(cmd-args)
     ensure-output-flag!()
     ensure-output-for-dependencies!()
+    ensure-proper-verbose-level!(cmd-args)
 
   ;Main action for command
   val compile-test-msg = "Compiles the given test files together with the Stanza testing framework to build a test executable."
@@ -530,6 +548,7 @@ defn compile-macros-command () :
     ensure-supported-platform!(cmd-args)
     ensure-output-flag!()
     ensure-output-for-dependencies!()
+    ensure-proper-verbose-level!(cmd-args)
 
   ;Main action for command
   val compile-macros-msg = "Compiles the given macros files together with the Stanza macro plugin framework to build a macro plugin."
@@ -769,6 +788,10 @@ defn run-command () :
     Flag("-", AllRemainingFlag, OptionalFlag,
       "If provided, the remaining arguments after this flag will be set as the command line arguments for the REPL session.")]
 
+  ;Verify that the passed options are good.
+  defn verify-args (cmd-args:CommandArgs) :
+    ensure-proper-verbose-level!(cmd-args)
+
   ;Main action for command
   val launch-msg = "Execute Stanza files directly using the Stanza virtual machine."
   defn launch-run (cmd-args:CommandArgs) :
@@ -799,10 +822,14 @@ defn run-command () :
                     get?(cmd-args, "macros", []))
 
   ;Command definition
-  Command("run",
-          AtLeastOneArg, "the .stanza/.proj input files or Stanza package names to execute in the virtual machine.",
-          flags,
-          launch-msg, intercept-no-match-exceptions(launch-run))
+  Command(
+    name = "run",
+    argtype = AtLeastOneArg,
+    arg-description = "the .stanza/.proj input files or Stanza package names to execute in the virtual machine.",
+    flags = flags,
+    description = launch-msg,
+    verify = verify-args,
+    action = intercept-no-match-exceptions(launch-run))
 
 ;============================================================
 ;==================== Run Test Command ======================

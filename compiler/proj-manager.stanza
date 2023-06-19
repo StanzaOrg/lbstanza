@@ -10,6 +10,7 @@ defpackage stz/proj-manager :
   import stz/aux-file
   import stz/package-stamps
   import stz/file-stamps
+  import stz/verbose
 
 ;<doc>=======================================================
 ;=================== Project Manager ========================
@@ -157,7 +158,16 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       (pkg-path:String, src-path:String) :
         match(auxfile:AuxFile) :
           if file-exists?(src-path) :
-            key?(auxfile, make-pkg-record(name, filestamp(pkg-path), filestamp(src-path)))
+            val pkg-rec = make-pkg-record(name, filestamp(pkg-path), filestamp(src-path))
+            vprintln("Check whether package %~ is up-to-date." % [name])
+            within indented() :
+              vprintln(pkg-rec)
+            val up-to-date? = key?(auxfile, pkg-rec)
+            if up-to-date? :
+              vprintln("Pkg file for package %~ at %~ is up-to-date." % [name, pkg-path])
+            else :
+              vprintln("Pkg file for package %~ at %~ is not up-to-date." % [name, pkg-path])
+            up-to-date?
       (pkg-path:String, src-path:False) : true
       (pkg-path:False, src-path) : false
     if pkg-path is-not False or src-path is-not False :
