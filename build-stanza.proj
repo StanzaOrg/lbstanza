@@ -26,6 +26,8 @@ build core-macros :
 build debugger :
   inputs:
     debugger
+  ccfiles:
+    "core/debug/debugger.c"
   pkg: "pkgs"
   o: "stanza-debugger"
 
