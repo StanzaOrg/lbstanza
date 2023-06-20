@@ -211,7 +211,7 @@ public defn compile (proj-manager:ProjManager,
         val packages = Vector<VMPackage|StdPkg>()
         for p in /packages(result) do :
           match(p) :
-            (p:EPackage) : add(packages, compile(lower-unoptimized(p)))
+            (p:EPackage) : add(packages, compile(lower-unoptimized(p), debug?))
             (p:StdPkg)  : add(packages, p)
         val will-save-or-cache = (pkg-dir is String) or (pkg-cache-dir(proj-manager) is String)
         within save = save-pkgs(pkgstamp-table, output-pkgs) :
@@ -245,7 +245,7 @@ public defn compile (proj-manager:ProjManager,
     val epackages = for p in packages map :
       match(p:FastPkg) : EPackage(packageio(p), exps(p))
       else : p as EPackage
-    compile(lower-optimized(epackages))
+    compile(lower-optimized(epackages), debug?)
 
   ;save-or-cache-pkgs?: flag indicating if emitter should store instructions for writing
   defn compile-vmpackages (save-pkg:Pkg -> ?,
@@ -301,7 +301,7 @@ public defn compile (proj-manager:ProjManager,
   defn compile-to-pkgs (save-pkg:Pkg -> ?, epackages:Tuple<EPackage>) :
     val stubs = AsmStubs(backend)
     for epackage in epackages do :
-      val vmpackage = compile(lower-unoptimized(epackage))
+      val vmpackage = compile(lower-unoptimized(epackage), debug?)
       val npkg = normalize(vmpackage, backend)
       val buffer = Vector<Ins>()
       emit-normalized-package(npkg, buffer-emitter(buffer, stubs), stubs)
@@ -330,7 +330,7 @@ public defn compile (proj-manager:ProjManager,
     val num-funcs = length(funcs(vmpackage(npkg)))
     for (f in funcs(vmpackage(npkg)), index in 0 to false) do :
       val fcomment = function-comment(id(f))
-      vprintln("[Function %_ of %_] Allocating registers for function %_ (%_)" % [index + 1, num-funcs, id(f), fcomment])
+      vprintln(3, "[Function %_ of %_] Allocating registers for function %_ (%_)" % [index + 1, num-funcs, id(f), fcomment])
       emit(emitter, fcomment)
       emit(emitter, LinkLabel(id(f)))
       allocate-registers(id(f), func(f), emitter, backend, stubs, debug?, false)

@@ -30,14 +30,14 @@ val EL-TO-VM = TimerLabel("EL-IR to VM-IR")
 ;======================== Driver ============================
 ;============================================================
 
-public defn compile (epackage:EPackage) -> VMPackage :
+public defn compile (epackage:EPackage, debug?:True|False) -> VMPackage :
   within log-time(EL-TO-VM, suffix(name(epackage))) :
     val io = packageio(epackage)
     val iotable = IOTable(io)
     val ehier = EHier(epackage)
     val progbuffer = ProgBuffer()
     val global-table = GlobalTable(io, epackage)
-    val init-compiler = Compiler(global-table, iotable, ehier, progbuffer)
+    val init-compiler = Compiler(global-table, iotable, ehier, progbuffer, debug?)
     take-ids(cat(used-ids(io), used-ids(epackage)))
     val dtable = within time-ms!("Analyze Dependencies") :
       analyze-dependencies(epackage, global-table)
@@ -45,24 +45,24 @@ public defn compile (epackage:EPackage) -> VMPackage :
     compile-debug-info(progbuffer, io)
     val init = within time-ms!("Compile to VM") :
       for e in exps(epackage) do :
-        match(e) :    
-          (e:EDefn) : compile(e, global-table, iotable, ehier, progbuffer)
-          (e:EDefClosure) : compile(e, dtable, global-table, iotable, ehier, progbuffer)
-          (e:EDefGlobal) : compile(e, global-table, iotable, progbuffer)
+        match(e) :
+          (e:EDefn) : compile(e, global-table, iotable, ehier, progbuffer, debug?)
+          (e:EDefClosure) : compile(e, dtable, global-table, iotable, ehier, progbuffer, debug?)
+          (e:EDefGlobal) : compile(e, global-table, iotable, progbuffer, debug?)
           (e:EDefStruct) : compile(e, global-table, iotable, progbuffer)
           (e:EInit) : compile(init-compiler, e)
           (e:EExtern) : compile(e, progbuffer)
           (e:EDefType) : compile(e, progbuffer)
           (e:EDefObject) : compile(e, dtable, global-table, iotable, progbuffer)
-          (e:EDefTypeObject) : compile(e, global-table, iotable, ehier, progbuffer)
-          (e:EDefmulti) : compile(e, global-table, iotable, ehier, progbuffer)
-          (e:EDefmethod) : compile(e, global-table, iotable, ehier, progbuffer)
-          (e:EExternFn) : compile(e, global-table, iotable, ehier, progbuffer)
+          (e:EDefTypeObject) : compile(e, global-table, iotable, ehier, progbuffer, debug?)
+          (e:EDefmulti) : compile(e, global-table, iotable, ehier, progbuffer, debug?)
+          (e:EDefmethod) : compile(e, global-table, iotable, ehier, progbuffer, debug?)
+          (e:EExternFn) : compile(e, global-table, iotable, ehier, progbuffer, debug?)
       val init = compile-init(init-compiler, iotable, progbuffer)
       init
 
     val vmp = to-vmpackage(progbuffer, io, init)
-    ;dump(vmp, "logs", "pre-analyze")  
+    ;dump(vmp, "logs", "pre-analyze")
     val vmp* = within time-ms!("VM Analyze") : analyze(vmp)
     ;dump(vmp*, "logs", false)
     vmp*
@@ -188,15 +188,15 @@ defn analyze-dependencies (ep:EPackage, gt:GlobalTable) :
 ;==================== Specific Compilers ====================
 ;============================================================
 
-defn compile (e:EDefn, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer) :
-  add(progbuffer, compile-efunction(true, n(e), false, func(e), global-table, iotable, ehier, progbuffer))
+defn compile (e:EDefn, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer, debug?:True|False) :
+  add(progbuffer, compile-efunction(true, n(e), false, func(e), global-table, iotable, ehier, progbuffer, debug?))
 
 defn compile (e:EDefClosure, dtable:IntTable<Tuple<Int>>,
-              global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer) :
-  val f = compile-efunction(true, n(e), closure(e), func(e), global-table, iotable, ehier, progbuffer)
+              global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer, debug?:True|False) :
+  val f = compile-efunction(true, n(e), closure(e), func(e), global-table, iotable, ehier, progbuffer, debug?)
   add(progbuffer, sub-dependencies(f, dtable[n(e)]))
 
-defn compile (e:EDefGlobal, global-table:GlobalTable, iotable:IOTable, progbuffer:ProgBuffer) :
+defn compile (e:EDefGlobal, global-table:GlobalTable, iotable:IOTable, progbuffer:ProgBuffer, debug?:True|False) :
   val size = size(global-table, type(e))
   val offsets = offsets(global-table, type(e))
   val vmtypes = vmtypes(global-table, type(e))
@@ -209,9 +209,10 @@ defn compile (e:EDefGlobal, global-table:GlobalTable, iotable:IOTable, progbuffe
     if key?(iotable,n) :
       val rec = iotable[n]
       to-string(name(id(rec)))
-  match(name?(n(e)), type(e)) :
-    (str:String, t:HiEType) : add(progbuffer, VMDebugName(n(e), true, str))
-    (str,t) : false
+  if debug? :
+    match(name?(n(e)), type(e)) :
+      (str:String, t:HiEType) : add(progbuffer, VMDebugName(n(e), true, str))
+      (str,t) : false
 
 defn parent-ids (t:EType|False) :
   val ids = Vector<Int>()
@@ -279,7 +280,7 @@ defn compile (e:EDefType, progbuffer:ProgBuffer) :
 defn compile (e:EExtern, progbuffer:ProgBuffer) :
   add(progbuffer, VMExtern(n(e), lbl(e)))
 
-defn compile (e:EDefTypeObject, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer) :
+defn compile (e:EDefTypeObject, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer, debug?:True|False) :
   defn call-util (compiler:Compiler, x:Local, fid:RecId, args:Tuple<VMImm>) :
     val arity = NumConst(length(args))
     val ys = to-tuple $ cat([false-obj(iotable), arity], args)
@@ -289,7 +290,7 @@ defn compile (e:EDefTypeObject, global-table:GlobalTable, iotable:IOTable, ehier
   ;Compile function for testing its argument
   defn test-function () :
     ;Create compiler
-    val compiler = Compiler(global-table, iotable, ehier, progbuffer)
+    val compiler = Compiler(global-table, iotable, ehier, progbuffer, debug?)
 
     ;Argument 0: type object
     ;Argument 1: arity
@@ -313,7 +314,7 @@ defn compile (e:EDefTypeObject, global-table:GlobalTable, iotable:IOTable, ehier
   ;Compile function for returning itself as a printable tuple
   defn print-function () :
     ;Create compiler
-    val compiler = Compiler(global-table, iotable, ehier, progbuffer)
+    val compiler = Compiler(global-table, iotable, ehier, progbuffer, debug?)
 
     ;Argument 0: type object
     ;Argument 1: arity
@@ -357,13 +358,13 @@ defn compile (e:EDefTypeObject, global-table:GlobalTable, iotable:IOTable, ehier
   val type-func = VMMultifn(1, [1 => print-function()], test-function())
   add(progbuffer, VMDefn(n(e), type-func))
 
-defn compile (e:EDefmulti, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer) :
-  val compiler = Compiler(global-table, iotable, ehier, progbuffer)
+defn compile (e:EDefmulti, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer, debug?:True|False) :
+  val compiler = Compiler(global-table, iotable, ehier, progbuffer, debug?)
 
   ;Compile the type and value arguments.
   val targs = for v in targs(e) map :
     make-tvar-local(compiler, n(v), debug-name(v))
-    
+
   val args = for a in args(e) map :
     make-local(compiler, n(a), VMRef(), debug-name(a))
 
@@ -387,25 +388,25 @@ defn compile (e:EDefmulti, global-table:GlobalTable, iotable:IOTable, ehier:EHie
   ;Add to top level
   add(progbuffer, VMDefn(n(e), func))
 
-defn compile (e:EDefmethod, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer) :
+defn compile (e:EDefmethod, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer, debug?:True|False) :
   ;Compile the function that implements the method.
-  add(progbuffer, compile-efunction(true, n(e), false, func(e), global-table, iotable, ehier, progbuffer))
+  add(progbuffer, compile-efunction(true, n(e), false, func(e), global-table, iotable, ehier, progbuffer, debug?))
 
   ;Isolate the dispatch types for the method.
   val dispatch-types = to-tuple $
     for (arg in args(func(e)), mask in dispatch(dispatch(e) as DispatchMask)) seq? :
-      One(type(arg)) when mask else None()    
+      One(type(arg)) when mask else None()
 
   ;Calculate the typesets that the VM uses for dispatch.
   val typesets = map(to-typeset, dispatch-types)
 
   ;Add the VMMethod registration to the program.
-  val instance-method? = instance-method?(global-table, n(e))  
+  val instance-method? = instance-method?(global-table, n(e))
   add(progbuffer, VMMethod(instance-method?, multi(e), typesets, n(e)))
 
-defn compile (e:EExternFn, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer) :
+defn compile (e:EExternFn, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer, debug?:True|False) :
   val f = func(e)
-  add(progbuffer, compile-efunction(false, n(e), false, f, global-table, iotable, ehier, progbuffer))
+  add(progbuffer, compile-efunction(false, n(e), false, f, global-table, iotable, ehier, progbuffer, debug?))
   add(progbuffer, VMExternDefn(lbl(e), n(e), map(to-vm-type{type(_)},args(f)), to-vm-type(ret(f))))
 
 ;- include-closure-and-arity-args? controls whether the calling convention includes
@@ -414,14 +415,15 @@ defn compile (e:EExternFn, global-table:GlobalTable, iotable:IOTable, ehier:EHie
 ;  include them as part of the calling convention. Extern functions do not.
 defn compile-efunction (include-closure-and-arity-args?:True|False,
                         id:Int, closure:Int|False, f:EFunction,
-                        global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer) -> VMDefn :
+                        global-table:GlobalTable, iotable:IOTable, ehier:EHier,
+                        progbuffer:ProgBuffer, debug?:True|False) -> VMDefn :
   val func = match(f) :
     (f:EFn) :
-      compile-efn(include-closure-and-arity-args?, closure, f, global-table, iotable, ehier, progbuffer)
+      compile-efn(include-closure-and-arity-args?, closure, f, global-table, iotable, ehier, progbuffer, debug?)
     (f:EMultifn) :
       val funcs* = for f in funcs(f) map :
         val arity = length(args(f))
-        arity => compile-efn(include-closure-and-arity-args?, closure, f, global-table, iotable, ehier, progbuffer)
+        arity => compile-efn(include-closure-and-arity-args?, closure, f, global-table, iotable, ehier, progbuffer, debug?)
       val info? = stack-trace-info(funcs(f)[0]) when not empty?(funcs(f))
       VMMultifn(1, funcs*, wrong-arity-fn(iotable, info?))
   VMDefn(id, func)
@@ -432,10 +434,11 @@ defn compile-efunction (include-closure-and-arity-args?:True|False,
 ;  include them as part of the calling convention. Extern functions do not.
 defn compile-efn (include-closure-and-arity-args?:True|False,
                   closure:Int|False, f:EFn,
-                  global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer) -> VMFunc :
+                  global-table:GlobalTable, iotable:IOTable, ehier:EHier,
+                  progbuffer:ProgBuffer, debug?:True|False) -> VMFunc :
   ;Create a new compiler to compile the instructions for the given
   ;function.
-  val compiler = Compiler(global-table, iotable, ehier, progbuffer)
+  val compiler = Compiler(global-table, iotable, ehier, progbuffer, debug?)
 
   ;Make local for closure
   val closure-local =
@@ -668,7 +671,8 @@ defmulti debug-name-table (c:Compiler) -> VMDebugNameTable
 defn Compiler (gt:GlobalTable,
                iotable:IOTable,
                ehier:EHier,
-               progbuffer:ProgBuffer) :
+               progbuffer:ProgBuffer,
+               debug?:True|False) :
 
   ;---------------------------------------------------------
   ;--------------- VMDef List ------------------------------
@@ -699,7 +703,8 @@ defn Compiler (gt:GlobalTable,
   ;If a name is given for the local, then record it.
   defn record-debug-name? (l:Local, name:String|False) :
     match(name:String) :
-      add(debug-names, VMDebugName(index(l),false,name))
+      if debug? :
+        add(debug-names, VMDebugName(index(l), false, name))
 
   ;---------------------------------------------------------
   ;--------------- Instruction Buffer ----------------------
@@ -744,7 +749,7 @@ defn Compiler (gt:GlobalTable,
   defn local! (x:EVarLoc|False) -> Local :
     match(x:EVarLoc) : local(x)
     else : fatal("x is not a EVarLoc.")
-    
+
   ;---------------------------------------------------------
   ;-------------------- Labels Table -----------------------
   ;---------------------------------------------------------
@@ -1022,7 +1027,7 @@ defn Compiler (gt:GlobalTable,
       else if dispatch(mask)[i - num-non-standard] : add(dispatch-args, arg)
       else : add(non-dispatch-args, arg)
 
-    ;Perform the dispatch instruction.    
+    ;Perform the dispatch instruction.
     val default = make-label()
     val amb = make-label()
     emit(MethodDispatchIns(multi, to-tuple(non-dispatch-args), to-tuple(dispatch-args), default, amb))
@@ -1046,7 +1051,7 @@ defn Compiler (gt:GlobalTable,
     call-error(n(iotable, CORE-NO-METHOD-ERROR-ID),
                [ConstId(multi-name-id), arg-tuple()],
                info)
-               
+
     ;When multiple method matches, call 'amb-method-error'.
     emit(LabelIns(amb))
     call-error(n(iotable, CORE-AMB-METHOD-ERROR-ID),
@@ -1516,7 +1521,7 @@ defn Compiler (gt:GlobalTable,
           emit(ins)
         ;Create a safepoint if we have the file information.
         match(stack-trace-info(ins)) :
-          (info:StackTraceInfo) :            
+          (info:StackTraceInfo) :
             make-safepoint(info) when /info(info) is-not False
           (f:False) : false
 
@@ -2111,7 +2116,7 @@ defn roots (offsets:Seqable<Int>, types:Seqable<VMType>) -> Tuple<Int> :
 ;Returns the corresponding field names of all roots in the given EType.
 defn root-names (gt:GlobalTable, t:EType) -> Tuple<Symbol> :
   root-names(field-names(gt,t), vmtypes(gt,t))
-  
+
 ;Returns the corresponding field names of all roots in the given
 ;object iwh struct identifier 'n'.
 defn root-names (gt:GlobalTable, n:Int) -> Tuple<Symbol> :
@@ -2125,7 +2130,7 @@ defn item-root-names (gt:GlobalTable, n:Int) -> Tuple<Symbol> :
 ;Helper: Compute the field names of all roots in an object.
 ;- field-names: The listing of all field names in the object.
 ;- field-types: The listing of all field types in the object.
-;  (Note that, similar to the 'roots' case, we assume that 
+;  (Note that, similar to the 'roots' case, we assume that
 ;   struct-typed fields are expanded down to their primitives.)
 defn root-names (field-names:Seqable<Symbol>,
                  field-types:Seqable<VMType>) -> Tuple<Symbol> :

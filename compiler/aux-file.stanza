@@ -10,6 +10,7 @@ defpackage stz/aux-file :
   import stz/aux-file-serializer
   import stz/file-stamps
   import stz/printing-utils
+  import stz/verbose
 
 ;============================================================
 ;==================== Aux File Definition ===================
@@ -52,9 +53,11 @@ public defn AuxFile (path:String) -> AuxFile :
   ;Initialize records and records-stamp.
   defn read-records () :
     if file-exists?(path) :
+      vprintln("Read Stanza auxiliary file from %~." % [path])
       records = read-aux-records(path)
       records-stamp = filestamp(path)
     else :
+      vprintln("Stanza auxiliary file at %~ does not exist." % [path])
       records = AuxRecords(STANZA-VERSION, [])
       records-stamp = false
 
@@ -142,6 +145,7 @@ public defstruct PkgRecord <: AuxRecord & Hashable & Equalable :
   source-stamp: FileStamp
   flags: Tuple<Symbol>
   optimize?: True|False
+  debug?: True|False
 with:
   constructor => #PkgRecord
   hashable => true
@@ -160,7 +164,7 @@ public defstruct ExternalFileRecord <: AuxRecord & Hashable & Equalable :
   commands: Tuple<String>
 with:
   hashable => true
-  equalable => true  
+  equalable => true
 
 public deftype ExtFileType <: Equalable & Hashable
 
@@ -169,8 +173,8 @@ public defstruct ExternalFile <: ExtFileType:
 with:
   printer => true
   hashable => true
-  equalable => true  
-  
+  equalable => true
+
 public defstruct ExternalFlag <: ExtFileType:
   flag:String|Tuple<String>
 with:
@@ -203,9 +207,10 @@ public defn PkgRecord (package:Symbol,
                        filestamp:FileStamp,
                        source-stamp:FileStamp,
                        flags:Tuple<Symbol>,
-                       optimize?:True|False) :
+                       optimize?:True|False,
+                       debug?:True|False) :
   #PkgRecord(package, filestamp, source-stamp,
-             qsort(flags), optimize?)
+             qsort(flags), optimize?, debug?)
 
 ;============================================================
 ;======================== Printer ===========================
@@ -226,7 +231,8 @@ defmethod print (o:OutputStream, r:PkgRecord) :
     simple-field("filestamp", filestamp(r))
     simple-field("source-stamp", source-stamp(r))
     named-list-fields("flags", flags(r))
-    bool-flag-field("optimize", optimize?(r))]
+    bool-flag-field("optimize", optimize?(r))
+    bool-flag-field("debug", debug?(r))]
   print(o, "PkgRecord %~%_" % [package(r), colon-field-list(items)])
 
 defmethod print (o:OutputStream, r:ExternalFileRecord) :
