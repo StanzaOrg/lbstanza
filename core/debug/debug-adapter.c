@@ -1,10 +1,6 @@
-#include <assert.h>
-#include <ctype.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdarg.h>
-#include <stdbool.h>
-#include <stdio.h>
 #include <string.h>
 #ifdef PLATFORM_WINDOWS
   #include <fcntl.h>

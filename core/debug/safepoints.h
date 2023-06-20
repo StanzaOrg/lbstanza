@@ -1,8 +1,12 @@
 #ifndef SAFEPOINTS_H
 #define SAFEPOINTS_H
 
+#include <assert.h>
+#include <ctype.h>
 #include <inttypes.h>
+#include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 enum {
   NOP = 0x90,
