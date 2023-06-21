@@ -224,7 +224,7 @@ val COMMON-STANZA-FLAGS = [
     "The name of the output assembly file.")
   Flag("pkg", ZeroOrOneFlag, OptionalFlag,
     "Requests the compiler to output the .pkg files. The name of the folder to store the output .pkg files can be optionally provided.")
-  Flag("proj-pkgs", OneFlag, OptionalFlag,
+  Flag("pkg-cache", OneFlag, OptionalFlag,
     "Directory for caching compiled .pkg files")
   Flag("optimize", ZeroFlag, OptionalFlag,
     "Requests the compiler to compile in optimized mode.")
@@ -330,7 +330,7 @@ defn compile-command () :
         get?(cmd-args, "o", false)
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
-        get?(cmd-args, "proj-pkgs", false)
+        get?(cmd-args, "pkg-cache", false)
         flag?(cmd-args, "optimize")
         flag?(cmd-args, "debug")
         get?(cmd-args, "ccfiles", [])
@@ -347,7 +347,7 @@ defn compile-command () :
   ;Command
   Command("compile",
           AtLeastOneArg, "the .stanza/.proj input files or Stanza package names.",
-          common-stanza-flags(["o" "s" "pkg" "proj-pkgs" "optimize" "debug" "ccfiles" "ccflags" "flags"
+          common-stanza-flags(["o" "s" "pkg" "pkg-cache" "optimize" "debug" "ccfiles" "ccflags" "flags"
                                "verbose" "supported-vm-packages" "platform" "external-dependencies" "macros" "link" "timing-log"]),
           compile-msg, false, verify-args, intercept-no-match-exceptions(compile-action))
 
@@ -379,7 +379,7 @@ defn build-command () :
         get?(cmd-args, "o", false)
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
-        get?(cmd-args, "proj-pkgs", false)
+        get?(cmd-args, "pkg-cache", false)
         flag?(cmd-args, "optimize")
         flag?(cmd-args, "debug")
         []
@@ -396,7 +396,7 @@ defn build-command () :
   ;Command definition
   Command("build",
           ZeroOrOneArg, "the name of the build target. If not supplied, the default build target is 'main'.",
-          common-stanza-flags(["s" "o" "external-dependencies" "pkg" "proj-pkgs" "flags" "optimize" "debug" "verbose" "ccflags" "macros" "link" "timing-log"]),
+          common-stanza-flags(["s" "o" "external-dependencies" "pkg" "pkg-cache" "flags" "optimize" "debug" "verbose" "ccflags" "macros" "link" "timing-log"]),
           build-msg, false, verify-args, intercept-no-match-exceptions(build))
 
 ;============================================================
@@ -514,7 +514,7 @@ defn compile-test-command () :
         get?(cmd-args, "o", false)
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
-        get?(cmd-args, "proj-pkgs", false)
+        get?(cmd-args, "pkg-cache", false)
         flag?(cmd-args, "optimize")
         flag?(cmd-args, "debug")
         get?(cmd-args, "ccfiles", [])
@@ -529,7 +529,7 @@ defn compile-test-command () :
   ;Command definition
   Command("compile-test",
           AtLeastOneArg, "the .stanza/.proj input files or Stanza package names containing tests.",
-          common-stanza-flags(["platform" "s" "o" "external-dependencies" "pkg" "proj-pkgs" "ccfiles" "ccflags" "flags" "optimize" "debug" "verbose"
+          common-stanza-flags(["platform" "s" "o" "external-dependencies" "pkg" "pkg-cache" "ccfiles" "ccflags" "flags" "optimize" "debug" "verbose"
                                "macros" "link" "timing-log"])
           compile-test-msg, false, verify-args, intercept-no-match-exceptions(compile-test))
 
@@ -579,7 +579,7 @@ defn compile-macros-command () :
         get?(cmd-args, "o", false)
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
-        get?(cmd-args, "proj-pkgs", false)
+        get?(cmd-args, "pkg-cache", false)
         flag?(cmd-args, "optimize")
         false
         get?(cmd-args, "ccfiles", [])
@@ -594,7 +594,7 @@ defn compile-macros-command () :
   ;Command definition
   Command("compile-macros",
           AtLeastOneArg, "the .stanza/.proj input files or Stanza package names containing macros.",
-          common-stanza-flags(["platform" "s" "o" "external-dependencies" "pkg" "proj-pkgs" "ccfiles" "ccflags" "flags" "optimize" "verbose"
+          common-stanza-flags(["platform" "s" "o" "external-dependencies" "pkg" "pkg-cache" "ccfiles" "ccflags" "flags" "optimize" "verbose"
                                "macros" "timing-log"])
           compile-macros-msg, false, verify-args, intercept-no-match-exceptions(compile-macro))
 
@@ -697,8 +697,6 @@ defn repl-command () :
     Flag("pkg", ZeroOrMoreFlag, OptionalFlag,
       "The set of additional directories to look in for .pkg files during \
        this REPL session.")
-    Flag("proj-pkgs", OneFlag, OptionalFlag,
-      "The directory to cache .pkg files compiled from source during REPL starup.")
     Flag("flags", ZeroOrMoreFlag, OptionalFlag,
       "The set of compile-time flags to be set before beginning this REPL session.")
     Flag("confirm-before-exit", ZeroFlag, OptionalFlag,
@@ -706,6 +704,7 @@ defn repl-command () :
     Flag("terminal-style", OneFlag, OptionalFlag,
       "The terminal style (simple/edit) to use for the REPL. If not provided, defaults to 'edit' if available \
        on the current platform.")
+    common-stanza-flag("pkg-cache")
     common-stanza-flag("macros")
     common-stanza-flag("timing-log")
     Flag("-", AllRemainingFlag, OptionalFlag,
@@ -740,7 +739,7 @@ defn repl-command () :
 
         ;Compute settings
         val macro-plugins = get?(cmd-args, "macros", [])
-        val pkg-cache-dir = get?(cmd-args, "proj-pkgs", false)
+        val pkg-cache-dir = get?(cmd-args, "pkg-cache", false)
         val pkg-dirs = get?(cmd-args, "pkg", [])
         val flags = map(to-symbol, get?(cmd-args, "flags", []))
         val cmd-line-args = to-tuple $ cat(
@@ -791,10 +790,9 @@ defn run-command () :
   val flags = [
     Flag("pkg", ZeroOrMoreFlag, OptionalFlag,
       "The set of additional directories to look in for .pkg files.")
-    Flag("proj-pkgs", OneFlag, OptionalFlag,
-      "The directory to cache .pkg files compiled from source during REPL starup.")
     Flag("flags", ZeroOrMoreFlag, OptionalFlag,
       "The set of compile-time flags to be set before beginning execution.")
+    common-stanza-flag("pkg-cache")
     common-stanza-flag("verbose")
     common-stanza-flag("macros")
     common-stanza-flag("timing-log")
@@ -817,7 +815,7 @@ defn run-command () :
 
         ;Compute REPL settings
         val macro-plugins = get?(cmd-args, "macros", [])
-        val pkg-cache-dir = get?(cmd-args, "proj-pkgs", false)
+        val pkg-cache-dir = get?(cmd-args, "pkg-cache", false)
         val pkg-dirs = get?(cmd-args, "pkg", [])
         val flags = map(to-symbol, get?(cmd-args, "flags", []))
         val cmd-line-args = to-tuple $ cat(
@@ -856,8 +854,6 @@ defn run-test-command () :
   val flags = [
     Flag("pkg", ZeroOrMoreFlag, OptionalFlag,
       "The set of additional directories to look in for .pkg files.")
-    Flag("proj-pkgs", OneFlag, OptionalFlag,
-      "The directory to cache .pkg files compiled from source during REPL starup.")
     Flag("flags", ZeroOrMoreFlag, OptionalFlag,
       "The set of compile-time flags to be set before beginning execution.")
     Flag("named", AtLeastOneFlag, OptionalFlag,
@@ -868,6 +864,7 @@ defn run-test-command () :
       "If given, the tests with the given tags will not be executed.")
     Flag("log", OneFlag, OptionalFlag,
       "The directory to output the test results to.")
+    common-stanza-flag("pkg-cache")
     common-stanza-flag("macros")
     common-stanza-flag("timing-log")]
 
@@ -887,7 +884,7 @@ defn run-test-command () :
      
       ; Compute all settings
       val macro-plugins = get?(cmd-args, "macros", [])
-      val pkg-cache-dir = get?(cmd-args, "proj-pkgs", false)
+      val pkg-cache-dir = get?(cmd-args, "pkg-cache", false)
       val pkg-dirs = get?(cmd-args, "pkg", [])
       ; Add TESTING flag
       val flags = to-tuple $ cat(

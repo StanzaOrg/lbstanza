@@ -358,9 +358,9 @@ defn setup-system-flags (settings:BuildSettings) :
     STANZA-PKG-DIRS = cons(pkg-dir, STANZA-PKG-DIRS)
 
   ;Update pkg cache
-  val proj-pkg = pkg-cache-dir(settings)
-  match(proj-pkg:String) :
-    STANZA-PKG-CACHE = proj-pkg
+  val pkg-cache = pkg-cache-dir(settings)
+  match(pkg-cache:String) :
+    STANZA-PKG-CACHE = pkg-cache
 
 ;============================================================
 ;====================== Utilities ===========================

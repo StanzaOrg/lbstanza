@@ -138,8 +138,8 @@ defsyntax stanza-projfile :
                                AtomValue(closest-info(), "."),
                                to-tuple(es))
 
-  defrule projstmt = (proj-pkgs #:! ?dir:#projvalue!) :
-    ProjPkgStmtS0(closest-info(), dir)
+  defrule projstmt = (pkg-cache #:! ?dir:#projvalue!) :
+    PkgCacheStmtS0(closest-info(), dir)
 
   defproduction projvalue: ProjValue 
 

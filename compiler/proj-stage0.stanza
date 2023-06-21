@@ -116,7 +116,7 @@ public defstruct ForeignPackageParamsStmtS0 <: ProjStmt :
   entries: Tuple<KeyValue<Symbol, ProjValue>> with: (updater => sub-entries)
 with: (printer => true)
 
-public defstruct ProjPkgStmtS0 <: ProjStmt :
+public defstruct PkgCacheStmtS0 <: ProjStmt :
   info: FileInfo|False with: (as-method => true)
   directory: ProjValue 
 with: (printer => true)
@@ -325,7 +325,7 @@ public defn map<?T> (f:ProjItem -> ProjItem, x:?T&ProjItem) -> T :
     (x:SplicedString) : SplicedString(info(x), h(values(x))) 
     (x:ProjDir) : x
     (x:WorkDir) : x
-    (x:ProjPkgStmtS0) : ProjPkgStmtS0(info(x), h(directory(x)))
+    (x:PkgCacheStmtS0) : PkgCacheStmtS0(info(x), h(directory(x)))
   result as T&ProjItem
 
 ;Generalized doer for all ProjItem.
@@ -367,7 +367,7 @@ public defn stmt-description (s:ProjStmt) -> String :
       "initialization statement for variable %_" % [name(s)]
     (s:ForeignPackageParamsStmtS0) :
       "params for %_ package manager" % [package-manager(s)]
-    (s:ProjPkgStmtS0) :
+    (s:PkgCacheStmtS0) :
       "REPL caching directory %_" % [directory(s)]
 
 
@@ -404,5 +404,5 @@ public defn duplication-key (s:ProjStmt) -> Hashable&Equalable :
       false
     (s:ForeignPackageParamsStmtS0) :
       [`ForeignPackageParams, package-manager(s)]
-    (s:ProjPkgStmtS0) : 
-      `ProjPkg
+    (s:PkgCacheStmtS0) : 
+      `PkgCache
