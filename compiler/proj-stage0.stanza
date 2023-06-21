@@ -368,7 +368,7 @@ public defn stmt-description (s:ProjStmt) -> String :
     (s:ForeignPackageParamsStmtS0) :
       "params for %_ package manager" % [package-manager(s)]
     (s:PkgCacheStmtS0) :
-      "REPL caching directory %_" % [directory(s)]
+      ".pkg caching directory %_" % [directory(s)]
 
 
 

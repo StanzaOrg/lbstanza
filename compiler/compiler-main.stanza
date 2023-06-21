@@ -1,4 +1,4 @@
-;See License.txt for details about licensing. -verbose
+;See License.txt for details about licensing.
 
 ;<doc>=======================================================
 ;================== Compilation Steps =======================
@@ -185,11 +185,12 @@ public defn compile (proj-manager:ProjManager,
             (p:EPackage) : save(FastPkg(packageio(p), exps(p)))
             (p:Pkg) : save(p)
 
-    ;Always cache optimized packages
+    ;Cache optimized packages that were compiled from source
     if optimize? :
       for p in packages(result) do :
         match(p):
-          (p:EPackage) : cache-pkg(proj-manager, FastPkg(packageio(p), exps(p)), pkgstamp-table[name(p)])
+          (p:EPackage) : 
+            cache-pkg(proj-manager, FastPkg(packageio(p), exps(p)), pkgstamp-table[name(p)])
           (p:Pkg) : 
             val stamp = pkgstamp-table[name(p)]
             if from-source?(stamp) :
@@ -225,9 +226,8 @@ public defn compile (proj-manager:ProjManager,
         within save = save-pkgs(pkgstamp-table, output-pkgs) :
           compile-vmpackages(save, to-tuple(packages), bindings(result), output as String, will-save-or-cache, includes-stz-vm?)
       `unoptimized-pkgs :
-        ;val epackages = to-tuple $ filter-by<EPackage>(packages(result))
         within save = save-pkgs(pkgstamp-table, output-pkgs) :
-          compile-to-pkgs(save, packages(result))
+          compile-to-pkgs(save, packages(result) as Tuple<EPackage|StdPkg>)
 
     ;Return result
     CompilationResult(map(name, packages(result)),
@@ -235,7 +235,7 @@ public defn compile (proj-manager:ProjManager,
                       pkgstamps(result),
                       to-tuple(output-pkgs))
   
-  defn save-pkgs (body:(Pkg -> False) -> ?,  
+  defn save-pkgs (body:(Pkg -> False) -> ?,
                   pkgstamp-table:HashTable<Symbol,PackageStamp>,
                   output-pkgs:Vector<FileStamp>) :
     match(pkg-dir:String) :
@@ -313,7 +313,7 @@ public defn compile (proj-manager:ProjManager,
       val emitter = emitter(stitcher, name(npkg), file-emitter(filestream, stubs))
       emit-normalized-package(npkg, emitter, stubs)
 
-  defn compile-to-pkgs (save:Pkg -> ?, packages:Tuple<Pkg|EPackage>) :
+  defn compile-to-pkgs (save:Pkg -> ?, packages:Tuple<StdPkg|EPackage>) :
     val stubs = AsmStubs(backend)
     for package in packages do :
       match(package) :
@@ -324,7 +324,6 @@ public defn compile (proj-manager:ProjManager,
           emit-normalized-package(npkg, buffer-emitter(buffer, stubs), stubs)
           save(StdPkg(vmpackage, to-tuple(buffer), datas(npkg)))
         (package:StdPkg) : save(package)
-        ; TODO: FastPkg case?
 
   defn emit-normalized-package (npkg:NormVMPackage, emitter:CodeEmitter, stubs:AsmStubs) :
     ;Create the debug table so that we can add debug comments
