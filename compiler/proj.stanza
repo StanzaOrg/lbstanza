@@ -195,7 +195,7 @@ public defn build-target! (proj:ProjFile, target:Symbol) -> BuildStmt :
   match(s:BuildStmt) : s
   else : throw(ProjFileError(false, to-string("No build target named %~." % [target])))
 
-public defn pkg-cache-dir (proj:ProjFile) -> String|False :
+public defn proj-cache-dir (proj:ProjFile) -> String|False :
   match(find({_ is PkgCacheStmt}, stmts(proj))):
     (stmt:PkgCacheStmt) : directory(stmt)
     (f:False) : false

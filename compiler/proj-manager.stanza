@@ -85,7 +85,7 @@ public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symb
 ;the folders to load them from.
 public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> RequiredLibraries
 
-public defmulti pkg-cache-dir (l:ProjManager) -> String|False 
+public defmulti proj-cache-dir (l:ProjManager) -> String|False 
 public defmulti save-pkg (l:ProjManager, pkg:Pkg, stamp:PackageStamp, dir:String) -> SavedPkg
 public defmulti cache-pkg (l:ProjManager, pkg:Pkg, stamp:PackageStamp) -> False
 public defmulti cache-repl-pkg (l:ProjManager, pkg:Pkg, stamp:PackageStamp) -> False
@@ -237,10 +237,10 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
   ;Caching kernel, updates auxfile after saving pkg 
   defn cache-pkg (pkg:Pkg, stamp:PackageStamp, mode:ReplCache|StdCache) :
-    match(pkg-cache-dir(proj)):
+    match(STANZA-PKG-CACHE):
       (cache-dir:String) : 
-        val saved-pkg = save-pkg(pkg, stamp, cache-dir, mode)
-        update-aux-file([saved-pkg])
+        save-pkg(pkg, stamp, cache-dir, mode)
+        false
       (f:False) : false
 
   ;Return new project manager
@@ -272,7 +272,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       ;Return bundled result
       RequiredLibraries(package-libs, folders)
 
-    defmethod pkg-cache-dir (this) : pkg-cache-dir(proj)
+    defmethod proj-cache-dir (this) : proj-cache-dir(proj)
 
     defmethod save-pkg (this, pkg:Pkg, stamp:PackageStamp, dir:String) -> SavedPkg :
       save-pkg(pkg, stamp, dir, Final())

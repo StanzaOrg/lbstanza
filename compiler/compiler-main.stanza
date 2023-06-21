@@ -140,6 +140,7 @@ defpackage stz/compiler-main :
   import stz/file-stamps
   import stz/dir-utils
   import stz/absolute-info
+  import stz/params
 
 ;============================================================
 ;============== Main Compilation Algorithm ==================
@@ -220,7 +221,7 @@ public defn compile (proj-manager:ProjManager,
           match(p) :
             (p:EPackage) : add(packages, compile(lower-unoptimized(p), debug?))
             (p:StdPkg)  : add(packages, p)
-        val will-save-or-cache = (pkg-dir is String) or (pkg-cache-dir(proj-manager) is String)
+        val will-save-or-cache = (pkg-dir is String) or (STANZA-PKG-CACHE is String)
         within save = save-pkgs(pkgstamp-table, output-pkgs) :
           compile-vmpackages(save, to-tuple(packages), bindings(result), output as String, will-save-or-cache, includes-stz-vm?)
       `unoptimized-pkgs :
