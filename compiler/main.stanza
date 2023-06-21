@@ -396,7 +396,7 @@ defn build-command () :
   ;Command definition
   Command("build",
           ZeroOrOneArg, "the name of the build target. If not supplied, the default build target is 'main'.",
-          common-stanza-flags(["s" "o" "external-dependencies" "pkg" "flags" "optimize" "debug" "verbose" "ccflags" "macros" "link" "timing-log"]),
+          common-stanza-flags(["s" "o" "external-dependencies" "pkg" "proj-pkgs" "flags" "optimize" "debug" "verbose" "ccflags" "macros" "link" "timing-log"]),
           build-msg, false, verify-args, intercept-no-match-exceptions(build))
 
 ;============================================================

@@ -529,7 +529,7 @@ public defn REPL (settings: REPLSettings) :
                 compile(lowered, false)
             vprintln("REPL: Done Compiling EPackage %_ to VMPackage." % [name(p)])
             val pkgstamp-table = to-hashtable(package, pkgstamps(result))
-            cache-repl-pkg(proj-manager, StdPkg(vmp, false, false), pkgstamp-table)
+            cache-repl-pkg(proj-manager, StdPkg(vmp, false, false), pkgstamp-table[name(p)])
             vmp
           (p:StdPkg) :
             vprintln("REPL: Skipping VMPackage compilation of %_. Loaded directly from .pkg." % [name(p)])
@@ -652,7 +652,7 @@ defn FileEnv () :
     if not up-to-date?(stamp) :
       match(source-file(location(stamp)), pkg-file(location(stamp))) :
         (sf:String, pf) : One(sf)
-        (sf:False, pf:String) : One(pf)
+        (sf:False, pf:PkgDir) : One(file(pf))
     else : None()
 
   new FileEnv :

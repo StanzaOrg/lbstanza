@@ -86,9 +86,9 @@ public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symb
 public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> RequiredLibraries
 
 public defmulti pkg-cache-dir (l:ProjManager) -> String|False 
-public defmulti save-pkg (l:ProjManager, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) -> SavedPkg
-public defmulti cache-pkg (l:ProjManager, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False 
-public defmulti cache-repl-pkg (l:ProjManager, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False 
+public defmulti save-pkg (l:ProjManager, pkg:Pkg, stamp:PackageStamp, dir:String) -> SavedPkg
+public defmulti cache-pkg (l:ProjManager, pkg:Pkg, stamp:PackageStamp) -> False
+public defmulti cache-repl-pkg (l:ProjManager, pkg:Pkg, stamp:PackageStamp) -> False
 
 ;Represents the required libraries and folders for a set of Stanza packages.
 public defstruct RequiredLibraries :
@@ -161,20 +161,20 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
     val pkg-path = find-pkg(name, optimize?(params), in-repl?(params))
     val src-path = source-file?(name)
     val read-pkg? = match(pkg-path, src-path) :
-      (pkg-path:String, src-path:String) :
+      (pkg-path:PkgFile, src-path:String) :
         match(auxfile:AuxFile) :
           if file-exists?(src-path) :
-            val pkg-rec = make-pkg-record(name, filestamp(pkg-path), filestamp(src-path))
+            val pkg-rec = make-pkg-record(name, filestamp(file(pkg-path)), filestamp(src-path))
             vprintln("Check whether package %~ is up-to-date." % [name])
             within indented() :
               vprintln(pkg-rec)
             val up-to-date? = key?(auxfile, pkg-rec)
             if up-to-date? :
-              vprintln("Pkg file for package %~ at %~ is up-to-date." % [name, pkg-path])
+              vprintln("Pkg file for package %~ at %~ is up-to-date." % [name, file(pkg-path)])
             else :
-              vprintln("Pkg file for package %~ at %~ is not up-to-date." % [name, pkg-path])
+              vprintln("Pkg file for package %~ at %~ is not up-to-date." % [name, file(pkg-path)])
             up-to-date?
-      (pkg-path:String, src-path:False) : true
+      (pkg-path:PkgFile, src-path:False) : true
       (pkg-path:False, src-path) : false
     if pkg-path is-not False or src-path is-not False :
       PkgLocation(name, src-path, pkg-path, read-pkg?)
@@ -219,13 +219,12 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
   ;Save a .pkg, update all stamps and auxfile
   ;Select function that places and names the .pkg based on mode
-  defn save-pkg (pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String, mode:SaveMode) :
+  defn save-pkg (pkg:Pkg, stamp:PackageStamp, dir:String, mode:SaveMode) -> SavedPkg:
     val filename = 
       match(mode) :
         (f:Final) : save-package(dir, pkg)
         (c:ReplCache) : cache-repl-build(dir, pkg)
         (c:StdCache) : cache-std-build(dir, pkg)
-    val stamp = pkgstamp-table[name(pkg)]
     val filestamp = filestamp(filename)
     val full-source-path = resolve-path!(source-file(location(stamp)) as String)
     val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
@@ -237,10 +236,10 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
     saved-pkg
 
   ;Caching kernel, updates auxfile after saving pkg 
-  defn cache-pkg (pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, mode:ReplCache|StdCache) :
+  defn cache-pkg (pkg:Pkg, stamp:PackageStamp, mode:ReplCache|StdCache) :
     match(pkg-cache-dir(proj)):
       (cache-dir:String) : 
-        val saved-pkg = save-pkg(pkg, pkgstamp-table, cache-dir, mode)
+        val saved-pkg = save-pkg(pkg, stamp, cache-dir, mode)
         update-aux-file([saved-pkg])
       (f:False) : false
 
@@ -275,14 +274,14 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
     defmethod pkg-cache-dir (this) : pkg-cache-dir(proj)
 
-    defmethod save-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>, dir:String) -> SavedPkg :
-      save-pkg(pkg, pkgstamp-table, dir, Final())
+    defmethod save-pkg (this, pkg:Pkg, stamp:PackageStamp, dir:String) -> SavedPkg :
+      save-pkg(pkg, stamp, dir, Final())
 
-    defmethod cache-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False :
-      cache-pkg(pkg, pkgstamp-table, StdCache())
+    defmethod cache-pkg (this, pkg:Pkg, stamp:PackageStamp) -> False :
+      cache-pkg(pkg, stamp, StdCache())
 
-    defmethod cache-repl-pkg (this, pkg:Pkg, pkgstamp-table:HashTable<Symbol,PackageStamp>) -> False :
-      cache-pkg(pkg, pkgstamp-table, ReplCache())
+    defmethod cache-repl-pkg (this, pkg:Pkg, stamp:PackageStamp) -> False :
+      cache-pkg(pkg, stamp, ReplCache())
 
 
 

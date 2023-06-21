@@ -28,6 +28,7 @@ defpackage stz/pkg :
   import stz/fastio-errors
   import stz/pkg-errors
   import stz/pkg-serializer
+  import stz/package-stamps
   import stz/dir-utils
   import core/sha256
 
@@ -82,10 +83,8 @@ defn save-package (dir:String, p:Pkg, name, include-asm?:True|False) -> String :
   val filename = to-string(relative-to-dir(parse-path(dir), pkg-file))
   ensure-directory-exists(dir)
   try :
-    if include-asm?:
-      serialize-pkg(filename, p)
-    else:
-      serialize-repl-pkg(filename, p)
+    if include-asm?: serialize-pkg(filename, p)
+    else: serialize-repl-pkg(filename, p)
   catch (e:IOException|FastIOError) : throw(PackageWriteException(filename))
   filename
 
@@ -133,23 +132,23 @@ defn ensure-expected-optimization! (pkg:Pkg, filename:String, optimized?:True|Fa
 ;===================== Pkg Search ===========================
 ;============================================================
 
-public defn find-pkg (name:Symbol, optimized?:True|False, for-repl?:True|False) -> String|False :
-  label<String|False> return :
+public defn find-pkg (name:Symbol, optimized?:True|False, for-repl?:True|False) -> PkgFile|False :
+  label<PkgFile|False> return :
     ;Check functions
-    defn check-file (filename:String) :
-      return(filename) when file-exists?(filename)
-    defn check-dir (dir:String, mangled-name:String) :
+    defn check-file (filename:String, cache) :
+      return(cache(filename)) when file-exists?(filename)
+    defn check-dir (dir:String, mangled-name:String, cache) :
       val extension = ".fpkg" when optimized? else ".pkg"
       val pkgfile = string-join([mangled-name, extension])
       val filename = to-string(relative-to-dir(parse-path(dir), parse-path(pkgfile)))
-      check-file(filename)    
+      check-file(filename, cache)
     if for-repl? : ;If pkg will be used in repl, try the repl-specific key
       match(STANZA-PKG-CACHE:String) :
-        check-dir(STANZA-PKG-CACHE as String, repl-cache-pkg-name(name))
+        check-dir(STANZA-PKG-CACHE as String, repl-cache-pkg-name(name), PkgCache{_})
     ;Check cache for default .pkg name
     match(STANZA-PKG-CACHE:String) :
-      check-dir(STANZA-PKG-CACHE as String, cache-pkg-name(name))
+      check-dir(STANZA-PKG-CACHE as String, cache-pkg-name(name), PkgCache{_})
     ;Check normal folders
     for dir in STANZA-PKG-DIRS do :
-      check-dir(dir, std-pkg-name(name))
-    check-dir(system-filepath(StanzaPkgsDir), std-pkg-name(name))
+      check-dir(dir, std-pkg-name(name), PkgDir{_})
+    check-dir(system-filepath(StanzaPkgsDir), std-pkg-name(name), PkgDir{_})

@@ -67,8 +67,12 @@ defserializer AuxFileSerializer () :
   defunion pkgstamp (PackageStamp) :
     PackageStamp: (location:pkglocation, source-hashstamp:opt(bytearray), pkg-hashstamp:opt(bytearray))
 
+  defunion pkgfile (PkgFile) :
+    PkgCache: (file:string)
+    PkgDir: (file:string)
+
   defunion pkglocation (PkgLocation) :
-    PkgLocation: (package:symbol, source-file:opt(string), pkg-file:opt(string), read-pkg?:bool)
+    PkgLocation: (package:symbol, source-file:opt(string), pkg-file:opt(pkgfile), read-pkg?:bool)
 
   defunion filestamp (FileStamp) :
     FileStamp: (filename:string, hashstamp:bytearray)

@@ -142,6 +142,7 @@ defn main-item (s:ProjStmt) -> ProjItem :
       else : CCFlagItem(name(s))
     (s:ForeignPackageParamsStmt) : PackageManagerItem(package-manager(s))
     (s:PackagesDefinedInStmt) : PackagePrefixItem(packages(s))
+    (s:ProjPkgStmt) : ProjPkgItem(directory(s)) 
   
 ;------------------------------------------------------------
 ;-------------------- ProjItem Utility ----------------------
@@ -182,6 +183,13 @@ with:
 ;Represents the prefix used by a PackagesDefinedInStmt.
 defstruct PackagePrefixItem <: ProjItem :
   packages:Symbol|False
+with:
+  equalable => true
+  hashable => true
+
+;Represents a proj-pkg statement; always relevant to a build
+defstruct ProjPkgItem <: ProjItem :
+  directory:String
 with:
   equalable => true
   hashable => true
