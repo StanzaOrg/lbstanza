@@ -185,17 +185,6 @@ public defn compile (proj-manager:ProjManager,
             (p:EPackage) : save(FastPkg(packageio(p), exps(p)))
             (p:Pkg) : save(p)
 
-    ;Cache optimized packages that were compiled from source
-    if optimize? :
-      for p in packages(result) do :
-        match(p):
-          (p:EPackage) : 
-            cache-pkg(proj-manager, FastPkg(packageio(p), exps(p)), pkgstamp-table[name(p)])
-          (p:Pkg) : 
-            val stamp = pkgstamp-table[name(p)]
-            if from-source?(stamp) :
-              cache-pkg(proj-manager, p, pkgstamp-table[name(p)])
-
     ;Compute whether the package list includes stz/vm?.
     ;Required to ultimately decide whether to include the vm stubs in the
     ;emitted assembly.
