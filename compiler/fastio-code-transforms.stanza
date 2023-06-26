@@ -70,14 +70,33 @@ public defn lift-combinators (s:DefSerializer) -> DefSerializer :
   ;Accumulate all the combinators in the serializer.
   ;The combinators keys are guaranteed not to contain
   ;combinators themselves.
+
+  ;Each entry, C => S, means that S is the name of the instantiation of C.
   val combinators = HashTable<CombinatorSpec,NamedSpec>()
+
+  ;Each entry, S => C, means that S is the instantiation C.
+  val instantiated-combinators = HashTable<NamedSpec,InstantiatedCombinator>()
 
   ;Accumulate all the new expressions with their
   ;IOSpecs lifted.
   val new-exps = Vector<TopExp>()
 
   ;Create the definition table for us to look up definitions.
-  val deftable = DefTable(s)
+  val deftable = DefTable(s)    
+
+  ;Retrieve the type of the given specification.
+  ;Note that we will be required to look up the type of a spec that is
+  ;not yet stored in the deftable because combinators are recursive.
+  defn type-of-spec (spec:IOSpec) -> ? :
+    ;Case: May be one of the combinators we're instantiating.
+    match(spec:NamedSpec) :
+      match(get?(instantiated-combinators, spec)) :
+        (c:InstantiatedCombinator) : type(c)
+        (f:False) : type(deftable, spec)
+    ;Case: Not one of the combinators, retrieve it from
+    ;the deftable.
+    else :
+      type(deftable, spec)
 
   ;Lift the given combinator.
   defn lift-combinator (spec:CombinatorSpec) -> NamedSpec :
@@ -90,18 +109,21 @@ public defn lift-combinators (s:DefSerializer) -> DefSerializer :
         
       ;Otherwise, instantiate a new version of this combinator.
       (f:False) :
-      
-        ;Generate a name for this instantiation and store it in
-        ;the table before generation starts to allow for recursive
-        ;combinators.
+
+        ;Compute the substitutions to apply.
+        val combinator = deftable[name(spec)] as DefCombinator
+        val arg-types = map(type-of-spec, specs(spec))
+        val defsubs = instantiation-subs(combinator, specs(spec), arg-types)
+
+        ;Eagerly store the instantiation details in the combinators table.
         val new-name = gensym(name(spec))
         val new-spec = NamedSpec(new-name)
+        val new-type = sub-in-form(type(combinator), defsubs)
         combinators[spec] = new-spec
+        instantiated-combinators[new-spec] = InstantiatedCombinator(new-spec, new-type)
 
         ;Instantiate the new combinator.
-        val arg-types = map(type{deftable, _}, specs(spec))
-        val combinator = deftable[name(spec)] as DefCombinator
-        val atom = instantiate(combinator, new-name, specs(spec), arg-types)
+        val atom = instantiate(combinator, new-name, defsubs)
         val lifted-atom = map-specs(lift-combinators,atom)        
         add(deftable, lifted-atom)
         add(new-exps, lifted-atom)
@@ -131,6 +153,11 @@ public defn lift-combinators (s:DefSerializer) -> DefSerializer :
   ;Return the new DefSerializer.
   sub-exps(s, to-tuple(new-exps))
 
+;Represents a combinator being instantiated or already instantiated.
+defstruct InstantiatedCombinator :
+  named-spec: NamedSpec
+  type
+
 ;------------------------------------------------------------
 ;---------------- Substitutions in Body ---------------------
 ;------------------------------------------------------------
@@ -140,20 +167,24 @@ defstruct DefSubs :
   type-table: HashTable<Symbol,?>
   spec-table: HashTable<Symbol,IOSpec>
 
+;Compute the substitutions to apply to perform an instantiation.
+defn instantiation-subs (def:DefCombinator,
+                         arg-specs:Tuple<IOSpec>,
+                         arg-types:Tuple) -> DefSubs :
+
+  val type-table = HashTable<Symbol,?>()
+  val spec-table = HashTable<Symbol,IOSpec>()
+  for (arg in args(def), spec in arg-specs, arg-type in arg-types) do :
+    spec-table[name(arg)] = spec
+    type-table[type-binder(arg)] = arg-type      
+
+  DefSubs(type-table, spec-table)
+
 ;Instantiate the given combinator with the given specs for its arguments.
 ;Assumes that the arity is all correct.
 defn instantiate (def:DefCombinator,
                   new-name:Symbol,
-                  arg-specs:Tuple<IOSpec>,
-                  arg-types:Tuple) -> DefAtom :
-                  
-  ;Create the sub table.
-  val defsubs = DefSubs(type-table, spec-table) where :
-    val type-table = HashTable<Symbol,?>()
-    val spec-table = HashTable<Symbol,IOSpec>()
-    for (arg in args(def), spec in arg-specs, arg-type in arg-types) do :
-      spec-table[name(arg)] = spec
-      type-table[type-binder(arg)] = arg-type      
+                  defsubs:DefSubs) -> DefAtom :
 
   ;Perform substitutions in the combinator.
   val new-type = sub-in-form(type(def), defsubs)
