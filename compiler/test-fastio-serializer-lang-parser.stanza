@@ -10,5 +10,5 @@ defn main () :
   val parsed = parse-syntax[fastio-serializer-lang / #defserializer](forms)
   println(parsed)
 
-set-command-line-arguments(["parse" "testdata/serializer-lang-ir.txt"])
+set-command-line-arguments(["parse" "tests/data/test-fastio.spec"])
 main()

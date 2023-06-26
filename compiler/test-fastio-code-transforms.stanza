@@ -13,5 +13,5 @@ defn main () :
   val transformed = lift-combinators(parsed)
   println("##### LIFTED COMBINATORS #####\n%_" % [Indented(transformed)])
 
-set-command-line-arguments(["parse" "testdata/serializer-lang-ir.txt"])
+set-command-line-arguments(["parse" "tests/data/test-fastio.spec"])
 main()
