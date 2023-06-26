@@ -81,16 +81,33 @@ public defn lift-combinators (s:DefSerializer) -> DefSerializer :
 
   ;Lift the given combinator.
   defn lift-combinator (spec:CombinatorSpec) -> NamedSpec :
-    set?(combinators, spec,
-      fn () :
+    match(get?(combinators, spec)) :
+    
+      ;If there is already an instantiated spec (or
+      ;currently-being-instantiated spec), then just return it.
+      (spec:NamedSpec) :
+        spec
+        
+      ;Otherwise, instantiate a new version of this combinator.
+      (f:False) :
+      
+        ;Generate a name for this instantiation and store it in
+        ;the table before generation starts to allow for recursive
+        ;combinators.
         val new-name = gensym(name(spec))
+        val new-spec = NamedSpec(new-name)
+        combinators[spec] = new-spec
+
+        ;Instantiate the new combinator.
         val arg-types = map(type{deftable, _}, specs(spec))
         val combinator = deftable[name(spec)] as DefCombinator
         val atom = instantiate(combinator, new-name, specs(spec), arg-types)
-        val lifted-atom = map-specs(lift-combinators,atom)
+        val lifted-atom = map-specs(lift-combinators,atom)        
         add(deftable, lifted-atom)
         add(new-exps, lifted-atom)
-        NamedSpec(new-name))
+
+        ;Return the newly instantiated combinator.
+        new-spec
 
   ;Scan the given spec and return a new one
   ;that does not contain any combinators.
