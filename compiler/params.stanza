@@ -1,4 +1,4 @@
-;See License.txt for details about licensing.
+;See License.txt for details about licensing. 
 
 defpackage stz/params :
    import core
