@@ -1,4 +1,4 @@
-defpackage core/debug/system-types :
+defpackage stz-debug/system-types :
   import core
   import collections
 

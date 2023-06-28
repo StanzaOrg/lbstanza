@@ -7,7 +7,7 @@ defpackage stz-debug/debugger :
   import core/debug-table
   import core/sighandler
   import stz/line-noise-prompter
-  import core/debug/read-stack-trace
+  import stz-debug/read-stack-trace
   import core/stack-trace
   import core/local-table
 

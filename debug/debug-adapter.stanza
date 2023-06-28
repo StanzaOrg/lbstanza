@@ -2,7 +2,7 @@ defpackage stz-debug/debug-adapter :
   import core
   import collections
   import reader
-  import core/debug/read-stack-trace
+  import stz-debug/read-stack-trace
   import core/debug-table
   import core/dynamic-library
   import core/local-table

@@ -2834,10 +2834,11 @@ static void DelayedRequestVariables_handle(DelayedRequest* request) {
       case VARIABLE_KIND_GLOBALS:
         create_globals(hex);
         break;
-      case VARIABLE_KIND_LOCALS:
+      case VARIABLE_KIND_LOCALS: {
         const StackTraceFrame* frame = var->ref;
         create_locals(frame->pc, frame->sp, hex);
         break;
+      }
     }
     var = NULL; // Nuke 'var' as it could become invalid when 'current_env.data' expands.
   }

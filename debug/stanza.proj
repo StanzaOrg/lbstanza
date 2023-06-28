@@ -1,4 +1,4 @@
-packages stz-debug/* defined-in "*"
+packages stz-debug/* defined-in "."
 
 package stz-debug/debugger requires :
   ccfiles: "debugger.c"
