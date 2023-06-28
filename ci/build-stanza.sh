@@ -109,6 +109,7 @@ if [ "$CREATE_PACKAGE" == "true" ] ; then
          ${STANZA_PLATFORMCHAR}stanza${STANZA_EXT} \
          core \
          compiler \
+         debug \
          examples \
          runtime \
          stanza.proj \
