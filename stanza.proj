@@ -79,3 +79,14 @@ package stz/macro-plugin requires :
   ccfiles: "compiler/macro-handshake.c"
   ccflags: "-shared"
 
+include "core/debug/stanza.proj"
+
+build debugger :
+  inputs: stz-debug/debugger
+  pkg: "pkgs"
+  o: "stanza-debugger"
+
+build debug-adapter :
+  inputs: stz-debug/debug-adapter
+  pkg: "pkgs"
+  o: "debug-adapter"

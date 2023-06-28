@@ -1,0 +1,16 @@
+packages stz-debug/* defined-in "*"
+
+package stz-debug/debugger requires :
+  ccfiles: "debugger.c"
+
+package stz-debug/debug-adapter requires :
+  ccfiles: "debug-adapter.c"
+  ccflags:
+    on-platform:
+      os-x:
+        "-DRENAME_STANZA_MAIN"
+        "-D_XOPEN_SOURCE"
+      linux:
+        "-DRENAME_STANZA_MAIN"
+        "-fPIC"
+      else: ()

@@ -1178,7 +1178,16 @@ static stz_long bitset_size (stz_long heap_size) {
   return ROUND_UP_TO_WHOLE_PAGES(bitset_size_in_longs << LOG_BYTES_IN_LONG);
 }
 
-STANZA_API_FUNC int main (int argc, char* argv[]) {
+//Use 'main' as the standard name for the C main function unless
+//RENAME_STANZA_MAIN is passed as a flag. If it is, then rename 'main'
+//to 'stanza_main'.
+#ifdef RENAME_STANZA_MAIN
+  #define MAIN_FUNC stanza_main
+#else
+  #define MAIN_FUNC main
+#endif
+
+STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
   input_argc = (stz_int)argc;
   input_argv = (stz_byte **)argv;
   input_argv_needs_free = 0;
