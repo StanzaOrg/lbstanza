@@ -67,7 +67,7 @@ defn conan-vars (platform:Symbol,
   val system-dir = to-string("%_/system" % [build-dir])
   val conan-root = to-string("%_/.conan" % [projdir(stmt)])
   [`conan-system-includes => system-dir
-   `conan-root => conan-root]  
+   `conan-root => conan-root]
 
 ;Retrieve a bunch of dummy package managers for testing.
 defn manager-infos (names:Tuple<String>) -> Tuple<ForeignPackageManagerInfo> :
@@ -88,7 +88,7 @@ defn read-example-proj (filenames:Tuple<String>) -> ProjFile :
       ;manager-infos(get?(cmdargs, "package-managers", []))
     defmethod package-manager-variables (this, params:ForeignPackageParamsStmt, platform:Symbol) :
       switch(package-manager(params)) :
-        `conan : conan-vars(platform, params)        
+        `conan : conan-vars(platform, params)
   read-proj-files(filenames, platform, env)
 
 defn LinkEnv () :
@@ -172,13 +172,14 @@ defn try-link (cmdargs:CommandArgs) :
   val proj-files = cmdargs["proj"]
   val build-settings = BuildSettings(
     BuildPackages(packages, false),  ;inputs
-    [],                              ;vm-packages                      
+    [],                              ;vm-packages
     `os-x,                           ;platform
     AsmFile("myprog.s", false)       ;assembly
     "myprog",                        ;output
     false,                           ;external-dependencies
     false,                           ;pkg-dir
     false,                           ;optimize?
+    false,                           ;debug?
     [],                              ;ccfiles
     [],                              ;ccflags
     [],                              ;flags

@@ -251,7 +251,7 @@ public defn register-initial-repl-syntax (name:Symbol) :
 ;============================================================
 ;==================== REPL Initial Load =====================
 ;============================================================
-public val REPL-INITIAL-LOAD-PACKAGES = Vector<Symbol|String>()
+public val REPL-INITIAL-LOAD-PACKAGES = to-vector<Symbol|String>([`core])
 public defn register-initial-repl-package (name:Symbol|String) :
   add(REPL-INITIAL-LOAD-PACKAGES, name)
 
@@ -278,7 +278,7 @@ defmulti clear (repl:REPL) -> False
 defmulti use-syntax (repl:REPL, inputs:Tuple<Symbol>, add-to-existing?:True|False) -> False
 defmulti shutdown (repl:REPL) -> False
 
-public defn REPL (macro-plugins:Tuple<String>) :
+public defn REPL (macro-plugins:Tuple<String>, debug?:True|False) :
   ;============================================================
   ;===================== REPL State ===========================
   ;============================================================
@@ -348,7 +348,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
     if not empty?(inputs*) :
       within intercept-errors() :
         val vmpackages = within log-time(REPL-COMPILE-TO-VMPACKAGES) :
-          compile-to-vmpackages(to-tuple(inputs*), live-recs, false)
+          compile-to-vmpackages(to-tuple(inputs*), live-recs, false, debug?)
         load-dynamic-libraries(dylibs, proj-manager(), vmpackages)
         within log-time(REPL-LOAD-INTO-VM) :
           load(vm, vmpackages, false)
@@ -380,7 +380,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
   defn update-files () :
     within intercept-errors() :
       val inputs = changed-files(file-env)
-      val vmpackages = compile-to-vmpackages(inputs, live-recs, false)
+      val vmpackages = compile-to-vmpackages(inputs, live-recs, false, debug?)
       load-dynamic-libraries(dylibs, proj-manager(), vmpackages)
       load(vm, vmpackages, false)
       init-packages(vmpackages)
@@ -390,7 +390,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
     within log-time(REPL-RELOAD) :
       within intercept-errors() :
         val inputs = changed-files(file-env)
-        val vmpackages = compile-to-vmpackages(inputs, {[]}, false)
+        val vmpackages = compile-to-vmpackages(inputs, {[]}, false, debug?)
         load-dynamic-libraries(dylibs, proj-manager(), vmpackages)
         load(vm, vmpackages, false)
 
@@ -413,7 +413,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
   defn load-repl (form) :
     within intercept-errors() :
       val ipackage = to-ipackage(form)
-      val vmpackages = compile-to-vmpackages([ipackage], live-recs, name(ipackage))
+      val vmpackages = compile-to-vmpackages([ipackage], live-recs, name(ipackage), debug?)
       load-dynamic-libraries(dylibs, proj-manager(), vmpackages)
       load(vm, vmpackages, false)
       register-repl(repl-env, name(ipackage))
@@ -438,7 +438,8 @@ public defn REPL (macro-plugins:Tuple<String>) :
 
   defn compile-to-vmpackages (inputs:Tuple<String|Symbol|IPackage>,
                               live-recs: Tuple<PackageIO> -> Tuple<Rec>,
-                              repl-package?:Symbol|False) -> Tuple<VMPackage> :
+                              repl-package?:Symbol|False,
+                              debug?:True|False) -> Tuple<VMPackage> :
     ;Compile to epackages
     val proj-manager = proj-manager()
     set-proj-manager(macroexpander, proj-manager)
@@ -462,6 +463,8 @@ public defn REPL (macro-plugins:Tuple<String>) :
         false
       defmethod macroexpander (this) :
         macroexpander
+      defmethod debug? (this) :
+        debug?
 
     ;Register file associations with file environment.
     do(register{file-env, _}, pkgstamps(result))
@@ -479,7 +482,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
               val lowered = within log-time(REPL-LOWER-TO-UNOPTIMIZED) :
                 lower-unoptimized(p)
               within log-time(REPL-COMPILE-LOWERED) :
-                compile(lowered, false)
+                compile(lowered, debug?)
             vprintln("REPL: Done Compiling EPackage %_ to VMPackage." % [name(p)])
             vmp
           (p:StdPkg) :
@@ -509,7 +512,6 @@ public defn REPL (macro-plugins:Tuple<String>) :
   ;============================================================
   ;===================== REPL Structure =======================
   ;============================================================
-  load-files([`core])
   load-files(to-tuple(REPL-INITIAL-LOAD-PACKAGES))
   new REPL :
     defmethod load-files (this, inputs:Tuple<String|Symbol>, go-inside?:True|False) :
@@ -981,7 +983,7 @@ defn run-script (repl:REPL, s:String) :
 public defn repl (args:Tuple<String>,
                   style:TerminalStyle,
                   macro-plugins:Tuple<String>) :
-  val repl = REPL(macro-plugins)
+  val repl = REPL(macro-plugins, false)
 
   ;Create a LoadExp expression out of the command line
   ;arguments. And execute them in the REPL.
@@ -1040,7 +1042,7 @@ public defn repl () :
 public defn run-in-repl (args:Tuple<String>,
                          macro-plugins:Tuple<String>) :
   val repl = within log-time(REPL-CREATION) :
-    REPL(macro-plugins)
+    REPL(macro-plugins, false) ;!!! DON'T FORGET tO CHANGE BACK TO false
   try:
     within log-time(REPL-EXP-EVALUATION) :
       eval-exp(repl, make-load-exp(args, false))
@@ -1048,7 +1050,22 @@ public defn run-in-repl (args:Tuple<String>,
     shutdown(repl)
 
 defn make-load-exp (args:Tuple<String>, go-inside?:True|False) :
-  val inputs = for a in args map :
+  Load(make-inputs(args), go-inside?)
+
+defn make-inputs (args:Tuple<String>) :
+  for a in args map :
     if index-of-char(a, '.') is Int : a
     else : to-symbol(a)
-  Load(inputs, go-inside?)
+
+;============================================================
+;=================== Debug Immediately ======================
+;============================================================
+
+;Debug the given arguments in the virtual
+;machine. Implements the 'stanza debug' command.
+public defn debug-in-repl (args:Tuple<String>, macro-plugins:Tuple<String>) :
+  val repl = REPL(macro-plugins, true)
+  try:
+    load-files(repl, make-inputs(args), false)
+  finally:
+    shutdown(repl)

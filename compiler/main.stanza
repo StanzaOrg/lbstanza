@@ -269,7 +269,7 @@ defn ensure-proper-verbose-level! (cmd-args:CommandArgs) :
     val setting:Maybe<String> = cmd-args["verbose"]
     if not empty?(setting) :
       match(to-int(value!(setting))) :
-        (v:Int) : 
+        (v:Int) :
           if v < 1 or v > 10 :
             throw(ArgParseError("The '-verbose' flag requires an integer between 1 and 10."))
         (f:False) :
@@ -909,6 +909,61 @@ defn run-test-command () :
           run-tests-msg, intercept-no-match-exceptions(run-tests))
 
 ;============================================================
+;====================== Debug Command =======================
+;============================================================
+
+defn debug-command () :
+  ;Flags
+  val flags = [
+    Flag("pkg", ZeroOrMoreFlag, OptionalFlag,
+      "The set of additional directories to look in for .pkg files.")
+    Flag("flags", ZeroOrMoreFlag, OptionalFlag,
+      "The set of compile-time flags to be set before beginning execution.")
+    common-stanza-flag("verbose")
+    common-stanza-flag("macros")
+    Flag("-", AllRemainingFlag, OptionalFlag,
+      "If provided, the remaining arguments after this flag will be set as the command line arguments for the REPL session.")]
+
+  ;Verify that the passed options are good.
+  defn verify-args (cmd-args:CommandArgs) :
+    ensure-proper-verbose-level!(cmd-args)
+
+  ;Main action for command
+  val launch-msg = "Debug Stanza files directly using the Stanza virtual machine."
+  defn launch-run (cmd-args:CommandArgs) :
+    within run-with-verbose-flag(cmd-args) :
+      read-config-file()
+
+      ;Add pkg directories to pkg-dirs
+      for dir in get?(cmd-args, "pkg", []) do :
+        STANZA-PKG-DIRS = cons(dir, STANZA-PKG-DIRS)
+
+      ;Add flags
+      for flag in get?(cmd-args, "flags", []) do :
+        add-flag(to-symbol(flag))
+
+      ;Add platform flag
+      add-flag(platform-flag(OUTPUT-PLATFORM))
+
+      ;Setup command line arguments.
+      val new-cmd-args = to-tuple $ cat(["run"], get?(cmd-args, "-", []))
+      set-command-line-arguments(new-cmd-args)
+
+      ;Run in REPL
+      debug-in-repl(args(cmd-args),
+                    get?(cmd-args, "macros", []))
+
+  ;Command definition
+  Command(
+    name = "debug",
+    argtype = AtLeastOneArg,
+    arg-description = "the .stanza/.proj input files or Stanza package names to execute in the virtual machine.",
+    flags = flags,
+    description = launch-msg,
+    verify = verify-args,
+    action = intercept-no-match-exceptions(launch-run))
+
+;============================================================
 ;================= Dependency Analysis Command ==============
 ;============================================================
 
@@ -1166,6 +1221,7 @@ add-stanza-command(install-command())
 add-stanza-command(compile-command())
 add-stanza-command(repl-command())
 add-stanza-command(run-command())
+add-stanza-command(debug-command())
 add-stanza-command(compile-test-command())
 add-stanza-command(compile-macros-command())
 add-stanza-command(run-test-command())
