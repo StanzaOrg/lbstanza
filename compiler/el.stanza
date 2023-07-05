@@ -217,7 +217,7 @@ defn fill-stack-trace-entries (epackage:EPackage) -> EPackage :
 
   ;Compute the new trace info after adding the context.
   defn add-context (context:StackTraceContext, info:TraceInfo) -> TraceInfo :
-    match(signature?(context), info) :      
+    match(signature?(context), info) :
       (sig:False, info:False) : false
       (sig:String|False, info:AbsoluteFileInfo|False) : StackTraceInfo(package(context), sig, info)
 
@@ -355,8 +355,8 @@ defn conv-to-positional-args (e:EPackage, iotable:IOTable) -> EPackage :
     val maybe-n = n(iotable, CORE-MAYBE-ID)
     /reorder-args(args,
                   EOf{maybe-n},
-                  EOf{tuple-n})    
-  
+                  EOf{tuple-n})
+
   ;Convert a function and return the computed dispatch mask.
   defn conv-fn (e:EFn) -> [EFn, DispatchMask|False] :
     if requires-ordering?(seq(arg,args(e))) :
@@ -364,7 +364,7 @@ defn conv-to-positional-args (e:EPackage, iotable:IOTable) -> EPackage :
       val new-e = sub-args(e, new-args)
       [new-e, dispatch]
     else :
-      [e, false]    
+      [e, false]
 
   ;Convert all arguments in EFn to positional arguments.
   defn conv-pos-args (e:EFn) -> EFn :
@@ -453,7 +453,7 @@ defn inverse-solve (input-xs:Tuple<Int>, targs:Tuple<EType>) -> [Tuple<Int>, Tup
 ;  The new type arguments: T'
 ;  The expression that the old type arguments take on wrt. T'.: V
 ;Return:
-;  The new function f<T'> (args) -> R' : 
+;  The new function f<T'> (args) -> R' :
 defn reexpress-targs (f:EFn, new-tvars:Tuple<Int>, old-tvar-types:Tuple<EType>) -> EFn :
   ;Compute whether the existing targs are fine.
   ;Suppose that the old targs are [TV10, TV11, TV12]
@@ -545,7 +545,7 @@ defn map-methods (e:EPackage, gvt:VarTable) :
           val input-types = multi-arg-types(multi(m), arity, length(targs(m)))
           val output-type = multi-return-type(multi(m), arity, map(n,targs(func*)))
         EDefmethod(n(m), multi(m), [], func*, lostanza?(m), dispatch(m))
-      (m:EMethod) :        
+      (m:EMethod) :
         val [new-tvars, old-tvar-types] = inverse-solve(map(n,targs(func(m))), targs(m))
         var func*:EFn = reexpress-targs(func(m), new-tvars, old-tvar-types)
         func* = restrict-input-output-types(func*, input-types, output-type) where :
@@ -610,7 +610,7 @@ defn create-closures (epackage:EPackage, gvt:VarTable) -> EPackage :
   ;Lift all first-class functions in body.
   defn analyze-body (top-body:EBody, vt:VarTable) :
 
-    ;Create trampoline table.    
+    ;Create trampoline table.
     val trampoline-table = TrampolineTable()
 
     ;Hold the list of trampolines created for each
@@ -708,7 +708,7 @@ defn create-closures (epackage:EPackage, gvt:VarTable) -> EPackage :
     lift-trampolines(top-body, true)
 
   ;Scan through the package and call analyze-body on
-  ;every 
+  ;every
   defn analyze (x:ELBigItem, vt:VarTable) :
     match(x:EBody) : analyze-body(x, vt)
     else : map(analyze{_, vt}, x)
@@ -742,7 +742,7 @@ defn uni-arity-trampoline-fn (f:EMix|EInstFn) -> EFn :
     (f:EInstFn) : a1(f)
     (f:EMix) : a1(funcs(f)[0])
 
-  ;Create fresh identifiers of the trampoline arguments.    
+  ;Create fresh identifiers of the trampoline arguments.
   val args = arity * EFnArg{uniqueid(), ETop(), false}
 
   ;For the CallGuarded call type, retrieve the input/output
@@ -772,7 +772,7 @@ defn trampoline-fn (f:EMix|EInstFn) -> EFn|EMultifn :
     ;Retrieve the arity of the given function.
     defn arity (f:EInstFn) -> Int :
       length(a1(f))
-      
+
     ;Group by arity, and create a trampoline for each arity.
     val groups = group-by(arity, funcs(f))
     val trampolines = to-tuple $ for group in groups seq :
@@ -815,7 +815,7 @@ public defn convert-mixes (epackage:EPackage, gvt:VarTable) :
         add{blocks, _} $ fn () :
           emit(buffer, ELabel(lbl))
           emit(buffer, Call(x, f, ys, CallGuarded(a1(f), a2(f)), info))
-          emit(buffer, EGoto(end-lbl)) when not end?        
+          emit(buffer, EGoto(end-lbl)) when not end?
       ;Yield branches
       emit(buffer, EDispatch(select(ys,refmask), to-tuple(branches), info))
       for b in blocks do : b()
@@ -1091,7 +1091,7 @@ defn insert-guards (epackage:EPackage, gvt:VarTable) :
       for arg in args(f) do :
         if has-tvar?(type(arg)) :
           emit(buffer, ECheck(EVar(n(arg)), type(arg), ArgContext(), info(f)))
-    guard-body(body(f), buffer, vt, lostanza-context?, ret(f), info(f), uninitialized-vars)    
+    guard-body(body(f), buffer, vt, lostanza-context?, ret(f), info(f), uninitialized-vars)
     val body* = to-body(buffer, true, false, false)
 
     val args* = for a in args(f) map :
@@ -1146,27 +1146,27 @@ defn conv-to-positional-calls (e:EPackage, iotable:IOTable) -> EPackage :
       (body:EBody) : conv-calls(body, iotable)
       (x) : x
   map(process, e)
-  
+
 ;Convert all calls in body.
 ;Does not recurse into nested bodies.
 defn conv-calls (body:EBody, iotable:IOTable) -> EBody :
 
   val buffer = BodyBuffer(body)
-  
+
   defn wrap-one (x:EImm) -> EImm :
     val one-n = n(iotable, CORE-ONE-ID)
     val n = uniqueid()
     emit(buffer, ELocal(n, EOf(one-n), false, false))
     emit(buffer, EObject(EVarLoc(n), one-n, [x], false))
     EVar(n)
-    
+
   defn wrap-none () -> EImm :
     val none-n = n(iotable, CORE-NONE-ID)
     val n = uniqueid()
     emit(buffer, ELocal(n, EOf(none-n), false, false))
     emit(buffer, EObject(EVarLoc(n), none-n, [], false))
     EVar(n)
-    
+
   defn wrap-tuple (xs:Tuple<EImm>) -> EImm :
     val tuple-n = n(iotable, CORE-TUPLE-ID)
     val n = uniqueid()
@@ -1179,7 +1179,7 @@ defn conv-calls (body:EBody, iotable:IOTable) -> EBody :
       (c:ECall) :
         emit(buffer, ECall(x(c), f, ys, calltype(c), info(c)))
       (c:ETCall) :
-        emit(buffer, ETCall(f, ys, calltype(c), info(c)))  
+        emit(buffer, ETCall(f, ys, calltype(c), info(c)))
 
   ;Process each of the instructions in the body, and
   ;convert calls to EInstFn.
@@ -1211,17 +1211,17 @@ defn conv-call (f:EInstFn,
                 emit-call:(EImm, Tuple<EImm>) -> False) -> False :
   ;Compute new rearranged arguments.
   val ordered-args = reorder-call-args(/args(pattern(f)))
-  
+
   val new-args = Vector<EImm>()
   for pat-arg in ordered-args do :
     match(pat-arg) :
-    
+
       (pa:PositionalArg<ArgUsage>|KeywordArg<ArgUsage>) :
         ;Three cases:
         ;  Case 1: Optional and given.
         ;  Case 2: Optional and not given.
         ;  Case 3: Required.
-        
+
         ;Case 1:
         if optional?(pa) and type(pa) is GivenArg :
           val u = type(pa) as GivenArg
@@ -1235,7 +1235,7 @@ defn conv-call (f:EInstFn,
           add(new-args, args[index(u)])
         else :
           fatal("Invalid case.")
-          
+
       (pa:VarArg<ArgUsage>) :
         ;Two cases:
         ;  Case 1: Given as keyword.
@@ -1247,12 +1247,12 @@ defn conv-call (f:EInstFn,
           ;Case 2:
           (u:GivenArg) :
             add(new-args, args[index(u)])
-            
+
       (pa:RestArg<ArgUsage>) :
         val u = type(pa) as GivenArgs
         for i in indices(u) do :
           add(new-args, args[i])
-            
+
   ;Emit the new call.
   val new-func =
     if empty?(capvars(f)) :
@@ -1463,22 +1463,35 @@ defn detect-loops (epackage:EPackage) -> EPackage :
       val farity = length(args(e))
       val buffer = BodyBuffer(body(e))
 
-      ;Create dummy arguments
-      val args0 = for a in args(e) map :
+      ;Create new dummy arguments for the function.
+      ;The original arguments to the function will be used for
+      ;within the loop body.
+      val new-fn-args = for a in args(e) map :
         EFnArg(uniqueid(), type(a), debug-name(a))
-      val loop-lbl = uniqueid()
+
+      ;Create the loop variables. These are the variables that are
+      ;mutated and assigned to after every loop iteration.
+      val loop-vars = map(uniqueid{}, args(e))
+      for (a in loop-vars, arg in args(e)) do :
+        emit(buffer, ELocal(a, type(arg), true, debug-name(arg)))
+
+      ;Convert the original function arguments into loop body locals.
       for arg in args(e) do :
         emit(buffer, ELocal(n(arg), type(arg), false, debug-name(arg)))
 
-      ;Create dummy locals for handling parallel assignment.
-      val parallel-args = map(uniqueid{}, args(e))
-      for (a in parallel-args, arg in args(e)) do :
-        emit(buffer, ELocal(a, type(arg), false, debug-name(arg)))
+      ;The initial value of the loop variables are the
+      ;function arguments.
+      for (fn-arg in new-fn-args, loop-var in loop-vars) do :
+        emit(buffer, EDef(EVarLoc(loop-var), EVar(n(fn-arg))))
 
-      ;Emit loop start and entry prologue
-      for (a0 in args0, a in args(e)) do :
-        emit(buffer, EDef(EVarLoc(n(a)), EVar(n(a0))))
+      ;Start the  loop.
+      val loop-lbl = uniqueid()
       emit(buffer, ELabel(loop-lbl))
+
+      ;The first thing that the loop does is copy the values
+      ;in the loop variables into the loop body locals.
+      for (local in args(e), loop-var in loop-vars) do :
+        emit(buffer, EDef(EVarLoc(n(local)), EVar(loop-var)))
 
       ;Emit instructions and generate looping instructions
       ;for matching tail calls.
@@ -1488,25 +1501,23 @@ defn detect-loops (epackage:EPackage) -> EPackage :
         defn* classify () :
           match(i:ETCall) :
             if matches-fid?(f(i), fid) and length(ys(i)) == farity :
-              loop-call(f(i), ys(i))
+              loop-call(ys(i))
             else : standard-ins()
           else : standard-ins()
         ;For standard instructions just emit them to the buffer
         defn standard-ins () :
           emit(buffer, i)
         ;For loop calls, generate the appropriate instructions.
-        defn loop-call (f:EImm, ys:Tuple<EImm>) :
-          for (a in parallel-args, y in ys) do :
-            emit(buffer, EDef(EVarLoc(a), y))
-          for (a in args(e), b in parallel-args) do :
-            emit(buffer, EDef(EVarLoc(n(a)), EVar(b)))
+        defn loop-call (ys:Tuple<EImm>) :
+          for (loop-var in loop-vars, y in ys) do :
+            emit(buffer, EDef(EVarLoc(loop-var), y))
           emit(buffer, EGoto(loop-lbl))
         ;Start with classify
         classify()
 
       ;Substitute the new body and arguments
       val body* = to-body(buffer)
-      sub-args(sub-body(e, body*), args0)
+      sub-args(sub-body(e, body*), new-fn-args)
 
     ;Driver
     detect-loop(recurse())
@@ -1678,13 +1689,13 @@ defn inline-call (buffer:BodyBuffer,
                   ret:EVarLoc|False, f:EFn, call-targs:Tuple<EType>, call-args:Tuple<EImm>,
                   call-info:TraceInfo,
                   tail?:True|False) :
-                  
+
   ;Create table for mapping type args as defined
   ;in the body of 'f' to 'call-targs'.
   val targ-table = IntTable<EType>()
   for (ta in targs(f), v in call-targs) do :
     targ-table[n(ta)] = v
-    
+
   ;Substitute all type args in 'x' with the mapping held
   ;in targ-table.
   defn substitute-targs (x:ELItem) -> ELItem :
@@ -2031,7 +2042,7 @@ defn higher-order-function? (e:EFn) -> True|False :
       match(i:EVar) : n(i) == a
 
     ;Compute whether a is only used in call position.
-    val only-appears-in-call-position? = 
+    val only-appears-in-call-position? =
       for i in ins(body(e)) all? :
         match(i) :
           (i:ECall|ETCall) :
@@ -4039,7 +4050,7 @@ defn lift-closures (epackage:EPackage, gvt:VarTable) -> EPackage :
 
 defn force-remove-types (epackage:EPackage) -> EPackage :
 
-  ;Remove type usages from the given ELItem.  
+  ;Remove type usages from the given ELItem.
   defn remove-from (e:ELItem) -> ELItem :
     ;Most items are recursively preprocessed first
     ;except for EBody, which is given its own control
@@ -4084,7 +4095,7 @@ defn force-remove-types (epackage:EPackage) -> EPackage :
 
     ;Return the new body.
     EBody(new-locals, [], new-localfns, new-localobjs, new-ins)
-    
+
   ;Process!
   remove-from(epackage) as EPackage
 
@@ -4147,7 +4158,7 @@ defn lift-type-objects (epackage:EPackage) :
           val tdef = ETDef(ETVarLoc(x), t)
           emit(buffer, reify-tdef(tdef))
           ETVar(x)
-          
+
     ;Reify any types in the given immediate.
     ;Returns a new immediate where all type expressions are replaced with ETVar.
     defn reify-types-in-imm (e:EImm) -> EImm :
