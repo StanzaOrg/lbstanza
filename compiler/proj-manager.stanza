@@ -3,6 +3,7 @@ defpackage stz/proj-manager :
   import collections
   import core/parsed-path
   import stz/pkg
+  import stz/pkg-ir
   import stz/proj
   import stz/proj-ir
   import stz/utils
@@ -10,6 +11,7 @@ defpackage stz/proj-manager :
   import stz/aux-file
   import stz/package-stamps
   import stz/file-stamps
+  import stz/params
   import stz/verbose
 
 ;<doc>=======================================================
@@ -65,7 +67,6 @@ syntax packages, if there is one.
 
 public deftype ProjManager
 public defmulti find-package (l:ProjManager, name:Symbol) -> PkgLocation|False
-public defmulti update-aux-file (l:ProjManager, pkgs:Seqable<SavedPkg>) -> False
 public defmulti conditional-imports (l:ProjManager, packages:Seqable<Symbol>) -> Tuple<Symbol>
 
 ;Given the set of syntax packages we need, find the name of the plugin
@@ -83,6 +84,11 @@ public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symb
 ;Given the Stanza packages, return the list of dynamic libraries that must be loaded, and
 ;the folders to load them from.
 public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> RequiredLibraries
+
+public defmulti proj-cache-dir (l:ProjManager) -> String|False 
+public defmulti save-pkg (l:ProjManager, pkg:Pkg, stamp:PackageStamp, dir:String) -> SavedPkg
+public defmulti cache-pkg (l:ProjManager, pkg:Pkg, stamp:PackageStamp) -> False
+public defmulti cache-repl-pkg (l:ProjManager, pkg:Pkg, stamp:PackageStamp) -> False
 
 ;Represents the required libraries and folders for a set of Stanza packages.
 public defstruct RequiredLibraries :
@@ -152,23 +158,23 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
   ;Find a package
   defn find-package (name:Symbol) -> PkgLocation|False :
-    val pkg-path = find-pkg(name, optimize?(params))
+    val pkg-path = find-pkg(name, optimize?(params), in-repl?(params))
     val src-path = source-file?(name)
     val read-pkg? = match(pkg-path, src-path) :
-      (pkg-path:String, src-path:String) :
+      (pkg-path:PkgFile, src-path:String) :
         match(auxfile:AuxFile) :
           if file-exists?(src-path) :
-            val pkg-rec = make-pkg-record(name, filestamp(pkg-path), filestamp(src-path))
+            val pkg-rec = make-pkg-record(name, filestamp(file(pkg-path)), filestamp(src-path))
             vprintln("Check whether package %~ is up-to-date." % [name])
             within indented() :
               vprintln(pkg-rec)
             val up-to-date? = key?(auxfile, pkg-rec)
             if up-to-date? :
-              vprintln("Pkg file for package %~ at %~ is up-to-date." % [name, pkg-path])
+              vprintln("Pkg file for package %~ at %~ is up-to-date." % [name, file(pkg-path)])
             else :
-              vprintln("Pkg file for package %~ at %~ is not up-to-date." % [name, pkg-path])
+              vprintln("Pkg file for package %~ at %~ is not up-to-date." % [name, file(pkg-path)])
             up-to-date?
-      (pkg-path:String, src-path:False) : true
+      (pkg-path:PkgFile, src-path:False) : true
       (pkg-path:False, src-path) : false
     if pkg-path is-not False or src-path is-not False :
       PkgLocation(name, src-path, pkg-path, read-pkg?)
@@ -211,10 +217,35 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
             progress()
     to-tuple(next-load-set)
 
+  ;Save a .pkg, update all stamps and auxfile
+  ;Select function that places and names the .pkg based on mode
+  defn save-pkg (pkg:Pkg, stamp:PackageStamp, dir:String, mode:SaveMode) -> SavedPkg:
+    val filename = 
+      match(mode) :
+        (f:Final) : save-package(dir, pkg)
+        (c:ReplCache) : cache-repl-build(dir, pkg)
+        (c:StdCache) : cache-std-build(dir, pkg)
+    val filestamp = filestamp(filename)
+    val full-source-path = resolve-path!(source-file(location(stamp)) as String)
+    val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
+    vprintln("Save output .pkg for package %~:" % [name(pkg)])
+    vprintln("  source-hashstamp: %_" % [sourcestamp])
+    vprintln("  pkg-hashstamp: %_" % [filestamp])
+    val saved-pkg = SavedPkg(name(pkg), filestamp, sourcestamp)
+    update-aux-file([saved-pkg])
+    saved-pkg
+
+  ;Caching kernel, updates auxfile after saving pkg 
+  defn cache-pkg (pkg:Pkg, stamp:PackageStamp, mode:ReplCache|StdCache) :
+    match(STANZA-PKG-CACHE):
+      (cache-dir:String) : 
+        save-pkg(pkg, stamp, cache-dir, mode)
+        false
+      (f:False) : false
+
   ;Return new project manager
   new ProjManager :
     defmethod find-package (this, name:Symbol) : find-package(name)
-    defmethod update-aux-file (this, pkgs:Seqable<SavedPkg>) : update-aux-file(pkgs)
     defmethod conditional-imports (this, packages:Seqable<Symbol>) : conditional-imports(packages)
     defmethod find-syntax-packages (this, names:Tuple<Symbol>) : find-syntax-packages(names)
 
@@ -241,6 +272,19 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       ;Return bundled result
       RequiredLibraries(package-libs, folders)
 
+    defmethod proj-cache-dir (this) : proj-cache-dir(proj)
+
+    defmethod save-pkg (this, pkg:Pkg, stamp:PackageStamp, dir:String) -> SavedPkg :
+      save-pkg(pkg, stamp, dir, Final())
+
+    defmethod cache-pkg (this, pkg:Pkg, stamp:PackageStamp) -> False :
+      cache-pkg(pkg, stamp, StdCache())
+
+    defmethod cache-repl-pkg (this, pkg:Pkg, stamp:PackageStamp) -> False :
+      cache-pkg(pkg, stamp, ReplCache())
+
+
+
 ;============================================================
 ;===================== Structures ===========================
 ;============================================================
@@ -249,11 +293,17 @@ public defstruct ProjParams :
   flags: Tuple<Symbol>
   optimize?: True|False
   debug?: True|False
+  in-repl?: True|False
 
 public defstruct SavedPkg :
   package: Symbol
   filestamp: FileStamp
   source: FileStamp
+
+deftype SaveMode
+defstruct ReplCache <: SaveMode ; No assembly 
+defstruct StdCache <: SaveMode  ; Full package, save asm
+defstruct Final <: SaveMode     ; Always save asm  
 
 ;============================================================
 ;===================== Package Tree =========================

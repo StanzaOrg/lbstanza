@@ -39,6 +39,14 @@ VALID-FILENAME-CHARS[to-int('-')] = true
 VALID-FILENAME-CHARS[to-int('.')] = true
 
 public defn mangle-as-filename (name:Symbol) :
+  to-string(to-buffer(name))
+
+public defn mangle-as-filename (name:Symbol, suffix:String) :
+  val name-buffer = to-buffer(name)
+  add-all(name-buffer, suffix)
+  to-string(name-buffer)
+
+defn to-buffer (name:Symbol) :
   val buffer = StringBuffer()
   for c in to-string(name) do :
     if VALID-FILENAME-CHARS[to-int(c)] :
@@ -47,7 +55,9 @@ public defn mangle-as-filename (name:Symbol) :
       add(buffer, '$')
     else :
       print(buffer, "_%_" % [to-hex(c)])
-  to-string(buffer)
+  buffer
+
+
 
 ;============================================================
 ;=============== Low-Level Expanding Buffer =================

@@ -63,6 +63,51 @@ val REPL-EXP-EVALUATION = TimerLabel("Repl Exp Evaluation")
 val REPL-RELOAD = TimerLabel("Repl Reload")
 
 ;============================================================
+;===================== REPL Settings ========================
+;============================================================
+
+;Represents the set of configuration options for running the REPL
+public defstruct REPLSettings :
+  macro-plugins: Tuple<String>
+  pkg-cache-dir: String|False with: (updater => sub-pkg-cache-dir)
+  pkg-dirs: Tuple<String>
+  flags: Tuple<Symbol>
+  platform: Symbol
+  cmd-line-args: Tuple<String>
+
+; Update repl settings when loading .proj file
+defn update-repl-settings (pm:ProjManager) :
+  ; Set package cache
+  ; TODO: these semantics are a little weird?
+  ;  can't override a flag, but also can't override an existing .proj file
+  STANZA-PKG-CACHE = 
+    match(STANZA-PKG-CACHE):
+      (c:String) : STANZA-PKG-CACHE
+      (f:False) : proj-cache-dir(pm)
+
+defn setup-repl (settings:REPLSettings) :
+
+  ;Add pkg directors to pkg-dirs
+  for dir in pkg-dirs(settings) do :
+    STANZA-PKG-DIRS = cons(dir, STANZA-PKG-DIRS)
+
+  ;Set .pkg caching directory
+  match(pkg-cache-dir(settings):String) :
+    STANZA-PKG-CACHE = pkg-cache-dir(settings)
+
+  ;Add flags
+  for flag in flags(settings) do :
+    add-flag(flag)
+
+  ;Add platform flag
+  add-flag(platform-flag(platform(settings)))
+
+  ;Set command line args
+  set-command-line-arguments(cmd-line-args(settings))
+
+
+
+;============================================================
 ;===================== REPL Language ========================
 ;============================================================
 
@@ -278,7 +323,9 @@ defmulti clear (repl:REPL) -> False
 defmulti use-syntax (repl:REPL, inputs:Tuple<Symbol>, add-to-existing?:True|False) -> False
 defmulti shutdown (repl:REPL) -> False
 
-public defn REPL (macro-plugins:Tuple<String>) :
+public defn REPL (settings: REPLSettings, auxfile: AuxFile) :
+
+  setup-repl(settings)
   ;============================================================
   ;===================== REPL State ===========================
   ;============================================================
@@ -289,7 +336,7 @@ public defn REPL (macro-plugins:Tuple<String>) :
   val file-env = FileEnv()
   val proj-files = Vector<String>()
   val syntaxes = to-hashset<Symbol>(REPL-INITIAL-SYNTAX-PACKAGES)
-  val macroexpander = StanzaMacroexpander(false, false, macro-plugins)
+  val macroexpander = StanzaMacroexpander(false, false, macro-plugins(settings))
 
   ;============================================================
   ;=============== Ensure Syntax Packages Exist ===============
@@ -304,8 +351,10 @@ public defn REPL (macro-plugins:Tuple<String>) :
   defn proj-manager () :
     within log-time(REPL-PROJ-MANAGER) :
       val proj = read-proj-files(proj-files, OUTPUT-PLATFORM, `dynamic, StandardProjEnv())
-      val params = ProjParams(compiler-flags(), false, false)
-      ProjManager(proj, params, AuxFile())
+      val params = ProjParams(compiler-flags(), false, false, true)
+      val pm = ProjManager(proj, params, auxfile)
+      update-repl-settings(pm)
+      pm
 
   add-all(proj-files, default-proj-files())
   defn add-proj-file (file:String) :
@@ -481,6 +530,8 @@ public defn REPL (macro-plugins:Tuple<String>) :
               within log-time(REPL-COMPILE-LOWERED) :
                 compile(lowered, false)
             vprintln("REPL: Done Compiling EPackage %_ to VMPackage." % [name(p)])
+            val pkgstamp-table = to-hashtable(package, pkgstamps(result))
+            cache-repl-pkg(proj-manager, StdPkg(vmp, false, false), pkgstamp-table[name(p)])
             vmp
           (p:StdPkg) :
             vprintln("REPL: Skipping VMPackage compilation of %_. Loaded directly from .pkg." % [name(p)])
@@ -603,7 +654,7 @@ defn FileEnv () :
     if not up-to-date?(stamp) :
       match(source-file(location(stamp)), pkg-file(location(stamp))) :
         (sf:String, pf) : One(sf)
-        (sf:False, pf:String) : One(pf)
+        (sf:False, pf:PkgDir) : One(file(pf))
     else : None()
 
   new FileEnv :
@@ -980,8 +1031,9 @@ defn run-script (repl:REPL, s:String) :
 
 public defn repl (args:Tuple<String>,
                   style:TerminalStyle,
-                  macro-plugins:Tuple<String>) :
-  val repl = REPL(macro-plugins)
+                  settings:REPLSettings) :
+  val auxfile = AuxFile()
+  val repl = REPL(settings, auxfile)
 
   ;Create a LoadExp expression out of the command line
   ;arguments. And execute them in the REPL.
@@ -1002,6 +1054,7 @@ public defn repl (args:Tuple<String>,
         val exp = read-repl-exp(style)
         match(exp:RExp) :
           eval-exp(repl, exp)
+          save(auxfile)
           true
       catch (e:ReplErrors) :
         ;Print out all errors except ReplHalt
@@ -1018,32 +1071,20 @@ public defn repl (args:Tuple<String>,
     shutdown(repl)
 
 ;============================================================
-;=================== Convenience Overloads ==================
-;============================================================
-;Default args is [].
-;Default macro-plugins is [].
-;Default terminal-style is default-terminal-style().
-
-public defn repl (style:TerminalStyle) :
-  repl([], style, [])
-public defn repl (args:Tuple<String>) :
-  repl(args, default-terminal-style(), [])
-public defn repl () :
-  repl([], default-terminal-style(), [])
-
-;============================================================
 ;==================== Run Immediately =======================
 ;============================================================
 
 ;Execute the given arguments in the virtual
 ;machine. Implements the 'stanza run' command.
 public defn run-in-repl (args:Tuple<String>,
-                         macro-plugins:Tuple<String>) :
+                         settings:REPLSettings) :
+  val auxfile = AuxFile()
   val repl = within log-time(REPL-CREATION) :
-    REPL(macro-plugins)
+    REPL(settings, auxfile)
   try:
     within log-time(REPL-EXP-EVALUATION) :
       eval-exp(repl, make-load-exp(args, false))
+      save(auxfile)
   finally:
     shutdown(repl)
 

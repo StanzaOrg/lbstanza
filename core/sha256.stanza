@@ -28,7 +28,7 @@ defn read-bytes (filename:String) :
     bytes
   finally :
     close(file)
-  
+
 defn truncate-filesize (x:Long) :
   val max = to-long(INT-MAX)
   fatal("File is too big for current implementation.") when x > max

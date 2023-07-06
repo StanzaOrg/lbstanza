@@ -28,7 +28,9 @@ defpackage stz/pkg :
   import stz/fastio-errors
   import stz/pkg-errors
   import stz/pkg-serializer
+  import stz/package-stamps
   import stz/dir-utils
+  import core/sha256
 
 ;============================================================
 ;==================== Timers ================================
@@ -40,11 +42,49 @@ val READ-PACKAGE = TimerLabel("Read Package")
 ;=================== Package IO =============================
 ;============================================================
 
+;Cache a .pkg build by the REPL
+public defn cache-repl-build (dir:String, p:Pkg) -> String :
+  val cname = repl-cache-pkg-name(name(p))
+  save-package(dir, p, cname, false)
+
+;Cache a fully-compiled .pkg
+public defn cache-std-build (dir:String, p:Pkg) -> String :
+  val cname = cache-pkg-name(name(p))
+  save-package(dir, p, cname, true)
+
+;Save a .pkg to output directory
 public defn save-package (dir:String, p:Pkg) -> String :
-  val pkg-file = string-join([mangle-as-filename(name(p)), extension(p)])
+  save-package(dir, p, std-pkg-name(name(p)), true)
+
+;Default output mode: no suffix
+defn std-pkg-name (pkg-name:Symbol) : mangle-as-filename(pkg-name)
+;Default cache mode: Include default parameter suffix
+defn cache-pkg-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-suffix())
+;REPL cache mode:
+;Include REPL symbol in parameter suffix: this is a hack to prevent normal compilation
+; flows from attempting to decode partially compiled REPL pkgs 
+defn repl-cache-pkg-name (pkg-name:Symbol) : mangle-as-filename(pkg-name, param-suffix(`REPL))
+
+;Compute file suffix representing build configuration
+defn param-suffix () -> String : param-suffix(compiler-flags())
+defn param-suffix (extra:Symbol) -> String : param-suffix(cat([extra], compiler-flags()))
+defn param-suffix (flags:Seqable<Symbol>) -> String :
+  defn string-to-bytes (str:String) :
+    val bytes = ByteArray(length(str))
+    for (idx in 0 to false, b in seq(to-byte, str)) do:
+      bytes[idx] = b
+    bytes
+  defn sha256-hash-str (str:String) -> ByteArray :
+    sha256-hash(string-to-bytes(str))
+  to-hex(sha256-hash-str(string-join(seq(to-string,qsort(flags)))))
+
+defn save-package (dir:String, p:Pkg, name, include-asm?:True|False) -> String :
+  val pkg-file = string-join([name, extension(p)])
   val filename = to-string(relative-to-dir(parse-path(dir), pkg-file))
   ensure-directory-exists(dir)
-  try : serialize-pkg(filename, p)
+  try :
+    if include-asm?: serialize-pkg(filename, p)
+    else: serialize-repl-pkg(filename, p)
   catch (e:IOException|FastIOError) : throw(PackageWriteException(filename))
   filename
 
@@ -92,23 +132,23 @@ defn ensure-expected-optimization! (pkg:Pkg, filename:String, optimized?:True|Fa
 ;===================== Pkg Search ===========================
 ;============================================================
 
-public defn find-pkg! (name:Symbol, optimized?:True|False) -> String :
-  val filename = find-pkg(name, optimized?)
-  match(filename:String) : filename
-  else : throw(NoPackageException(name))
-
-public defn find-pkg (name:Symbol, optimized?:True|False) -> String|False :
-  val mangled = mangle-as-filename(name)
-  label<String|False> return :
+public defn find-pkg (name:Symbol, optimized?:True|False, for-repl?:True|False) -> PkgFile|False :
+  label<PkgFile|False> return :
     ;Check functions
-    defn check-file (filename:String) :
-      return(filename) when file-exists?(filename)
-    defn check-dir (dir:String) :
+    defn check-file (filename:String, cache) :
+      return(cache(filename)) when file-exists?(filename)
+    defn check-dir (dir:String, mangled-name:String, cache) :
       val extension = ".fpkg" when optimized? else ".pkg"
-      val pkgfile = string-join([mangle-as-filename(name), extension])
+      val pkgfile = string-join([mangled-name, extension])
       val filename = to-string(relative-to-dir(parse-path(dir), parse-path(pkgfile)))
-      check-file(filename)
+      check-file(filename, cache)
+    if for-repl? : ;If pkg will be used in repl, try the repl-specific key
+      match(STANZA-PKG-CACHE:String) :
+        check-dir(STANZA-PKG-CACHE as String, repl-cache-pkg-name(name), PkgCache{_})
+    ;Check cache for default .pkg name
+    match(STANZA-PKG-CACHE:String) :
+      check-dir(STANZA-PKG-CACHE as String, cache-pkg-name(name), PkgCache{_})
     ;Check normal folders
-    do(check-dir, STANZA-PKG-DIRS)
-    check-dir(system-filepath(StanzaPkgsDir))
-
+    for dir in STANZA-PKG-DIRS do :
+      check-dir(dir, std-pkg-name(name), PkgDir{_})
+    check-dir(system-filepath(StanzaPkgsDir), std-pkg-name(name), PkgDir{_})

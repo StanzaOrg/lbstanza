@@ -195,6 +195,11 @@ public defn build-target! (proj:ProjFile, target:Symbol) -> BuildStmt :
   match(s:BuildStmt) : s
   else : throw(ProjFileError(false, to-string("No build target named %~." % [target])))
 
+public defn proj-cache-dir (proj:ProjFile) -> String|False :
+  match(find({_ is PkgCacheStmt}, stmts(proj))):
+    (stmt:PkgCacheStmt) : directory(stmt)
+    (f:False) : false
+
 ;============================================================
 ;=================== Combine Files ==========================
 ;============================================================
@@ -202,14 +207,13 @@ defn combine (fs:Tuple<ProjFileS0>) -> ProjFileS0 :
   ;Get all statements in a vector.
   val all-stmts = to-vector<ProjStmt>(seq-cat(stmts, fs))
 
-  ;Remove duplicate statements.
-  reverse!(all-stmts)
+ 
+  ;Remove all other duplicate statements, prioritizing first occurrence.
   val visited-set = HashSet<?>()
   for stmt in all-stmts remove-when :
     val key = duplication-key(stmt)
     if key is False : false
     else : not add(visited-set, key)
-  reverse!(all-stmts)
 
   ;Return combined project file.
   sub-stmts(fs[0], to-tuple(all-stmts))
