@@ -20,6 +20,24 @@ public defn package (stamp:PackageStamp) -> Symbol :
   package(location(stamp))
 
 ;============================================================
+;================== Pkg directory type ======================
+;============================================================
+;Represents the source of a .pkg file: Either the package was
+;found in the pkg-cache or in the standard -pkg directory.
+public deftype PkgFile
+
+;Retrieve the filename that the .pkg was loaded from.
+public defmulti file (d:PkgFile) -> String
+
+;Represents a .pkg loaded from cache.
+public defstruct PkgCache <: PkgFile :
+  file:String with: (as-method => true)
+
+;Represents a .pkg loaded from the -pkg directory.
+public defstruct PkgDir <: PkgFile :
+  file:String with: (as-method => true)
+
+;============================================================
 ;================== Package Location ========================
 ;============================================================
 ;Represents the paths to the on-disk location of a Stanza package.
@@ -32,25 +50,35 @@ public defn package (stamp:PackageStamp) -> Symbol :
 public defstruct PkgLocation :
   package: Symbol
   source-file: String|False
-  pkg-file: String|False
+  pkg-file: PkgFile|False
   read-pkg?: True|False
 with:
   constructor => #PkgLocation
 
 ;Public constructor with invariants checks.
-public defn PkgLocation (package:Symbol, source-file:String|False, pkg-file:String|False, read-pkg?:True|False) -> PkgLocation  :
+public defn PkgLocation (package:Symbol,
+                         source-file:String|False,
+                         pkg-file:PkgFile|False,
+                         read-pkg?:True|False) -> PkgLocation  :
+  ;If read-pkg? is true, then pkg-file cannot be false.
+  ;If read-pkg? is false, then source-file cannot be false.
   if read-pkg? :
     fatal("Cannot read from pkg-file when pkg-file is false.") when pkg-file is False
-    #PkgLocation(package, source-file, pkg-file as String, true)
   else :
     fatal("Did not read from pkg, but source-file is false.") when source-file is False
-    #PkgLocation(package, source-file as String, pkg-file, false)
+  #PkgLocation(package, source-file, pkg-file, read-pkg?)
 
 ;Convenience: Retrieve the filename of the file that
 ;the package was loaded from.
 public defn filename (l:PkgLocation) -> String :
-  if read-pkg?(l) : pkg-file(l) as String
+  if read-pkg?(l) : file(pkg-file(l) as PkgFile)
   else : source-file(l) as String
+
+;Return the path to the .pkg file (if there was one).
+public defn pkg-path (l:PkgLocation) -> String|False :
+  match(pkg-file(l)) :
+    (f:PkgFile) : file(f)
+    (f:False) : false
 
 ;============================================================
 ;====================== Printers ============================
@@ -85,7 +113,7 @@ public defn up-to-date? (stamp:PackageStamp) -> True|False :
   ;Case: It was loaded from a .pkg file
   if read-pkg?(location(stamp)) :
     ;Return true if both the .pkg and the source file are up-to-date.
-    package-file-up-to-date?(pkg-file(location(stamp)), pkg-hashstamp(stamp)) and
+    package-file-up-to-date?(pkg-path(location(stamp)), pkg-hashstamp(stamp)) and
     package-file-up-to-date?(source-file(location(stamp)), source-hashstamp(stamp))
   ;Case: It was loaded from a source file
   else :
