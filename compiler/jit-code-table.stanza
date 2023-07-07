@@ -31,7 +31,7 @@ public defstruct JITStubs :
 
 public defn JITCodeTable (resolver:EncodingResolver, backend:Backend) -> JITCodeTable :
   val runtime = jit-runtime-new()
-  val stubs = make-jit-stubs(runtime, resolver, backend)  
+  val stubs = make-jit-stubs(runtime, resolver, backend)
   #JITCodeTable(runtime, stubs)
 
 ;============================================================
@@ -52,12 +52,12 @@ defmethod load-function (table:JITCodeTable,
   val oldf = get?(funcs(table), fid)
   match(oldf:Func) :
     release(runtime(table), oldf)
-  
+
   ;Add the function into the table so that we can release them later.
   put<Func>(funcs(table), fid, func(encoded-function))
 
   ;Return the loaded function
-  LoadedFunction(value(func(encoded-function)), trace-entries(encoded-function))
+  LoadedFunction(value(func(encoded-function)), trace-entries(encoded-function), safepoint-entries(encoded-function))
 
 ;============================================================
 ;================== Launch ==================================
@@ -68,7 +68,7 @@ lostanza defmethod launch (vmstate-address:ref<Long>, table:ref<JITCodeTable>, f
   val fptr = launch as ptr<( (ptr<VMState>, long, long) -> int )>
   val vmstate = vmstate-address.value as ptr<VMState>
   call-c [fptr](vmstate, call-prim crsp() as long, func-id.value)
-  return false    
+  return false
 
 ;============================================================
 ;===================== Free =================================
@@ -96,6 +96,6 @@ defn put<T> (xs:Vector<T|False>, k:Int, v:T) :
   if k >= length(xs) :
     lengthen(xs, k + 1, false)
   xs[k] = v
-  
+
 defn get?<?T> (xs:Vector<?T>, k:Int) -> T|False :
   if k < length(xs) : xs[k]

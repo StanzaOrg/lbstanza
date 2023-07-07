@@ -1,31 +1,32 @@
 defpackage stz/vm :
   import core
+  import core/safepoints
+  import core/stack-trace
   import collections
+  import stz/absolute-info
+  import stz/backend
+  import stz/basic-ops
+  import stz/branch-table
+  import stz/code-table
+  import stz/code-template-table
+  import stz/cvm-code-table
+  import stz/dl-ir
+  import stz/extern-defn-table
+  import stz/extern-intrinsics
+  import stz/jit-code-table
+  import stz/loaded-dynamic-libraries
+  import stz/params
+  import stz/stable-arrays
+  import stz/timing-log-api
+  import stz/trace-info
+  import stz/typeset
+  import stz/utils
+  import stz/verbose
+  import stz/vm-ids
   import stz/vm-ir
   import stz/vm-load-unit
-  import stz/typeset
-  import stz/vm-table
-  import stz/vm-ids
-  import stz/dl-ir
-  import stz/basic-ops
-  import stz/stable-arrays
-  import stz/branch-table
-  import stz/backend
-  import stz/utils
-  import stz/extern-intrinsics
-  import stz/code-table
-  import stz/cvm-code-table
-  import stz/jit-code-table
   import stz/vm-structures
-  import stz/params
-  import stz/timing-log-api
-  import stz/verbose
-  import stz/loaded-dynamic-libraries
-  import stz/extern-defn-table
-  import stz/code-template-table
-  import stz/absolute-info
-  import stz/trace-info
-  import core/stack-trace
+  import stz/vm-table
 
 ;<doc>=======================================================
 ;================= Virtual Machine Interface ================
@@ -376,6 +377,7 @@ public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend
 
   vmstate.trie-table = null
   vmstate.class-table = null
+  vmstate.safepoint-table = make-empty-safepoint-table()
   val extern-defns = ExternDefnTable(backend)
   val vm-ids = VMIds(dylibs, extern-defns)
   val class-table = ClassTable()
@@ -387,6 +389,11 @@ public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend
   val vm = new VirtualMachine{dylibs, extern-defns, backend, vmtable, vm-ids, linker, vmstate, false}
   update-vmstate(vm)
   return vm
+
+lostanza defn make-empty-safepoint-table () -> ptr<?> :
+  val p:ptr<long> = call-c clib/malloc(sizeof(SafepointTable))
+  [p] = 0 ;num-files field is immutable
+  return p
 
 ;Make an appropriate CodeTable depending on whether the user has
 ;enabled the JIT.
@@ -894,6 +901,11 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
         for c in callbacks(load-unit) do :
           set-signature(extern-defns(vm), index(c), function-id(c), a1(c), a2(c))
 
+      ;Map safepoint id to its addr
+      val safepoint-map = Array<Vector<Long>>(max-safepoint-id(load-unit))
+      for i in 0 to length(safepoint-map) do :
+        safepoint-map[i] = Vector<Long>()
+
       ;Load functions
       vprintln("VM: Encoding functions")
       within log-time(LOAD-FUNCTIONS) :
@@ -904,7 +916,9 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
                                                  dynamic-libraries(vm), extern-defns(vm))
         ;Load each of the functions.
         for f in funcs(load-unit) do :
-          load-function(vmt, f, callback-set[id(f)], encoding-resolver, backend(vm))
+          val loaded-function = load-function(vmt, f, callback-set[id(f)], encoding-resolver, backend(vm))
+          for safepoint-entry in safepoint-entries(loaded-function) do:
+            add(safepoint-map[id(safepoint-entry)], pc(safepoint-entry))
 
       ;Load datas and consts
       vprintln("VM: Loading datas and constants")
@@ -920,6 +934,10 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
       vprintln("VM: Updating VMState")
       within log-time(UPDATE-VMSTATE) :
         update-vmstate(vm)
+
+      vprintln("VM: Building safepoint table")
+      dispose-safepoints(vm)
+      pack(safepoints(load-unit), safepoint-map, vm)
 
       ;If core has been loaded, then initialize the constants by running
       ;the initialize-constants function.
@@ -973,6 +991,134 @@ public lostanza defn clear-globals (vm:ref<VirtualMachine>) -> ref<False> :
   while empty?(roots) == false :
     val i = next(roots).value
     globals[i] = void-marker()
+  return false
+
+;Preconditions (guarenteed by vm-ids):
+;- VMFileSafepoints with duplicate filenames are merged
+;- VMInfoEntries are sorted by line number in each VMFieSafepoints
+defn pack (safepoint-table:Tuple<VMFileSafepoints>, locations:Array<Vector<Long>>, vm:VirtualMachine) -> False :
+  val safepoints = compact(safepoint-table, locations)
+  val table = start-safepoint-table(length(safepoints))
+  for file-safepoints in safepoints do :
+    val entries = entries(file-safepoints)
+    val file = start-file-safepoints(filename(file-safepoints), count-lines(entries))
+    var i = 0
+    val entries-length = length(entries)
+    while i < entries-length :
+      val current-line = line(entries[i])
+      var next = i
+      var count = 0
+      while next < entries-length and current-line == line(entries[next]) :
+        val id = id(entries[next])
+        count = count + length(locations[id])
+        next = next + 1
+      val address-list = create-address-list(count)
+      while i < next :
+        val entry = entries[i]
+        val group = group(entry)
+        for loc in locations[id(entry)] do :
+          append-safepoint-address(address-list, loc, group)
+        i = i + 1
+      append-entry(file, current-line, address-list)
+    finish-file-safepoints(table, file)
+  finish-safepoint-table(table, vm)
+  false
+
+defn compact (safepoints:Tuple<VMFileSafepoints>, locations:Array<Vector<Long>>) :
+  ;Are there any unreferenced safepoint entries?
+  if empty?(safepoints) or find(empty?, locations) is False :
+    safepoints
+  else :
+    val new-file-safepoints = Vector<VMFileSafepoints>(length(safepoints))
+    defn unreferenced? (entry:VMSafepointInfo) : empty?(locations[id(entry)])
+    for file in safepoints do :
+      val entries = entries(file)
+      if not empty?(entries) :
+        ;Any unreferenced entries?
+        if find(unreferenced?, entries) is False :
+          add(new-file-safepoints, file)
+        else :
+          val new-entries = Vector<VMSafepointInfo>(length(entries))
+          for entry in entries do :
+            if not unreferenced?(entry) :
+              add(new-entries, entry)
+          if not empty?(new-entries) :
+            val new-file = VMFileSafepoints(base(file), filename(file), to-tuple(new-entries))
+            add(new-file-safepoints, new-file)
+    to-tuple(new-file-safepoints)
+
+lostanza defn start-safepoint-table (length:ref<Int>) -> ref<BinaryEmitter> :
+  val num-files = length.value
+  val emitter = make-binary-emitter(sizeof(SafepointTable) + num-files * sizeof(ptr<FileSafepoints>))
+  emit(emitter, num-files)
+  return emitter
+lostanza defn finish-safepoint-table (emitter:ref<BinaryEmitter>, vm:ref<VirtualMachine>) -> ref<False> :
+  vm.vmstate.safepoint-table = emitter.start
+  return false
+
+extern strdup: ptr<byte> -> ptr<byte>
+lostanza defn start-file-safepoints (name:ref<String>, length:ref<Int>) -> ref<BinaryEmitter> :
+  val num-entries = length.value as long
+  val filename = call-c strdup(addr!(name.chars))
+  val emitter = make-binary-emitter(sizeof(FileSafepoints) + num-entries * sizeof(SafepointEntry))
+  emit(emitter, num-entries)
+  emit(emitter, filename)
+  return emitter
+lostanza defn finish-file-safepoints (table:ref<BinaryEmitter>, file:ref<BinaryEmitter>) -> ref<False> :
+  return emit(table, file.start)
+lostanza defn append-entry (file:ref<BinaryEmitter>, line:ref<Int>, address-list:ref<BinaryEmitter>) -> ref<False> :
+  emit(file, line.value as long)
+  return emit(file, address-list.start)
+lostanza defn create-address-list (length:ref<Int>) -> ref<BinaryEmitter> :
+  val len = length.value as long
+  val emitter = make-binary-emitter(sizeof(AddressList) + len * sizeof(SafepointAddress))
+  emit(emitter, len)
+  return emitter
+lostanza defn append-safepoint-address (address-list:ref<BinaryEmitter>, loc:ref<Long>, group:ref<Int>) -> ref<False> :
+  emit(address-list, loc.value)
+  return emit(address-list, group.value as long)
+
+lostanza deftype BinaryEmitter :
+  start:ptr<?>
+  var p:ptr<?>
+lostanza defn make-binary-emitter (size:long) -> ref<BinaryEmitter> :
+  val p:ptr<?> = call-c clib/malloc(size)
+  return new BinaryEmitter{p, p}
+lostanza defn emit (p:ptr<long>, v:long) -> ptr<long> :
+  [p] = v
+  return addr(p[1])
+lostanza defn emit (emitter:ref<BinaryEmitter>, value:long) -> ref<False> :
+  emitter.p = emit(emitter.p, value)
+  return false
+lostanza defn emit (emitter:ref<BinaryEmitter>, value:ptr<?>) -> ref<False> :
+  return emit(emitter, value as long)
+lostanza defn emit (emitter:ref<BinaryEmitter>, value:ref<BinaryEmitter>) -> ref<False> :
+  return emit(emitter, value.start)
+
+defn count-lines (entries:Tuple<VMSafepointInfo>) :
+  var count = 0
+  var previous = -1
+  for info in entries do :
+    val current = line(info)
+    if current != previous :
+      previous = current
+      count = count + 1
+  count
+
+lostanza defn dispose-safepoints (vm:ref<VirtualMachine>) -> ref<False> :
+  val vms:ptr<VMState> = vm.vmstate
+  val safepoint-table = vms.safepoint-table as ptr<SafepointTable>
+  if safepoint-table != null :
+    val num-files = safepoint-table.num-files
+    for (var i:long = 0, i < num-files, i = i + 1L) :
+      dispose-safepoints(safepoint-table.files[i])
+    vms.safepoint-table = null
+  return false
+lostanza defn dispose-safepoints (safepoints:ptr<FileSafepoints>) -> ref<False> :
+  call-c clib/free(safepoints.filename)
+  val num-entries = safepoints.num-entries
+  for (var i:long = 0, i < num-entries, i = i + 1L) :
+    call-c clib/free(safepoints.entries[i].address-list)
   return false
 
 ;============================================================

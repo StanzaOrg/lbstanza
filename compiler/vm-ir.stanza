@@ -141,12 +141,12 @@ public defstruct VMDefn :
 
 ;Indicates that the function 'fid' is called externally.
 ;- lbl: If given, the static label of this function. When statically-compiled,
-;  this label is exposed for use by external code. 
+;  this label is exposed for use by external code.
 ;- fid: The 'id' of the function of the body. Function is guaranteed
 ;  to be a VMFunc object.
 ;- a1: The argument types of the function. Guaranteed to be
 ;  consistent with the 'fid' definition.
-;- a2: The return type of the function. 
+;- a2: The return type of the function.
 public defstruct VMExternDefn :
   lbl: Symbol|False
   fid: Int with: (updater => sub-fid)
@@ -357,7 +357,7 @@ public defstruct DerefOp <: VMOp
 public defstruct VMDebugNameTable :
   entries: Tuple<VMDebugName>
 
-;Represents a human-readable name for the given
+ ;!!!!!;Represents a human-readable name for the given
 ;identifier.
 ;- global?: If true, then 'id' refers to a package global. Otherwise,
 ;  it refers to a function-local definition.
@@ -394,7 +394,7 @@ public defstruct VMFileSafepoints :
   entries:Tuple<VMSafepointInfo>
 
 public defstruct VMSafepointInfo :
-  id:Int
+  id:Int with: (updater => sub-id)
   line:Int
   column:Int
   group:Int
@@ -802,7 +802,7 @@ defmethod print (o:OutputStream, t:VMDebugNameTable) :
 defmethod print (o:OutputStream, e:VMDebugName) :
   val global-str = "global " when global?(e)
               else "local "
-  print(o, "debugname %_L%_ (name = %~)" % [id(e), global-str, name(e)])
+  print(o, "debugname %_L%_ (name = %~)" % [global-str, id(e), name(e)])
 
 defmethod print (o:OutputStream, x:VMDebugInfoTable) :
   if empty?(entries(x)) :

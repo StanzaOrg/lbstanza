@@ -61,6 +61,7 @@ extern assembler_div_reg: (ptr<?>, ptr<?>) -> int
 extern assembler_mod_reg: (ptr<?>, ptr<?>) -> int
 extern assembler_cqo_reg: (ptr<?>) -> int
 extern assembler_cdq_reg: (ptr<?>) -> int
+extern assembler_nop: (ptr<?>) -> int
 extern assembler_and_reg: (ptr<?>, ptr<?>, ptr<?>) -> int
 extern assembler_and_int: (ptr<?>, ptr<?>, int) -> int
 extern assembler_or_reg: (ptr<?>, ptr<?>, ptr<?>) -> int
@@ -186,7 +187,7 @@ public lostanza deftype MemPtr :
 ;------------------------------------------------------------
 defmethod equal? (a:Gp, b:Gp) -> True|False :
   id(a) == id(b)
-  
+
 defmethod equal? (a:Xmm, b:Xmm) -> True|False :
   id(a) == id(b)
 
@@ -697,6 +698,9 @@ public lostanza defn btr (a:ref<Assembler>, dst:ref<Gp>, src:ref<Gp>) -> ref<Gp>
 public lostanza defn btr (a:ref<Assembler>, ptr:ref<MemPtr>, src:ref<Gp>) -> ref<Gp> :
   call-c assembler_btr_ptr_reg(a.value, ptr.value, src.value)
   return src
+public lostanza defn nop (a:ref<Assembler>) -> ref<False> :
+  call-c assembler_nop(a.value)
+  return false
 
 ;------------------------------------------------------------
 ;-------------------- Comparisons and Jumps -----------------
@@ -912,4 +916,3 @@ public lostanza defn ucomiss (a:ref<Assembler>, x:ref<Xmm>, y:ref<Xmm>) -> ref<F
 public lostanza defn ucomisd (a:ref<Assembler>, x:ref<Xmm>, y:ref<Xmm>) -> ref<False> :
   call-c assembler_ucomisd(a.value, x.value, y.value)
   return false
-

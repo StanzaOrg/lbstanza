@@ -51,6 +51,7 @@ val COMPUTE-ABSOLUTE-ADDRESSES = TimerLabel(JIT-ENCODER, suffix("Compute absolut
 public defstruct EncodedFunction :
   func: Func
   trace-entries: Vector<TraceTableEntry>
+  safepoint-entries: Vector<SafepointTableEntry>
 
 ;============================================================
 ;=================== Configuration ==========================
@@ -89,7 +90,7 @@ lostanza defn call-collect-stack-trace-addr () -> ref<Long> :
 ;================== Register Conventions ====================
 ;============================================================
 ;Decide on which x86 registers to use for all our virtual machine
-;quantities. This is backend-specific. 
+;quantities. This is backend-specific.
 ;
 ;# Notes about Assignment #
 ;- X86 div and shl instructions uses RAX, RDX, RCX as special registers.
@@ -330,7 +331,7 @@ defn branch-is-final? (resolver:EncodingResolver, b:VMBranch) :
 ;
 ;- vmstate.current_stack.stack_pointer.locals[0 to n]: Locali
 ;  JIT code for single function assumes cached in register.
-;  Needs to be written to in-memory structure when current stack frame changes. 
+;  Needs to be written to in-memory structure when current stack frame changes.
 ;
 ;- vmstate.registers[0 to n]: VMRegi
 ;  JIT code assumes cached in register.
@@ -367,6 +368,7 @@ defn AsmGen (code:CodeHolder,
              resolver:EncodingResolver,
              func-info:FuncInfo|False,
              trace-entry-table:Vector<TraceTableEntry>|False,
+             safepoint-entry-table:Vector<SafepointTableEntry>|False,
              backend:Backend) :
 
   ;=========================================================
@@ -403,7 +405,7 @@ defn AsmGen (code:CodeHolder,
 
   ;Call slot if x is a Local otherwise return dummy value 0.
   ;The dummy value is fine because in this case the instruction
-  ;doesn't have a return value anyway. 
+  ;doesn't have a return value anyway.
   defn slot? (x:Local|False) -> Int :
     match(x:Local) : slot(x)
     else : 0
@@ -444,7 +446,7 @@ defn AsmGen (code:CodeHolder,
   ;=========================================================
   val label-table = IntTable<Label>()
   val label-counter = to-seq(0 to false)
-  
+
   ;Return the AsmJIT Label corresponding to the VM label
   ;with the given identifier.
   defn get-label (n:Int) -> Label :
@@ -461,7 +463,7 @@ defn AsmGen (code:CodeHolder,
   defn* gen-label () -> Int :
     val l = next(label-counter)
     val used-labels = used-labels(func-info!())
-    gen-label() when used-labels[l] else l  
+    gen-label() when used-labels[l] else l
 
   ;=========================================================
   ;================= Stack Trace Table =====================
@@ -471,14 +473,24 @@ defn AsmGen (code:CodeHolder,
     fatal("No trace table given.") when trace-entry-table is False
     val table = trace-entry-table as Vector<TraceTableEntry>
     match(entry:StackTraceInfo) :
-      val offset = label-offset(code, pos)      
+      val offset = label-offset(code, pos)
       add(table, TraceTableEntry(offset, entry))
+
+  ;=========================================================
+  ;================== Safepoint Table ======================
+  ;=========================================================
+  ;Add the given instruction location to the safepoint table.
+  defn record-safepoint-location (pos:Label, id:Int) :
+    fatal("No safepoint table given.") when safepoint-entry-table is False
+    val table = safepoint-entry-table as Vector<SafepointTableEntry>
+    val offset = label-offset(code, pos)
+    add(table, SafepointTableEntry(offset, id))
 
   ;=========================================================
   ;================ Structure Accessors ====================
   ;=========================================================
 
-  ;Set and Get all the structure fields. 
+  ;Set and Get all the structure fields.
   #for (get-field in [get-vmstate-registers
                       get-vmstate-global-offsets
                       get-vmstate-global-mem
@@ -587,7 +599,7 @@ defn AsmGen (code:CodeHolder,
 
     val memptr = MemPtr(reg(BaseReg), OFFSET)
     defn get-field (dst:Gp) :
-      mov(a, dst, memptr)      
+      mov(a, dst, memptr)
     defn set-field (value:Gp) :
       mov(a, memptr, value)
 
@@ -690,7 +702,7 @@ defn AsmGen (code:CodeHolder,
           sub(a, reg(StackPointerReg), current-frame-size())
         else :
           save-reg(StackPointerReg)
-    false      
+    false
 
   ;Switch from Standard JIT code to the system stack.
   ;Uses Tmp1, Tmp2 internally.
@@ -842,7 +854,7 @@ defn AsmGen (code:CodeHolder,
     ;Ensure we can handle this case.
     if length(args) > length(callc-regs(registers)) :
       fatal("Too many arguments for simple C calling convention.")
-      
+
     ;Ensure 1-by-1 moves are enough to implement parallel-move semantics.
     for i in 1 to length(args) do :
       val argi = args[i]
@@ -857,11 +869,11 @@ defn AsmGen (code:CodeHolder,
     if contains?(callc-regs(registers), callc-return(registers)) :
       fatal("The return register was not expected to be one of the \
              calling registers.")
-                 
+
     ;Move the arguments into their proper locations.
     for (param in callc-regs(registers), arg in args) do :
       mov(a, param, arg)
-      
+
     ;Call the function
     if c-num-spill-slots(backend) > 0 :
       sub(a, rsp, c-num-spill-slots(backend) * 8)
@@ -869,14 +881,14 @@ defn AsmGen (code:CodeHolder,
     call(a, callc-return(registers))
     if c-num-spill-slots(backend) > 0 :
       add(a, rsp, c-num-spill-slots(backend) * 8)
-    
+
     ;Move the result to the desired register
     match(ret:Gp) :
       if ret != callc-return(registers) :
         mov(a, ret, callc-return(registers))
 
   ;Assume that we are in the standard JIT context, emit code to
-  ;call faddr with args. If ret is provided, then store result in ret afterwards.  
+  ;call faddr with args. If ret is provided, then store result in ret afterwards.
   defn simple-call-c-from-jit-context (ret:Gp|False, faddr:Long, args:Tuple<Gp>) :
     switch-context-stanza-to-jit(Exit, true, false)
     simple-c-call(ret, faddr, args)
@@ -981,7 +993,7 @@ defn AsmGen (code:CodeHolder,
     switch(size) :
       4 : movss(a, stack-local(slot), v)
       8 : movsd(a, stack-local(slot), v)
-    false        
+    false
 
   ;Put y, z, locals into registers, and chooses a result register to
   ;store x, and calls f with the resulting registers.
@@ -993,7 +1005,7 @@ defn AsmGen (code:CodeHolder,
     ;Retrieve y and z as registers.
     val yloc = stack-local(y,reg(Tmp2))
     val zloc = stack-local(z,reg(Tmp3))
-    
+
     ;Put x into reg(Tmp1), and then store reg(Tmp1) into memory.
     defn compute-with-x-in-tmp1 () :
       f(reg(Tmp1), yloc, zloc)
@@ -1060,7 +1072,7 @@ defn AsmGen (code:CodeHolder,
   ;f must return the register holding the result.
   ;This result is stored back into the x local.
   defn compute-with-rax-rdx (f:Gp -> Gp, x:Int, size:Int) :
-    ;Tmp2 is not rax or rdx. 
+    ;Tmp2 is not rax or rdx.
     set-local(x, f(reg(Tmp2)), size)
 
   ;Reserves RCX for use by f, and chooses a result register for x.
@@ -1157,7 +1169,7 @@ defn AsmGen (code:CodeHolder,
     ;Dispatch based upon type of value.
     match(v) :
       ;Immediates that don't require temporary registers to
-      ;retrieve. 
+      ;retrieve.
       (v:Local) :
         mov-to-x(stack-local(slot(v)), false)
       (v:NumConst) :
@@ -1174,11 +1186,11 @@ defn AsmGen (code:CodeHolder,
       (v:CodeId) : mov-to-x(id(v), false)
       (v:ExternId) : mov-to-x(extern-address(resolver,id(v)), false)
       (v:ExternDefnId) : mov-to-x(extern-defn-address(resolver,id(v)), false)
-      
+
       ;Immediates that require temporary registers to retrieve.
       ;Uses Tmp1 and Tmp2
       (v:GlobalId) :
-        ;TMP1:int = global-offset[v]        
+        ;TMP1:int = global-offset[v]
         get-vmstate-global-offsets(reg(Tmp2))
         mov(a, reg(Tmp1), MemPtr(reg(Tmp2), id(v) * SIZEOF-LONG, SIZEOF-LONG))
         ;x = addr(global-mem[TMP1])
@@ -1193,7 +1205,7 @@ defn AsmGen (code:CodeHolder,
         get-vmstate-data-mem(reg(Tmp2))
         lea(a, reg(Tmp2), MemPtr(reg(Tmp2), gp32(reg(Tmp1)), 3, 0))
         mov-to-x(reg(Tmp2), false)
-      (v:ConstId) : 
+      (v:ConstId) :
         get-vmstate-const-table(reg(Tmp2))
         mov-to-x(MemPtr(reg(Tmp2), id(v) * SIZEOF-LONG, SIZEOF-LONG), false)
 
@@ -1210,7 +1222,7 @@ defn AsmGen (code:CodeHolder,
   defn get-reg (x:Local|VMType, i:Int) :
     match(x:Local) :
       mov-using-tmp(stack-local(slot(x)), vm-register(i), reg(Tmp1))
-      
+
   ;Retrieve value in register 0 to n and put in given locals xs (if not VMType).
   defn get-regs (xs:Seqable<Local|VMType>) :
     do(get-reg, xs, 0 to false)
@@ -1226,7 +1238,7 @@ defn AsmGen (code:CodeHolder,
   defn to-local (x:VMImm, num:Int) -> Int :
     match(x:Local) :
       slot(x)
-    else : 
+    else :
       val index = temp-local(num)
       set-local(index, x)
       index
@@ -1240,7 +1252,7 @@ defn AsmGen (code:CodeHolder,
   ;The stub expects the following inputs:
   ;- return (TMP2-REG): The address to return to after stack extension is completed.
   ;- size-required (TMP3-REG): The number of additional bytes required from the stack.
-  defn make-extend-stack-stub () : 
+  defn make-extend-stack-stub () :
     ;Save the return address in current-stack.pc.
     set-stack-pc(reg(Tmp2))
 
@@ -1288,7 +1300,7 @@ defn AsmGen (code:CodeHolder,
   ;   before the CALL instruction.
   ;2) Therefore we need to push an odd number of items onto the stack to
   ;   ensure that our own CALL instructions are 16-byte aligned.
-  ;   In the body of JIT generated code, RSP will be 0x???????0. 
+  ;   In the body of JIT generated code, RSP will be 0x???????0.
   defn make-jit-launch-stub () :
     ;Save incoming arguments
     push(a, reg(Tmp1))                 ;Save Dummy for 16-byte stack alignment.
@@ -1304,10 +1316,10 @@ defn AsmGen (code:CodeHolder,
     val return-to-stanza-label = new-label(a)            ;stackframe.returnpc = return-to-stanza-label
     lea(a, reg(Tmp1), MemPtr(return-to-stanza-label))
     set-return(reg(Tmp1))
-    
+
     ;Jump to the entry point of the initial function.
     mov(a, reg(Tmp1), vm-function(reg(Tmp3), 0))
-    jmp(a, reg(Tmp1))                           
+    jmp(a, reg(Tmp1))
 
     ;Return from the initial function.
     bind(a, return-to-stanza-label)
@@ -1319,7 +1331,7 @@ defn AsmGen (code:CodeHolder,
     pop(a, reg(Tmp1)) ;POP CRSP (Unused).
     pop(a, reg(Tmp1)) ;POP VMState (Unused).
     pop(a, reg(Tmp1)) ;POP Dummy
-    
+
     ;Return from to NonJITContext.
     ret(a)
 
@@ -1339,7 +1351,7 @@ defn AsmGen (code:CodeHolder,
   defn emit-dispatch (format:Int, ys:Tuple<VMImm>, labels:Tuple<Label>) -> False :
     ;Put dispatch arguments into registers.
     set-regs(ys)
-    
+
     ;Emit idx (Tmp1) = read-dispatch-table(format)
     read-dispatch-table(reg(Tmp1), format)
 
@@ -1367,7 +1379,7 @@ defn AsmGen (code:CodeHolder,
   defn emit-reserve (size:Gp|Long) -> Label :
     ;Label for end of reservation stub.
     val end-label = new-label(a)
-    
+
     ;Let Tmp1 = num-bytes on heap.
     val header-size = object-header-size(resolver)
     match(size) :
@@ -1377,17 +1389,17 @@ defn AsmGen (code:CodeHolder,
         and-op(a, reg(Tmp1), -8)
       (size:Long) :
         mov(a, reg(Tmp1), size + to-long(header-size))
-        
+
     ;Let Tmp2 = heap-top + num-bytes
     get-vmstate-heap-top(reg(Tmp2))
     add(a, reg(Tmp2), reg(Tmp1))
-    
+
     ;Let Tmp3 = heap-limit
     ;Goto end when heap-top + num-bytes <= heap-limit
     get-vmstate-heap-limit(reg(Tmp3))
     cmp(a, reg(Tmp2), reg(Tmp3))
     jbe(a, end-label)
-    
+
     ;Call reserve function
     mov-using-tmp(vm-register(0), to-long(false-marker(resolver)), reg(Tmp2))
     mov-using-tmp(vm-register(1), 1L, reg(Tmp2))
@@ -1396,7 +1408,7 @@ defn AsmGen (code:CodeHolder,
 
     ;End of reservation
     bind(a, end-label)
-    
+
     ;Return return label of call.
     ret
 
@@ -1448,7 +1460,7 @@ defn AsmGen (code:CodeHolder,
   ;Call directly using the C-calling convention.
   defn emit-fast-callc (f:VMImm, xs:Tuple<Local|VMType>, ys:Tuple<VMImm>) :
     ;This is added to CRSP before the call.
-    ;In the body of JIT generated code, launcher ensures that RSP will be 0x???????0. 
+    ;In the body of JIT generated code, launcher ensures that RSP will be 0x???????0.
     ;The System-V convention requires that RSP by 0x???????0 before the CALL instruction.
     ;Therefore we ensure that the number of slots is even.
     defn crsp-offset (records:CallCRecords) -> Int :
@@ -1481,17 +1493,17 @@ defn AsmGen (code:CodeHolder,
           ;So preload them into one of the VMRegister slots.
           (y:GlobalId|DataId|ConstId) :
             val mem = vm-register-mem(i)
-            
+
             ;Emit instructions to preload the argument if we haven't done
             ;it already.
             set-imm(mem, y) when add(preloaded-args, i)
-            
+
             mem
-            
+
           ;Locals are either stored in a register or in the current stack frame.
           (y:Local) :
             stack-local(slot(y))
-            
+
           ;The rest of the immediates do not currently occupy a register,
           ;and they can be loaded directly into a register without using any temporaries.
           (y:VMImm) :
@@ -1504,7 +1516,7 @@ defn AsmGen (code:CodeHolder,
         ;the values are never currently held in an xmm register.
         val v = value(arg) as StdArg|ShadowArg
         add(accum, SetCArg(get-arg-value(index(v)), to-dst(loc(arg))))
-        
+
       ;Set the num-float register
       add(accum, SetCArg(num-real-args(records), rax))
 
@@ -1521,13 +1533,13 @@ defn AsmGen (code:CodeHolder,
       val blocked-regs = [reg(RegistersReg),
                           reg(StackPointerReg),
                           rsp]
-                          
+
       ;Create the list of available registers.
       val available-regs = to-tuple $
         for r in gp64s seq? :
           if contains?(blocked-regs, r) : None()
           else : One(Reg(id(r)))
-          
+
       ;Create the ShuffleProblem representing the transfer
       ;of values to registers.
       val prob = ShuffleProblem(available-regs, map(to-mov,cargs)) where :
@@ -1570,18 +1582,18 @@ defn AsmGen (code:CodeHolder,
                     (src-loc:Gp|MemPtr|Int, dst-loc:Gp) : mov(a, dst-loc, src-loc)
                     (src-loc:VMImm, dst-loc:Gp) : set-imm(dst-loc, src-loc)
                     (src-loc:Gp, dst-loc:Xmm) : movsd(a, dst-loc, src-loc)
-                    (src-loc:Gp, dst-loc:MemPtr) : mov(a, dst-loc, src-loc)                
+                    (src-loc:Gp, dst-loc:MemPtr) : mov(a, dst-loc, src-loc)
                 ;Reg-to-Reg shuffling moving.
                 (f:False) :
                   val src-reg = to-gp(src(ins) as Reg)
                   val dst-reg = to-gp(dst(ins) as Reg)
                   mov(a, dst-reg, src-reg)
-                  
+
           ;A Mem-to-mem move.
           (ins:MoveUsingTmp) :
             val set-carg = id(ins) as SetCArg
             val tmp-reg = to-gp(/reg(ins))
-            ;Move from the source to the temp register.            
+            ;Move from the source to the temp register.
             match(src(set-carg)) :
               (src:Gp|MemPtr|Int) : mov(a, tmp-reg, src)
               (src:VMImm) : set-imm(tmp-reg, src)
@@ -1589,7 +1601,7 @@ defn AsmGen (code:CodeHolder,
             match(dst(set-carg)) :
               (dst:Gp|MemPtr) : mov(a, dst, tmp-reg)
               (dst:Xmm) : movsd(a, dst, tmp-reg)
-          
+
           ;Swap registers should not be necessary.
           (ins:SaveSwap|RestoreSwap) :
             fatal("Save/Restore swap registers not expected.")
@@ -1619,7 +1631,7 @@ defn AsmGen (code:CodeHolder,
     val set-cargs = compute-set-c-args(records)
     write-cargs-to-registers(set-cargs)
     call-f(records)
-    switch-context-stanza-to-jit(Enter, true, true)    
+    switch-context-stanza-to-jit(Enter, true, true)
     move-return-to-local(records, xs)
 
   ;Call using the C trampoline.
@@ -1640,7 +1652,7 @@ defn AsmGen (code:CodeHolder,
       val num-int-args-index = next(layout-counter, 1)
       val int-args-index = next(layout-counter, num-int-args(records))
       val num-floats-in-call-index = next(layout-counter,1)
-      
+
       ;Given the location that the argument should be stored,
       ;return the index in the register buffer that we should
       ;store the argument that is desired by the trampoline code.
@@ -1649,19 +1661,19 @@ defn AsmGen (code:CodeHolder,
           (l:RegLoc) : num-floats-in-call-index - 1 - index(l)
           (l:FRegLoc) : num-int-args-index - 1 - index(l)
           (l:MemLoc) : num-float-args-index - 1 - index(l)
-          
+
       ;Assign registers
       for arg in args(records) do :
         val r = register-index(loc(arg))
         val v = value(arg) as StdArg|ShadowArg
         val y = ys[index(v)]
         set-reg(r, y)
-        
+
       ;Set number of arguments
       set-reg(num-stack-args-index, NumConst(num-mem-args(records)))
       set-reg(num-float-args-index, NumConst(num-real-args(records)))
       set-reg(num-int-args-index, NumConst(num-int-args(records) + 1))
-      set-reg(num-floats-in-call-index, NumConst(num-real-args(records)))              
+      set-reg(num-floats-in-call-index, NumConst(num-real-args(records)))
 
     ;Emit instructions for calling the C function f.
     defn call-c-trampoline (f:VMImm) :
@@ -1676,7 +1688,7 @@ defn AsmGen (code:CodeHolder,
           reg(Tmp1)
         (f:ExternDefnId) :
           mov(a, reg(Tmp1), extern-defn-address(resolver,id(f)))
-          reg(Tmp1)          
+          reg(Tmp1)
       ;Call the C trampoline in a new stack frame.
       simple-call-c-in-new-frame-from-jit-context(
         false,
@@ -1696,7 +1708,7 @@ defn AsmGen (code:CodeHolder,
     val records = compute-callc-records(xs, ys)
     write-records-to-registers(records, ys)
     call-c-trampoline(f)
-    move-return-to-local(records, xs)    
+    move-return-to-local(records, xs)
 
   ;=========================================================
   ;================ 1-Operand Primitive ====================
@@ -1738,7 +1750,7 @@ defn AsmGen (code:CodeHolder,
         ;Xmm0 = 0.0f
         xor-op(a, reg(Tmp1), reg(Tmp1))
         cvtsi2ss(a, xmm0, reg(Tmp1))
-        ;Xmm1 = y        
+        ;Xmm1 = y
         set-imm(reg(Tmp1), y)
         movss(a, xmm1, reg(Tmp1))
         ;xmm0 = xmm0 - y
@@ -1749,7 +1761,7 @@ defn AsmGen (code:CodeHolder,
         ;Xmm0 = 0.0f
         xor-op(a, reg(Tmp1), reg(Tmp1))
         cvtsi2sd(a, xmm0, reg(Tmp1))
-        ;Xmm1 = y        
+        ;Xmm1 = y
         set-imm(reg(Tmp1), y)
         movsd(a, xmm1, reg(Tmp1))
         ;xmm0 = xmm0 - y
@@ -1890,7 +1902,7 @@ defn AsmGen (code:CodeHolder,
         ;Let reg(Tmp1) = stack
         set-imm(reg(Tmp1), y)
         simple-call-c-from-jit-context(false, call-print-stack-trace-addr(), [reg(VMStateReg), reg(Tmp1)])
-        set-local-using-tmp(x, 0L, 8, reg(Tmp1)) 
+        set-local-using-tmp(x, 0L, 8, reg(Tmp1))
       COLLECT-STACK-TRACE-OPCODE :
         ;Let reg(Tmp1) = stack
         set-imm(reg(Tmp1), y)
@@ -1901,13 +1913,13 @@ defn AsmGen (code:CodeHolder,
         tzcnt(a, reg(Tmp1), reg(Tmp1))
         set-local(x, reg(Tmp1), 8)
       else :
-        fatal("Unhandled opcode %_." % [opcode])     
+        fatal("Unhandled opcode %_." % [opcode])
 
   ;=========================================================
   ;================ 2-Operand Primitive ====================
   ;=========================================================
   ;Emit instructions for 2-operand basic op: x = y opcode z
-  defn emit-op2 (a:Assembler, opcode:Int, x:Int, y:Int, z:Int) -> False :    
+  defn emit-op2 (a:Assembler, opcode:Int, x:Int, y:Int, z:Int) -> False :
     switch(opcode) :
       INT-ADD-OPCODE :
         within (xreg, yreg, zreg) = compute-op2-with-temp-regs(x, y, z, 8) :
@@ -1921,7 +1933,7 @@ defn AsmGen (code:CodeHolder,
         within (xreg, yreg, zreg) = compute-op2-with-temp-regs(x, y, z, 8) :
           mov(a, xreg, yreg)
           shr(a, xreg, 32)
-          imul(a, xreg, zreg)          
+          imul(a, xreg, zreg)
       INT-AND-OPCODE :
         within (xreg, yreg, zreg) = compute-op2-with-temp-regs(x, y, z, 8) :
           mov(a, xreg, yreg)
@@ -2007,7 +2019,7 @@ defn AsmGen (code:CodeHolder,
           boolref-cmp-set(yreg, zreg, xreg, set-e)
       REF-NE-OPCODE :
         within (xreg, yreg, zreg) = compute-op2-with-temp-regs(x, y, z, 8) :
-          boolref-cmp-set(yreg, zreg, xreg, set-ne)          
+          boolref-cmp-set(yreg, zreg, xreg, set-ne)
       EQ-OPCODE-REF :
         within (xreg, yreg, zreg) = compute-op2-with-temp-regs(x, y, z, 8) :
           cmp-set(yreg, zreg, xreg, set-e, 8)
@@ -2055,7 +2067,7 @@ defn AsmGen (code:CodeHolder,
           cmpf-set(zreg, yreg, xreg, set-a, 4)
       LT-OPCODE-DOUBLE :
         within (xreg, yreg, zreg) = compute-op2-with-temp-fregs(x, y, z, 8, 8) :
-          cmpf-set(zreg, yreg, xreg, set-a, 8)          
+          cmpf-set(zreg, yreg, xreg, set-a, 8)
       GT-OPCODE-INT :
         within (xreg, yreg, zreg) = compute-op2-with-temp-regs(x, y, z, 8) :
           cmp-set(yreg, zreg, xreg, set-g, 4)
@@ -2343,7 +2355,7 @@ defn AsmGen (code:CodeHolder,
         within (xreg, yreg, zreg) = compute-op2-with-temp-regs(x, y, z, 8) :
           bt(a, MemPtr(zreg,0), yreg)
           mov(a, xreg, 0)
-          set-c(a, gp8(xreg))          
+          set-c(a, gp8(xreg))
       TEST-AND-SET-BIT-OPCODE :
         ;x = test and set bit yreg at address zreg.
         within (xreg, yreg, zreg) = compute-op2-with-temp-regs(x, y, z, 8) :
@@ -2365,7 +2377,7 @@ defn AsmGen (code:CodeHolder,
         val zreg = stack-local(z, reg(Tmp3))
         btr(a, MemPtr(zreg,0), yreg)
       else :
-        fatal("Unimplemented opcode %_" % [opcode])     
+        fatal("Unimplemented opcode %_" % [opcode])
     false
 
   ;=========================================================
@@ -2542,7 +2554,7 @@ defn AsmGen (code:CodeHolder,
       je(a, n1-label)
       jmp(a, n2-label)
     ;Start
-    driver()    
+    driver()
 
   ;=========================================================
   ;============== Emit General Instanceof ==================
@@ -2568,21 +2580,21 @@ defn AsmGen (code:CodeHolder,
       (ins:TCallIns) :
         set-regs(ys(ins))
         set-imm(reg(Tmp2), f(ins))
-        goto-function(reg(Tmp2), 0)            
+        goto-function(reg(Tmp2), 0)
 
       (ins:TCallClosureIns) :
         set-regs(ys(ins))
         ;Load Tmp2 = func.code
         set-imm(reg(Tmp2), f(ins))
         mov(a, reg(Tmp2), MemPtr(reg(Tmp2), object-header-size(resolver) + FUNCTION-CODE-OFFSET - ref-offset(resolver)))
-        goto-function(reg(Tmp2), 0)            
+        goto-function(reg(Tmp2), 0)
 
       (ins:CallIns) :
         set-regs(ys(ins))
         set-imm(reg(Tmp2), f(ins))
         val ret = call-from-jit-context(reg(Tmp2))
         get-regs(xs(ins))
-        record-trace-entry(ret, trace-entry(ins))            
+        record-trace-entry(ret, trace-entry(ins))
 
       (ins:CallClosureIns) :
         set-regs(ys(ins))
@@ -2591,14 +2603,14 @@ defn AsmGen (code:CodeHolder,
         mov(a, reg(Tmp2), MemPtr(reg(Tmp2), object-header-size(resolver) + FUNCTION-CODE-OFFSET - ref-offset(resolver)))
         val ret = call-from-jit-context(reg(Tmp2))
         get-regs(xs(ins))
-        record-trace-entry(ret, trace-entry(ins))        
+        record-trace-entry(ret, trace-entry(ins))
 
       (ins:CallCIns) :
-        if USE-DIRECT-C-CALLS? : 
+        if USE-DIRECT-C-CALLS? :
           emit-fast-callc(f(ins), xs(ins), ys(ins))
         else :
           emit-callc(f(ins), xs(ins), ys(ins))
-        
+
       (ins:YieldIns) :
         ;current-stack.pc = after-yield.
         val after-yield = new-label(a)
@@ -2632,15 +2644,22 @@ defn AsmGen (code:CodeHolder,
         record-trace-entry(after-yield, trace-entry(ins))
 
         ;Retrieve the registers
-        get-regs(xs(ins))                        
+        get-regs(xs(ins))
 
       (ins:ReturnIns) :
         set-regs(xs(ins))
         get-return(reg(Tmp1))
-        jmp(a, reg(Tmp1))          
+        jmp(a, reg(Tmp1))
 
       (ins:DumpIns) :
         false
+
+      (ins:SafepointIns) :
+        val lbl = new-label(a)
+        bind(a, lbl)
+        nop(a)
+        record-safepoint-location(lbl, id(ins))
+        ;varmap?
 
       (ins:RecordLiveIns) :
         val live-map = liveness-map(resolver, seq(slot, live(ins)), num-locals())
@@ -2662,7 +2681,7 @@ defn AsmGen (code:CodeHolder,
             val xreg = local(x*, reg(Tmp1))
             val yreg = local(y*, reg(Tmp2))
             val zreg = local(z*, reg(Tmp3))
-            val size = size(imm-type(z(ins)))                
+            val size = size(imm-type(z(ins)))
             mov(a, MemPtr(xreg, yreg, 0, offset*, size), gp(zreg,size))
           ;No variable offset
           (y:False) :
@@ -2676,10 +2695,10 @@ defn AsmGen (code:CodeHolder,
       (ins:StoreWithBarrierIns) :
         ;Compute the offset from x depending upon whether x is a Ref or a pointer.
         val offset* = offset(ins) - ref-offset(resolver) + object-header-size(resolver)
-        
+
         ;Store z into a local so we can retrieve it without using additional registers.
         val z* = to-local(z(ins), 2)
-        
+
         ;Compute the address to store to. Put it in Tmp1.
         ;Determine whether we have a variable-offset.
         match(y(ins)) :
@@ -2695,15 +2714,15 @@ defn AsmGen (code:CodeHolder,
             val x* = to-local(x(ins), 0)
             val xreg = local(x*, reg(Tmp1))
             lea(a, reg(Tmp1), MemPtr(xreg, offset*, 8))
-            
-        ;Store the value into the address        
+
+        ;Store the value into the address
         val zreg = local(z*, reg(Tmp2))
         mov(a, MemPtr(reg(Tmp1),0), zreg)
 
         ;Set remembered-bit for write barrier.
         shr(a, reg(Tmp1), 3)                     ;Convert base to bit index.
         get-vmstate-heap-bitset-base(reg(Tmp2))  ;Retrieve bitset-base.
-        bts(a, MemPtr(reg(Tmp2),0), reg(Tmp1))   ;Set bit        
+        bts(a, MemPtr(reg(Tmp2),0), reg(Tmp1))   ;Set bit
 
       (ins:LoadIns) :
         ;Compute the offset from y depending upon whether y is a Ref or a pointer.
@@ -2728,7 +2747,7 @@ defn AsmGen (code:CodeHolder,
             val size = size(imm-type(x(ins)))
             within xreg = update-local(slot(x(ins)), reg(Tmp1), size) :
               mov(a, gp(xreg,size), MemPtr(yreg, offset*, size))
-              
+
       (ins:Op0Ins) :
         match(op(ins)) :
           (op:FlushVMOp) :
@@ -2736,14 +2755,14 @@ defn AsmGen (code:CodeHolder,
             set-local(slot?(x(ins)), reg(VMStateReg), 8)
           (op:CRSPOp) :
             mov(a, reg(Tmp1), saved-crsp)
-            set-local(slot?(x(ins)), reg(Tmp1), 8)                
+            set-local(slot?(x(ins)), reg(Tmp1), 8)
 
       (ins:Op1Ins) :
         match(op(ins)) :
           (op:InstanceofOp) :
             ;Retrieve the format.
             val format = match-format(resolver, [[type(op)]])
-            
+
             ;Push argument into register
             set-reg(0, y(ins))
 
@@ -2784,7 +2803,7 @@ defn AsmGen (code:CodeHolder,
         val x* = to-local(x(ins), 0)
         val y* = to-local(y(ins), 1)
         emit-branch(code, x*, y*, get-label(n1(ins)), get-label(n2(ins)))
-        
+
       (ins:AllocIns) :
         defn alloc-multiple-objects () :
           ;Compute total number of bytes on heap.
@@ -2798,26 +2817,26 @@ defn AsmGen (code:CodeHolder,
           ;Allocate each object
           val xs-slots = map(slot, xs(ins))
           emit-alloc(xs-slots, map(to-long,obj-sizes), types(ins))
-          
+
         defn alloc-single-object () :
           ;Sanity check.
           fatal("Multiple variable-sized allocations.") when length(sizes(ins)) > 1
           ;Store the size into reg(Tmp1).
           set-imm(reg(Tmp1), sizes(ins)[0])
-          
+
           ;Reserve bytes
           val ret = emit-reserve(reg(Tmp1))
           record-trace-entry(ret, trace-entry(ins))
-          
+
           ;Allocate the object
           val x = xs(ins)[0]
           set-imm(reg(Tmp3), sizes(ins)[0])
-          emit-alloc([slot(x)], [reg(Tmp3)], [types(ins)[0]])              
+          emit-alloc([slot(x)], [reg(Tmp3)], [types(ins)[0]])
 
         ;Dispatch
         if all?({_ is NumConst}, sizes(ins)) : alloc-multiple-objects()
         else : alloc-single-object()
-        
+
       (ins:DispatchIns) :
         ;Retrieve the dispatch format.
         val [types, dests] = split-types-and-dests(branches(ins))
@@ -2839,7 +2858,7 @@ defn AsmGen (code:CodeHolder,
 
           ;Perform Dispatch. First branch is the default branch.
           emit-dispatch(format, ys(ins), get-labels(cat([default(ins)], dests)))
-          
+
       (ins:MethodDispatchIns) :
         ;Retrieve format
         val format = method-format(resolver, multi(ins), length(ys(ins)), length(zs(ins)))
@@ -2855,7 +2874,7 @@ defn AsmGen (code:CodeHolder,
         ;returns the (2 + id of the function) to dispatch to.
         val code-label = new-label(a)
         cmp(a, reg(Tmp1), 2)
-        jge(a, code-label)            
+        jge(a, code-label)
         cmp(a, reg(Tmp1), 0)
         je(a, get-label(default(ins)))
         jmp(a, get-label(amb(ins)))
@@ -2877,14 +2896,14 @@ defn AsmGen (code:CodeHolder,
   defn emit-function-prelude (args:Tuple<Local|VMType>, extend-stack:Func) :
     ;Label after stack extension
     val after-stack-extension = new-label(a)
-    
+
     ;Check whether we need to extend the stack.
     val size-required = current-frame-size() + SIZEOF-STACK-FRAME
     lea(a, reg(Tmp3), MemPtr(reg(StackPointerReg), size-required))
     val limit = compute-stack-limit(reg(Tmp2))
     cmp(a, reg(Tmp3), limit)
     jbe(a, after-stack-extension)
-    
+
     ;Call extend-stack
     lea(a, reg(Tmp2), MemPtr(after-stack-extension))
     mov(a, reg(Tmp3), size-required)
@@ -2933,9 +2952,9 @@ defn AsmGen (code:CodeHolder,
     ;Emit each of the arities
     for (arity in arities, index in 0 to false) do :
       val after-func-label = new-label(a)
-      cmp(a, arity-reg, arity)        
+      cmp(a, arity-reg, arity)
       jne(a, after-func-label)
-      emit-arity-code(index)        
+      emit-arity-code(index)
       bind(a, after-func-label)
     ;Default branch
     emit-arity-code(false)
@@ -2965,8 +2984,8 @@ public defn make-jit-stubs (rt:JitRuntime, resolver:EncodingResolver, backend:Ba
   ;Make a Func given an emitter function.
   defn make-stub-func (emit-code:AsmGen -> ?) -> Func :
     within (code, assembler) = gen-code(rt) :
-      emit-code(AsmGen(code, assembler, resolver, false, false, backend))
-  ;Compile all stubs    
+      emit-code(AsmGen(code, assembler, resolver, false, false, false, backend))
+  ;Compile all stubs
   JITStubs(
     make-stub-func(emit-jit-launch)
     make-stub-func(emit-extend-stack))
@@ -2985,7 +3004,13 @@ defn compute-absolute-addresses! (trace-entries:Vector<TraceTableEntry>,
   for e in trace-entries map! :
     TraceTableEntry(func-address + pc(e), entry(e))
 
-;Return the address of the function. 
+defn compute-absolute-addresses! (safepoint-entries:Vector<SafepointTableEntry>,
+                                  func:Func) -> False :
+  val func-address = address(func)
+  for e in safepoint-entries map! :
+    SafepointTableEntry(func-address + pc(e), id(e))
+
+;Return the address of the function.
 lostanza defn address (func:ref<Func>) -> ref<Long> :
   return new Long{func.value as long}
 
@@ -2999,13 +3024,13 @@ public defn encode (func:VMFunction,
                     rt:JitRuntime,
                     resolver:EncodingResolver,
                     backend:Backend) -> EncodedFunction :
-                  
-  ;Retrieve the FuncInfo for the function.                
+
+  ;Retrieve the FuncInfo for the function.
   defn func-info (f:VMFunc) -> FuncInfo :
     ;Compute number of locals in function.
     ;Extra 3 locals for temporary moving.
     val max-local = maximum(-1, seq(local, defs(f)))
-    val num-locals = max-local + 1 + 3          
+    val num-locals = max-local + 1 + 3
 
     ;Definitions
     val deftable = to-inttable(id, defs(f))
@@ -3014,22 +3039,30 @@ public defn encode (func:VMFunction,
     val used-labels = to-intset(seq(n, filter-by<LabelIns>(ins(f))))
 
     ;Function Info
-    FuncInfo(deftable, used-labels, max-local, num-locals)    
+    FuncInfo(deftable, used-labels, max-local, num-locals)
 
   ;Generate code for multifn
-  defn emit-multifn (code:CodeHolder, assembler:Assembler, trace-entry-table:Vector<TraceTableEntry>, f:VMMultifn) :
-    val gen = AsmGen(code, assembler, resolver, false, trace-entry-table, backend)
+  defn emit-multifn (code:CodeHolder,
+                     assembler:Assembler,
+                     trace-entry-table:Vector<TraceTableEntry>,
+                     safepoint-entry-table:Vector<SafepointTableEntry>,
+                     f:VMMultifn) :
+    val gen = AsmGen(code, assembler, resolver, false, trace-entry-table, safepoint-entry-table, backend)
     within func-index = emit-multi-arity-dispatch(gen, arg(f), map(key,funcs(f))) :
       match(func-index:Int) :
         val entry = funcs(f)[func-index]
-        emit-fn(code, assembler, trace-entry-table, value(entry))
+        emit-fn(code, assembler, trace-entry-table, safepoint-entry-table, value(entry))
       else :
-        emit-fn(code, assembler, trace-entry-table, default(f))
+        emit-fn(code, assembler, trace-entry-table, safepoint-entry-table, default(f))
 
   ;Generate code for single fn
-  defn emit-fn (code:CodeHolder, assembler:Assembler, trace-entry-table:Vector<TraceTableEntry>, f:VMFunc) :
+  defn emit-fn (code:CodeHolder,
+                assembler:Assembler,
+                trace-entry-table:Vector<TraceTableEntry>,
+                safepoint-entry-table:Vector<SafepointTableEntry>,
+                f:VMFunc) :
     within log-time(JIT-EMIT-FN) :
-      val gen = AsmGen(code, assembler, resolver, func-info(f), trace-entry-table, backend)
+      val gen = AsmGen(code, assembler, resolver, func-info(f), trace-entry-table, safepoint-entry-table, backend)
       emit-function-prelude(gen, args(f), extend-stack(stubs))
       emit-arg-bit-extensions(gen, args(f)) when externfn?
       do(emit-ins{gen, _}, ins(f))
@@ -3037,14 +3070,16 @@ public defn encode (func:VMFunction,
   ;Launch!
   within log-time(JIT-ENCODER) :
     val trace-entry-table = Vector<TraceTableEntry>()
+    val safepoint-entry-table = Vector<SafepointTableEntry>()
     val jit-func = within (code, assembler) = gen-code(rt) :
       match(func) :
-        (func:VMMultifn) : emit-multifn(code, assembler, trace-entry-table, func)
-        (func:VMFunc) : emit-fn(code, assembler, trace-entry-table, func)
+        (func:VMMultifn) : emit-multifn(code, assembler, trace-entry-table, safepoint-entry-table, func)
+        (func:VMFunc) : emit-fn(code, assembler, trace-entry-table, safepoint-entry-table, func)
 
     ;Relocate trace addresses
     within log-time(COMPUTE-ABSOLUTE-ADDRESSES) :
       compute-absolute-addresses!(trace-entry-table, jit-func)
+      compute-absolute-addresses!(safepoint-entry-table, jit-func)
 
     ;Return the final encoded function
-    EncodedFunction(jit-func, trace-entry-table)
+    EncodedFunction(jit-func, trace-entry-table, safepoint-entry-table)

@@ -18,13 +18,14 @@ defpackage stz/cvm-encoder :
 public defstruct EncodedFunction :
   buffer: ByteBuffer
   trace-entries: Vector<TraceTableEntry>
+  safepoint-entries: Vector<SafepointTableEntry>
 
 public defn encode (func:VMFunction,
                     resolver:EncodingResolver,
                     backend:Backend) -> EncodedFunction :
   ;Encode instructions into this byte buffer
   val buffer = ByteBuffer()
-  
+
   ;All instructions are sized to be multiples of 4 bytes, and thus
   ;we use address / 4 as a "position" in the instruction stream.
   defn buffer-pos () : write-position(buffer) / 4
@@ -32,6 +33,7 @@ public defn encode (func:VMFunction,
   ;Accumulate file information entries for implementing
   ;stack traces.
   val trace-entry-table = Vector<TraceTableEntry>()
+  val safepoint-entry-table = Vector<SafepointTableEntry>()
   defn record-trace-entry (entry:StackTraceInfo|False) :
     match(entry:StackTraceInfo) :
       add(trace-entry-table, TraceTableEntry(to-long(write-position(buffer)), entry))
@@ -698,7 +700,7 @@ public defn encode (func:VMFunction,
   ;Use delayed actions and encode instructions
   within delay-actions() :
     encode(func as VMMultifn|VMFunc)
-  EncodedFunction(buffer, trace-entry-table)
+  EncodedFunction(buffer, trace-entry-table, safepoint-entry-table)
 
 ;============================================================
 ;====================== Utilities ===========================

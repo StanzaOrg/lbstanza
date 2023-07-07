@@ -41,13 +41,13 @@ Binary Representation:
 public defstruct FileSafepoints :
   filename:String
   entries:Tuple<SafepointEntry>
-  
+
 ;Represents all of the locations for a given safepoint.
 public defstruct SafepointEntry :
   line:Int
   records:Tuple<SafepointRecord>
 
-;Represents a single safepoint. 
+;Represents a single safepoint.
 public defstruct SafepointRecord :
   location:SafepointLocation
   group:Int
@@ -61,7 +61,7 @@ public defstruct SafepointLabel <: SafepointLocation:
   id:Int
 
 ;Used for dynamically compiled code. Refers to the
-;address of the safepoint. 
+;address of the safepoint.
 public defstruct SafepointAddress <: SafepointLocation:
   address:Long
 
@@ -93,7 +93,7 @@ public defn pack (safepoints:Tuple<FileSafepoints>, packer:StaticPacker) -> Fals
   defn make-address-list (locs:Tuple<SafepointRecord>) -> Int :
     val l = make-label(packer)
     add(address-lists, l => locs)
-    l    
+    l
 
   ;Emit SafePointTable
   val filepointers = map(make-label{packer}, safepoints)
@@ -105,7 +105,7 @@ public defn pack (safepoints:Tuple<FileSafepoints>, packer:StaticPacker) -> Fals
   for (fp in filepointers, sp in safepoints) do :
     emit-label(packer, fp)
     emit(packer, to-long(length(entries(sp))))
-    emit-pointer-to-label(packer, make-string-label(filename(sp)))    
+    emit-pointer-to-label(packer, make-string-label(filename(sp)))
     for entry in entries(sp) do :
       emit(packer, to-long(line(entry)))
       emit-pointer-to-label(packer, make-address-list(records(entry)))
@@ -146,7 +146,7 @@ defsyntax safepoint-table :
   defproduction rec: SafepointRecord
   defrule rec = (?loc:#loc (group ?group:#int)) :
     SafepointRecord(loc, group)
-  
+
   defproduction loc: SafepointLocation
   defrule loc = (L[?id:#int]) : SafepointLabel(id)
   defrule loc = (A[?address:#int]) : SafepointAddress(to-long(address))
@@ -174,8 +174,8 @@ defn main () :
       filename: "myhelper.stanza"
       line 11 : (L[20] (group 0), L[21] (group 1))
       line 14 : (L[25] (group 1)))
-      
-  val label-counter = to-seq(100 to false)    
+
+  val label-counter = to-seq(100 to false)
   val test-packer = new StaticPacker :
     defmethod make-label (this) :
       next(label-counter)
