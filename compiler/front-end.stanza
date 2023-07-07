@@ -318,7 +318,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
     defn hashstamp? (file:String|False) -> ByteArray|False :
       match(file:String) :
         sha256-hash-file(file) when file-exists?(file)
-    val stamp = PackageStamp(l, hashstamp?(source-file(l)), hashstamp?(pkg-file(l)))
+    val stamp = PackageStamp(l, hashstamp?(source-file(l)), hashstamp?(pkg-path(l)))
     package-stamps[package(l)] = stamp
 
   ;----------------------------------------------------------
@@ -362,7 +362,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
       defn pkg-location (pkg:IPackage|Pkg, filename:String) :
         match(pkg) :
           (pkg:IPackage) : PkgLocation(name(pkg), filename, false, false)
-          (pkg:Pkg) : PkgLocation(name(pkg), false, filename, true)
+          (pkg:Pkg) : PkgLocation(name(pkg), false, PkgDir(filename), true)
 
       ;Load input
       try :
