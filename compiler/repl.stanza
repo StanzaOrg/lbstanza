@@ -1042,7 +1042,7 @@ public defn repl () :
 public defn run-in-repl (args:Tuple<String>,
                          macro-plugins:Tuple<String>) :
   val repl = within log-time(REPL-CREATION) :
-    REPL(macro-plugins, false) ;!!! DON'T FORGET tO CHANGE BACK TO false
+    REPL(macro-plugins, true) ;!!! DON'T FORGET tO CHANGE BACK TO false
   try:
     within log-time(REPL-EXP-EVALUATION) :
       eval-exp(repl, make-load-exp(args, false))
