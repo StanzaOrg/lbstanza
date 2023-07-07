@@ -394,7 +394,7 @@ public defstruct VMFileSafepoints :
   entries:Tuple<VMSafepointInfo>
 
 public defstruct VMSafepointInfo :
-  id:Int
+  id:Int with: (updater => sub-id)
   line:Int
   column:Int
   group:Int
@@ -802,7 +802,7 @@ defmethod print (o:OutputStream, t:VMDebugNameTable) :
 defmethod print (o:OutputStream, e:VMDebugName) :
   val global-str = "global " when global?(e)
               else "local "
-  print(o, "debugname %_L%_ (name = %~)" % [id(e), global-str, name(e)])
+  print(o, "debugname %_L%_ (name = %~)" % [global-str, id(e), name(e)])
 
 defmethod print (o:OutputStream, x:VMDebugInfoTable) :
   if empty?(entries(x)) :

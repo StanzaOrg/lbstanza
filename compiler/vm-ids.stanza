@@ -96,6 +96,7 @@ public defn VMIds (dylibs:LoadedDynamicLibraries,
   val const-pool = ConstantPool()
   val package-inits = HashTable<Symbol,Int|False>()
   val callback-table = IntTable<Int>()
+  val safepoint-counter = to-seq(0 to false)
   
   ;Generating new ids
   defn id-counter (pred:RecId -> True|False) :
@@ -172,10 +173,11 @@ public defn VMIds (dylibs:LoadedDynamicLibraries,
       store-exported-recs-in-id-table(seq(packageio, pkgs))
       for pkg in pkgs do :
         val local-to-global-map = local-to-global-table(pkg)
+        val local-safepoint-map = local-to-global-safepoints(pkg)
         record-package-init(pkg, local-to-global-map)
         add(packages, make-load-package(pkg, local-to-global-map))
         add-all(classes, resolved-classes(pkg, local-to-global-map))
-        add-all(funcs, resolved-defns(pkg, local-to-global-map))
+        add-all(funcs, resolved-defns(pkg, local-to-global-map, local-safepoint-map))
         add-all(callbacks, resolved-callbacks(pkg, local-to-global-map))
         val iotable = IOTable(packageio(pkg))
         record-dependencies(iotable, local-to-global-map, /classes(pkg))
@@ -194,6 +196,17 @@ public defn VMIds (dylibs:LoadedDynamicLibraries,
     defn resolve-ids<?T> (x:VMItem&?T, global-ids:IntTable<Int>) -> T :
       defn resolve (x:VMItem) : map-id({global-ids[_]}, vm-map(resolve,x))
       resolve(x) as VMItem&T
+
+    ;Compute table mapping local ids of safepoints to a globally unique
+    ;safepoint id.
+    defn local-to-global-safepoints (pkg:VMPackage) -> IntTable<Int> :
+      val mapping = IntTable<Int>()
+      for file in files(safepoint-table(pkg)) do :
+        for entry in entries(file) do :
+          val local-id = id(entry)
+          val global-id = next(safepoint-counter)
+          mapping[local-id] = global-id
+      mapping
 
     ;Compute table mapping locals to globals for definitions in package.
     defn local-to-global-table (pkg:VMPackage) -> IntTable<Int> :
@@ -258,21 +271,27 @@ public defn VMIds (dylibs:LoadedDynamicLibraries,
         LoadedClass(name(pkg), resolve-ids(c, local-to-global-map))
 
     ;Resolve a single func
-    defn resolved-defn (func:VMDefn, local-to-global-map:IntTable<Int>) :
+    defn resolved-defn (func:VMDefn,
+                        local-to-global-map:IntTable<Int>,
+                        local-to-global-safepoints:IntTable<Int>) :
       defn gid (n:Int) : local-to-global-map[n]
       defn resolve-ids (x:VMItem) :
         match(x) :
           (x:ExternDefnId) : ExternDefnId(callback-table[gid(id(x))])
+          (x:SafepointIns) : SafepointIns(local-to-global-safepoints[id(x)], trace-entry!(x))
           (x) : map-id(gid, vm-map(resolve-ids, x))
       new VMDefn :
         defmethod id (this) : gid(id(func))
         defmethod dependencies (this) : map(gid, dependencies(func))
-        defmethod func (this) : resolve-ids(/func(func)) as VMFunction
+        defmethod func (this) :
+          resolve-ids(/func(func)) as VMFunction
 
     ;Resolve all funcs from packages
-    defn resolved-defns (pkg:VMPackage, local-to-global-map:IntTable<Int>) :
+    defn resolved-defns (pkg:VMPackage,
+                         local-to-global-map:IntTable<Int>,
+                         local-to-global-safepoints:IntTable<Int>) :
       for f in funcs(pkg) seq :
-        resolved-defn(f, local-to-global-map)
+        resolved-defn(f, local-to-global-map, local-to-global-safepoints)
 
     ;Resolve all Callbacks for extern defns
     defn resolved-callbacks (pkg:VMPackage, local-to-global-map:IntTable<Int>) :
@@ -345,3 +364,52 @@ defn put<?T> (xs:Vector<?T>, i:Int, v:T, default:T) :
 defn get?<?T> (xs:Vector<?T>, i:Int, default:?T) :
   xs[i] when i < length(xs) else default
 
+;============================================================
+;================== Storing Safepoints ======================
+;============================================================
+;<comment>
+;Stores all the safepoints from all packages.
+;The ids of the safepoints will be globally unique.
+defstruct AllSafepoints :
+  id-counter:Seq<Int>
+  file-safepoints:Vector<FileSafepoints>
+
+;Holds all of the safepoints in a specific file.
+;The ids of all the safepoints will be globally unique.
+defstruct FileSafepoints :
+  base:String
+  filename:String  
+  safepoints:Vector<VMSafepointInfo>
+
+;Add all of the safepoints from the given file to the table
+;of all safepoints.
+;Returns the mapping of local ids to global ids.
+;Each entry, LID => GID, means that:
+;- LID is the package local id for the safepoint.
+;- GID is the globally unique id for the safepoint.
+defn add-safepoints (table:AllSafepoints,
+                     file:VMFileSafepoints) ->
+                     Vector<KeyValue<Int,Int>> :
+  val mapping = Vector<KeyValue<Int,Int>>()
+  val file-safepoints = get-file-safepoints(table, base(file), filename(file))
+  for entry in entries(file) do :
+    val new-id = next(id-counter(table))
+    add(mapping, id(entry) => new-id)
+    val new-entry = sub-id(entry, new-id)
+    add(safepoints(file-safepoints), new-entry)
+  mapping
+
+;Helper: Retrieve the 'FileSafepoints' table corresponding to
+;the given base and filename.
+defn get-file-safepoints (table:AllSafepoints,
+                          base:String,
+                          filename:String) -> FileSafepoints:
+  val safepoints = 
+    for file in file-safepoints(table) find :
+      /base(file) == base and
+      /filename(file) == filename
+
+  match(safepoints:FileSafepoints) :
+    safepoints
+  else :
+;<comment>    
