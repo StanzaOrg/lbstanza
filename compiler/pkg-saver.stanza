@@ -3,6 +3,11 @@ defpackage stz/pkg-saver :
   import collections
   import stz/utils
   import stz/pkg
+  import stz/pkg-ir
+  import stz/package-stamps
+  import stz/aux-file
+  import stz/file-stamps
+  import stz/verbose
 
 ;============================================================
 ;====================== API =================================
@@ -50,18 +55,18 @@ public defn PkgSaver (auxfile:AuxFile,
 
   ;Helper: Create a PkgRecord that relates a package's source files
   ;to its saved .pkg file.
-  defn save-aux-record (name:Symbol, filestamp:FileStamp) -> False :
+  defn save-aux-record (pkg:Pkg, filestamp:FileStamp) -> False :
     ;Retrieve the stamp of the input source file.
-    val stamp = pkgstamp-table[name]
+    val stamp = pkgstamp-table[name(pkg)]
     val full-source-path = resolve-path!(source-file(location(stamp)) as String)
     val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
     ;Log details
-    vprintln("Save output .pkg for package %~:" % [name])
+    vprintln("Save output .pkg for package %~:" % [name(pkg)])
     vprintln("  source-hashstamp: %_" % [sourcestamp])
     vprintln("  pkg-hashstamp: %_" % [filestamp])
     ;Add a record to the auxfile.
     add(auxfile, 
-        PkgRecord(name,
+        PkgRecord(name(pkg),
                   filestamp,
                   sourcestamp,
                   flags,
@@ -83,7 +88,7 @@ public defn PkgSaver (auxfile:AuxFile,
       val filename = save-package(dir as String, pkg)
       val filestamp = filestamp(filename)
       add(output-stamps, filestamp)
-      save-aux-record(name(pkg), filestamp) when origin(pkg) == FromSource
+      save-aux-record(pkg, filestamp) when origin(pkg) == FromSource
 
     ;Save a Pkg to the package cache.
     defmethod cache (this, pkg:Pkg) :
@@ -92,7 +97,7 @@ public defn PkgSaver (auxfile:AuxFile,
       val params = CacheParams(flags, cache-dir as String, repl?)
       val filename = save-package-to-cache(params, pkg)
       val filestamp = filestamp(filename)
-      save-aux-record(name(pkg), filestamp)
+      save-aux-record(pkg, filestamp)
 
     ;Save the given pkg to the appropriate places.
     defmethod save-when-appropriate (this, pkg:Pkg) :

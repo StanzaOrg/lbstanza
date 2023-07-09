@@ -45,6 +45,7 @@ defpackage stz/repl :
   import stz/verbose
   import stz/loaded-dynamic-libraries
   import stz/extern-defn-table
+  import stz/pkg-saver
 
 ;============================================================
 ;====================== Timers ==============================
@@ -482,6 +483,7 @@ public defn REPL (macro-plugins:Tuple<String>,
                               pkgstamps(result),
                               false,
                               compiler-flags,
+                              false,
                               true,
                               cache-dir)
 
@@ -496,7 +498,7 @@ public defn REPL (macro-plugins:Tuple<String>,
               within log-time(REPL-COMPILE-LOWERED) :
                 compile(lowered, false)
             vprintln("REPL: Done Compiling EPackage %_ to VMPackage." % [name(p)])
-            save-when-appropriate(pkgsaver, vmp)
+            save-when-appropriate(pkgsaver, StdPkg(vmp, false, false))
             save(auxfile)
             vmp
           (p:StdPkg) :

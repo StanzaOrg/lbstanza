@@ -2,6 +2,7 @@
 
 defpackage stz/pkg :
   import core
+  import core/sha256
   import collections
   import stz/algorithms
   import stz/params
@@ -125,8 +126,8 @@ defn ensure-expected-optimization! (pkg:Pkg, filename:String, optimized?:True|Fa
 public defn find-pkg! (name:Symbol,
                        optimized?:True|False --
                        cache-params:CacheParams|False = false) -> PkgFile :
-  val filename = find-pkg(name, optimized?)
-  match(filename:String) : filename
+  val pkg-file = find-pkg(name, optimized?)
+  match(pkg-file:PkgFile) : pkg-file
   else : throw(NoPackageException(name))
 
 ;Find the path to the given .pkg file.
@@ -135,36 +136,36 @@ public defn find-pkg (name:Symbol,
                       optimized?:True|False --
                       cache-params:CacheParams|False = false) -> PkgFile|False :
 
-  label<String|False> return :
+  label<PkgFile|False> return :
   
     ;Immediately return 'path' if a file exists at that path.
-    defn check-file (path:String) -> False :
-      return(path) when file-exists?(path)
+    defn check-file (path:String, FileType:String -> PkgFile) -> False :
+      return(FileType(path)) when file-exists?(path)
 
     ;Search for the package mangled with the given mode in the given
     ;directory and return immediately if it is in that directory.
-    defn check-dir (dir:String, mode:FilenameMode) -> False :
+    defn check-dir (dir:String, mode:FilenameMode, FileType:String -> PkgFile) -> False :
       val filename = pkg-filename(name, mode)
       val path = to-string(relative-to-dir(parse-path(dir), filename))
-      check-file(path)
+      check-file(path, FileType)
 
     ;If the pkg cache is enabled, then first look inside there.
     match(cache-params:CacheParams) :
     
       ;First check under the given cache mode.
       val mode = CacheFilename(optimized?, flags(cache-params), repl?(cache-params))
-      check-dir(dir(cache-params), mode)
+      check-dir(dir(cache-params), mode, PkgCache)
 
       ;Then specifically if it is for the REPL, additionally check the
       ;non-repl version since it can also be used.
       if repl?(cache-params) :
         val non-repl-mode = CacheFilename(optimized?, flags(cache-params), false)
-        check-dir(dir(cache-params), non-repl-mode)
+        check-dir(dir(cache-params), non-repl-mode, PkgCache)
       
     ;Then check the normal folders.
     val std-mode = StandardFilename(optimized?)
-    do(check-dir{_, std-mode}, STANZA-PKG-DIRS)
-    check-dir(system-filepath(StanzaPkgsDir), std-mode)
+    do(check-dir{_, std-mode, PkgDir}, STANZA-PKG-DIRS)
+    check-dir(system-filepath(StanzaPkgsDir), std-mode, PkgDir)
 
 ;============================================================
 ;======================= Cache Params =======================
@@ -207,13 +208,13 @@ public defstruct CacheFilename <: FilenameMode :
   repl?:True|False  
 with:
   printer => true
-  #constructor => #CacheFilename
+  constructor => #CacheFilename
 
 ;Normalizing constructor: Keep the compilation flags sorted.
 public defn CacheFilename (optimized?:True|False,
                            flags:Tuple<Symbol>,
                            repl?:True|False) -> CacheFilename :
-  CacheFilename(qsort(to-string, flags), repl?)
+  CacheFilename(optimized?, qsort(to-string, flags), repl?)
 
 ;Return the on-disk name of the .pkg file.
 public defn pkg-filename (name:Symbol,

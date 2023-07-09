@@ -94,7 +94,7 @@ public defenum PackageOrigin :
 ;Compute the origin from PkgLocation.
 public defn origin (loc:PkgLocation) -> PackageOrigin :
   if read-pkg?(loc) :
-    match(pkg-file) :
+    match(pkg-file(loc)) :
       (file:PkgCache) : FromPkgCache
       (file:PkgDir) : FromPkg
   else :

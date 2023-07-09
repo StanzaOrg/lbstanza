@@ -141,12 +141,15 @@ defpackage stz/compiler-main :
   import stz/dir-utils
   import stz/absolute-info
   import stz/params
+  import stz/pkg-saver
+  import stz/aux-file
 
 ;============================================================
 ;============== Main Compilation Algorithm ==================
 ;============================================================
 
 public defn compile (proj-manager:ProjManager,
+                     auxfile:AuxFile,
                      inputs:Collection<String|Symbol>,
                      supported-vm-packages:Tuple<String|Symbol>,
                      output:False|String,
@@ -179,7 +182,7 @@ public defn compile (proj-manager:ProjManager,
 
     ;Create pkg saver for saving output .pgk files.
     val cache-dir = pkg-cache-dir(proj-manager)
-    val pkgsaver = PkgSaver(auxfile(proj-manager),
+    val pkgsaver = PkgSaver(auxfile,
                             pkgstamps(result),
                             pkg-dir,
                             flags,
@@ -231,7 +234,7 @@ public defn compile (proj-manager:ProjManager,
     CompilationResult(map(name, packages(result)),
                       binding-packages(result),
                       pkgstamps(result),
-                      to-tuple(output-pkgs))
+                      output-filestamps(pkgsaver))
 
   defn combine-and-lower (packages:Tuple<EPackage|FastPkg>) :
     val epackages = for p in packages map :
