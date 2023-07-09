@@ -16,6 +16,7 @@ public defstruct BuildSettings :
   output: String|False with: (updater => sub-output)
   external-dependencies: String|False
   pkg-dir: String|False
+  pkg-cache-dir: String|False with: (updater => sub-pkg-cache-dir)
   optimize?: True|False
   debug?: True|False
   ccfiles: Tuple<String>
