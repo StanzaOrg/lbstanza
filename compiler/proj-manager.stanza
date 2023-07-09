@@ -158,7 +158,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
     ;Find the pkg file. 
     val cache-params = match(pkg-cache-dir:String) :
-      CacheParams(flags(params), pkg-cache-dir, in-repl?(params))
+      CacheParams(flags(params), pkg-cache-dir, in-repl?(params), debug?(params))
     val pkg-file = find-pkg(name, optimize?(params),
                             cache-params = cache-params)
 
