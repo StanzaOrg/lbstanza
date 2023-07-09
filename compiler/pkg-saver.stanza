@@ -1,0 +1,75 @@
+defpackage stz/pkg-saver :
+  import core
+  import collections
+  import stz/utils
+
+;A type for saving multiple packages and returning their
+;output file stamps.
+public deftype PkgSaver
+
+;Save one Pkg file.
+public defmulti save (saver:PkgSaver, pkg:Pkg) -> False
+
+;Save one Pkg file to the pkg cache.
+public defmulti cache (saver:PkgSaver, pkg:Pkg) -> False
+
+;Return the FileStamps of all pkgs saved by this saver.
+public defmulti output-filestamps (saver:PkgSaver) -> Tuple<FileStamp>
+
+;Main implementation.
+public defn PkgSaver (auxfile:AuxFile,
+                      package-stamps:Seqable<PackageStamp>,
+                      dir:String|False,
+                      flags:Tuple<Symbol>,
+                      debug?:True|False,
+                      repl?:True|False,
+                      cache-dir:String|False) :
+
+  ;Table of PackageStamps for easy retrieval.
+  val pkgstamp-table = to-hashtable(package, package-stamps)
+
+  ;Accumulate file stamps of all saved pkgs here.
+  val output-stamps = Vector<FileStamp>()
+
+  ;Helper: Create a PkgRecord that relates a package's source files
+  ;to its saved .pkg file.
+  defn save-aux-record (name:Symbol, filestamp:FileStamp) -> False :
+    ;Retrieve the stamp of the input source file.
+    val stamp = pkgstamp-table[name]
+    val full-source-path = resolve-path!(source-file(location(stamp)) as String)
+    val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
+    ;Add a record to the auxfile.
+    add(auxfile, 
+        PkgRecord(name,
+                  filestamp,
+                  sourcestamp,
+                  flags,
+                  pkg is FastPkg,
+                  debug?))
+
+  ;Helper: Returns true if the given package originated from a
+  ;source file.
+  defn from-source? (name:Symbol) -> True|False :
+    val stamp = pkgstamp-table[name]
+    not read-pkg?(location(stamp))  
+  
+  ;Main implementation.
+  new PkgSaver :
+
+    ;Save a Pkg to the explicitly provided user location.
+    defmethod save (this, pkg:Pkg) :
+      val filename = save-package(dir as String, pkg)
+      val filestamp = filestamp(filename)
+      add(output-stamps, filestamp)
+      save-aux-record(name(pkg), filestamp) when from-source?(name(pkg))
+
+    ;Save a Pkg to the package cache.
+    defmethod cache (this, pkg:Pkg) :
+      val params = CacheParams(flags, cache-dir as String, repl?)
+      val filename = cache-package(params, pkg)
+      val filestamp = filestamp(filename)
+      save-aux-record(name(pkg), filestamp) when from-source?(name(pkg))
+
+    ;Retrieve all the filestamps of all the saved pkgs.
+    defmethod output-filestamps (this) :
+      to-tuple(output-stamps)
