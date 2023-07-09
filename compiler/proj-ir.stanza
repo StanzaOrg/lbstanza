@@ -94,6 +94,12 @@ public defstruct ForeignPackageParamsStmt <: ProjStmt & Equalable :
 with:
   equalable => true
 
+public defstruct PkgCacheStmt <: ProjStmt & Equalable :
+  directory: String 
+with:
+  equalable => true
+  printer => true
+
 ;============================================================
 ;======================= Values =============================
 ;============================================================
