@@ -37,30 +37,54 @@ defpackage stz/pkg :
 val READ-PACKAGE = TimerLabel("Read Package")
 
 ;============================================================
-;=================== Package IO =============================
+;=================== Package Saving =========================
 ;============================================================
 
+;Save the given Pkg into the given directory.
+;Returns the path that the file was saved as.
 public defn save-package (dir:String, p:Pkg) -> String :
-  val pkg-file = string-join([mangle-as-filename(name(p)), extension(p)])
-  val filename = to-string(relative-to-dir(parse-path(dir), pkg-file))
-  ensure-directory-exists(dir)
-  try : serialize-pkg(filename, p)
-  catch (e:IOException|FastIOError) : throw(PackageWriteException(filename))
-  filename
+  val filename = pkg-filename(name(p), StandardFilename(p is FastPkg))
+  save-package(p, dir, filename)
 
+;Save the given Pkg to the pkg cache with the given caching parameters.
+public defn cache-package (params:CacheParams, p:Pkg) -> String :
+  ;Calculate the filename mode from the given Pkg structure.
+  val mode = match(p) :
+    (p:StdPkg) : CacheFilename(false, flags(params), asm?(p) is False)
+    (p:FastPkg) : CacheFilename(true, flags(params), false)
+  ;Compute the filename.
+  val filename = pkg-filename(name(p), mode)
+  save-package(p, dir(params), filename)
+
+;Helper: Serialize the Pkg to dir/filename, and return the
+;final path. Throw a PackageWriteException if something goes wrong.
+defn save-package (p:Pkg, dir:String, filename:String) -> String :
+  val path = to-string(relative-to-dir(parse-path(dir), filename))
+  ensure-directory-exists(dir)
+  try : serialize-pkg(path, p)
+  catch (e:IOException|FastIOError) : throw(PackageWriteException(path))
+  path
+
+;============================================================
+;================== Package Loading =========================
+;============================================================
+
+;Load the .pkg file from the given filename with the
+;given properties. 
 public defn load-package (filename:String,
                           expected-name:Symbol|False,
                           optimized?:True|False,
-                          include-asm?:True|False) :
+                          include-asm?:True|False) -> Pkg :
   ;Sanity check
   if optimized? and not include-asm? :
     fatal("Invalid option: Optimized .pkg files always include asm instructions.")
 
+  ;Log the event duration.
   val event-name = to-string("Read Package: file = %_, expected-name = %_, optimized? = %_" % [
     filename, expected-name, optimized?])
   within log-time(READ-PACKAGE, event-name) :
+  
     ;Load in the package
-    ;val f = FileInputStream(filename)
     val pkg =
       try :
         if include-asm? :
@@ -71,18 +95,23 @@ public defn load-package (filename:String,
         throw(sub-filename(e, filename))
       catch (e:FastIOError|IOException) :
         throw(PackageReadException(filename))
-    ;  finally : close(f)
+
     ;Ensure that name and optimization levels match expected.
     match(expected-name:Symbol) :
       ensure-expected-name!(pkg, filename, expected-name)
     ensure-expected-optimization!(pkg, filename, optimized?)
+    
     ;Return the pkg
     pkg
 
+;Helper: Throw an exception if name of the 'pkg' does not match
+;the given expected name.
 defn ensure-expected-name! (pkg:Pkg, filename:String, name:Symbol) :
   if /name(pkg) != name :
     throw(WrongPackageNameException(filename, name, /name(pkg)))
 
+;Helper: Throw an exception if the pkg does not match the
+;expected optimization level.
 defn ensure-expected-optimization! (pkg:Pkg, filename:String, optimized?:True|False) :
   val pkg-optimized? = pkg is FastPkg
   if pkg-optimized? != optimized? :
@@ -92,23 +121,125 @@ defn ensure-expected-optimization! (pkg:Pkg, filename:String, optimized?:True|Fa
 ;===================== Pkg Search ===========================
 ;============================================================
 
-public defn find-pkg! (name:Symbol, optimized?:True|False) -> String :
+;Forcibly find the path to the given .pkg file.
+;If the pkg-cache is enabled, then its parameters must be provided.
+public defn find-pkg! (name:Symbol,
+                       optimized?:True|False --
+                       cache-params:CacheParams|False = false) -> String :
   val filename = find-pkg(name, optimized?)
   match(filename:String) : filename
   else : throw(NoPackageException(name))
 
-public defn find-pkg (name:Symbol, optimized?:True|False) -> String|False :
-  val mangled = mangle-as-filename(name)
-  label<String|False> return :
-    ;Check functions
-    defn check-file (filename:String) :
-      return(filename) when file-exists?(filename)
-    defn check-dir (dir:String) :
-      val extension = ".fpkg" when optimized? else ".pkg"
-      val pkgfile = string-join([mangle-as-filename(name), extension])
-      val filename = to-string(relative-to-dir(parse-path(dir), parse-path(pkgfile)))
-      check-file(filename)
-    ;Check normal folders
-    do(check-dir, STANZA-PKG-DIRS)
-    check-dir(system-filepath(StanzaPkgsDir))
+;Find the path to the given .pkg file.
+;If the pkg-cache is enabled, then its parameters must be provided.
+public defn find-pkg (name:Symbol,
+                      optimized?:True|False --
+                      cache-params:CacheParams|False = false) -> String|False :
 
+  label<String|False> return :
+  
+    ;Immediately return 'path' if a file exists at that path.
+    defn check-file (path:String) -> False :
+      return(path) when file-exists?(path)
+
+    ;Search for the package mangled with the given mode in the given
+    ;directory and return immediately if it is in that directory.
+    defn check-dir (dir:String, mode:FilenameMode) -> False :
+      val filename = pkg-filename(name, mode)
+      val path = to-string(relative-to-dir(parse-path(dir), filename))
+      check-file(path)
+
+    ;If the pkg cache is enabled, then first look inside there.
+    match(cache-params:CacheParams) :
+    
+      ;First check under the given cache mode.
+      val mode = CacheFilename(optimized?, flags(cache-params), repl?(cache-params))
+      check-dir(dir(cache-params), mode)
+
+      ;Then specifically if it is for the REPL, additionally check the
+      ;non-repl version since it can also be used.
+      if repl?(cache-params) :
+        val non-repl-mode = CacheFilename(optimized?, flags(cache-params), false)
+        check-dir(dir(cache-params), non-repl-mode)
+      
+    ;Then check the normal folders.
+    val std-mode = StandardFilename(optimized?)
+    do(check-dir{_, std-mode}, STANZA-PKG-DIRS)
+    check-dir(system-filepath(StanzaPkgsDir), std-mode)
+
+;============================================================
+;======================= Cache Params =======================
+;============================================================
+
+;If we are using the pkg cache, then we must supply
+;the parameters for it.
+;- flags: The active compilation flags.
+;- dir: The directory of the pkg cache.
+public defstruct CacheParams:
+  flags:Tuple<Symbol>
+  dir:String
+  repl?:True|False
+
+;============================================================
+;===================== Pkg FileNames ========================
+;============================================================
+
+;This section controls the on-disk filename for the output
+;.pkg files. There are multiple modes because depending on
+;the type of cache we are using the filename changes.
+
+;Represents the mode to use for calculating the name
+;of the .pkg file.
+public deftype FilenameMode
+
+;Returns true if the .pkg is stored in optimized mode.
+public defmulti optimized? (mode:FilenameMode) -> True|False
+
+;Standard .pkg filenaming. Does not go through the cache.
+public defstruct StandardFilename <: FilenameMode :
+  optimized?:True|False with: (as-method => true)
+
+;Hashed filenaming for use with the cache.
+;- flags: The active compilation flags.
+;- repl?: True if this is a .pkg for use only in the REPL. 
+public defstruct CacheFilename <: FilenameMode :
+  optimized?:True|False with: (as-method => true)
+  flags:Tuple<Symbol>
+  repl?:True|False  
+with:
+  printer => true
+  #constructor => #CacheFilename
+
+;Normalizing constructor: Keep the compilation flags sorted.
+public defn CacheFilename (optimized?:True|False,
+                           flags:Tuple<Symbol>,
+                           repl?:True|False) -> CacheFilename :
+  CacheFilename(qsort(to-string, flags), repl?)
+
+;Return the on-disk name of the .pkg file.
+public defn pkg-filename (name:Symbol,
+                          mode:FilenameMode) -> String :
+  match(mode) :
+    (mode:StandardFilename) :
+      val extension = ".fpkg" when optimized?(mode) else ".pkg"
+      mangle-as-filename(name, suffix = extension)      
+    (mode:CacheFilename) :
+      val extension = ".fpkg" when optimized?(mode) else ".pkg"
+      val hashstring = hash-string(mode)
+      val suffix = to-string("_%_%_" % [hashstring, extension])
+      mangle-as-filename(name, suffix = suffix)
+
+;------------------------------------------------------------
+;---------- Hashing the CacheFilename Parameters ------------
+;------------------------------------------------------------
+
+;Compute the hash string to use under the given cache parameters.
+defn hash-string (mode:CacheFilename) -> String :
+  val buffer = StringBuffer()
+  for flag in flags(mode) do :
+    print(buffer, "(%_)" % [flag])
+  if repl?(mode) :
+    print(buffer, "[REPL]")
+  buffer $> to-bytearray
+         $> sha256-hash
+         $> to-hex

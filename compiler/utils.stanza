@@ -60,6 +60,17 @@ defn mangle-as-filename (buffer:StringBuffer, name:Symbol) -> False :
       print(buffer, "_%_" % [to-hex(c)])
 
 ;============================================================
+;=============== String Conversion to ByteArray =============
+;============================================================
+
+;Convert a String into a ByteArray.
+public defn to-bytearray (s:StringBuffer) -> ByteArray :
+  val bytes = ByteArray(length(s))
+  for (c in s, i in 0 to false) do :
+    bytes[i] = to-byte(c)
+  bytes
+
+;============================================================
 ;=============== Low-Level Expanding Buffer =================
 ;============================================================
 
