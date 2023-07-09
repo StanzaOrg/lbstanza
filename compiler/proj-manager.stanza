@@ -31,12 +31,6 @@ Input: The name of the package
 
 Output: The PkgLocation structure if the package is found.
 
-### Updating the Auxiliary File ###
-
-Input:
-
-The statistics corresponding to all the saved packages.
-
 ### Collect Conditional Imports From Current Load List ###
 
 Input:
@@ -64,8 +58,11 @@ syntax packages, if there is one.
 ;=======================================================<doc>
 
 public deftype ProjManager
+
+;Find the location of the package with the given name.
 public defmulti find-package (l:ProjManager, name:Symbol) -> PkgLocation|False
-public defmulti update-aux-file (l:ProjManager, pkgs:Seqable<SavedPkg>) -> False
+
+;Retrieve all the packages that must be imported given the current list of packages.
 public defmulti conditional-imports (l:ProjManager, packages:Seqable<Symbol>) -> Tuple<Symbol>
 
 ;Given the set of syntax packages we need, find the name of the plugin
@@ -216,12 +213,6 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       val added-packages = cat(`(core tests), packages(stmt))
       if superset-of-names?(added-packages) : One(filename(stmt))
       else : None()
-
-  ;Updating the auxiliary file
-  defn update-aux-file (pkgs:Seqable<SavedPkg>) :
-    fatal("No auxiliary file provided to project manager.") when auxfile is False
-    for pkg in pkgs do :
-      add(auxfile as AuxFile, make-pkg-record(package(pkg), filestamp(pkg), source(pkg)))
 
   ;Retrieve conditional imports
   defn conditional-imports (packages:Seqable<Symbol>) :
