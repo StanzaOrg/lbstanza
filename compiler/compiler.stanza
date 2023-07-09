@@ -78,6 +78,8 @@ defn compute-build-settings (projenv:StandardProjEnv,
       val build-ext-deps = string-or?(external-dependencies(settings), value?(external-dependencies(s)))
       ;Compute build pkg directory
       val build-pkg-dir = string-or?(pkg-dir(settings), value?(pkg(s)))
+      ;Compute cache directory
+      val pkg-cache-dir* = string-or?(pkg-cache-dir(settings), pkg-cache-dir(proj))
       ;Compute input packages
       val build-packages = Vector<String|Symbol>()
       add-all(build-packages, /inputs(s))
@@ -103,6 +105,7 @@ defn compute-build-settings (projenv:StandardProjEnv,
         build-out,
         build-ext-deps,
         build-pkg-dir,
+        pkg-cache-dir*,
         build-optimization,
         build-debug,
         build-ccfiles,
@@ -122,11 +125,13 @@ defn compute-build-settings (projenv:StandardProjEnv,
       val inputs* = BuildPackages $ to-tuple $ non-files-to-symbols $ non-proj-files $ names $ inputs
       val vm-packages* = to-tuple $ non-files-to-symbols $ vm-packages $ settings
       val build-out = add-exe-suffix?(output(settings), platform)
+      val pkg-cache-dir* = string-or?(pkg-cache-dir(settings), pkg-cache-dir(proj))
       val settings* = sub-inputs{_, inputs*} $
                       sub-vm-packages{_, vm-packages*} $
                       sub-platform{_, platform} $
                       sub-output{_, build-out} $
                       sub-link-type{_, link-type*} $
+                      sub-pkg-cache-dir{_, pkg-cache-dir*} $
                       settings
 
       ;Return new settings.
@@ -181,7 +186,7 @@ public defn dependencies (settings:BuildSettings, ignore-cache?:True|False) -> D
       (f:False) : OUTPUT-PLATFORM
 
   defn compute-dependencies (proj:ProjFile, settings:BuildSettings) :
-    val params = ProjParams(compiler-flags(), optimize?(settings), debug?(settings))
+    val params = ProjParams(compiler-flags(), optimize?(settings), debug?(settings), false)
     val auxfile = AuxFile() when not ignore-cache?
     val proj-manager = ProjManager(proj, params, auxfile)
     val macroexpander = StanzaMacroexpander(false, proj-manager, macro-plugins(settings))
@@ -237,7 +242,7 @@ public defn compile (settings:BuildSettings, system:System, verbose?:True|False)
       println("Build target %~ is already up-to-date." % [build-target?(settings*)])
     else :
       setup-system-flags(settings*)
-      val proj-manager = ProjManager(proj, ProjParams(compiler-flags(), optimize?(settings*), debug?(settings*)), auxfile)
+      val proj-manager = ProjManager(proj, ProjParams(compiler-flags(), optimize?(settings*), debug?(settings*), false), auxfile)
       val comp-result = compile(proj-manager, build-inputs!(settings*), vm-packages(settings*), asm?(settings*), pkg-dir(settings*),
                                 backend(platform(settings*) as Symbol), optimize?(settings*), debug?(settings*), verbose?,
                                 macro-plugins(settings*), inputs(settings) is BuildTarget)
