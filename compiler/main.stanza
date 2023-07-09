@@ -285,7 +285,7 @@ defn ccflags (cmd-args:CommandArgs) -> Tuple<String> :
   if flag?(cmd-args, "ccflags") :
     val flag1 = cmd-args["ccflags"]
     add-all(flags, tokenize-shell-command(flag1))
-  if flag?(cmd-args, "debug") :
+  if supported-flag?(cmd-args, "debug") and flag?(cmd-args, "debug") :
     add(flags, "-shared") when not contains?(flags, "-shared")
   to-tuple(flags)
 

@@ -150,17 +150,20 @@ public defn get (a:CommandArgs, name:String) :
   match(flag:ParsedFlag) : value(flag)
   else : fatal("Flag -%_ was not given." % [name])
 
-public defn get? (a:CommandArgs, name:String, default) :
+public defn get? (a:CommandArgs, name:String, default) -> ? :
   if not contains?(all-flags(a), name) :
     fatal("-%_ is not a supported flag for this command." % [name])
   val flag = find({flagname(_) == name}, flags(a))
   match(flag:ParsedFlag) : value(flag)
   else : default  
 
-public defn flag? (a:CommandArgs, name:String) :
+public defn flag? (a:CommandArgs, name:String) -> True|False :
   if not contains?(all-flags(a), name) :
     fatal("-%_ is not a supported flag for this command." % [name])
   any?({flagname(_) == name}, flags(a))
+
+public defn supported-flag? (a:CommandArgs, name:String) -> True|False :
+  contains?(all-flags(a), name)
 
 ;============================================================
 ;============== Argument Parsing Algorithm ==================
