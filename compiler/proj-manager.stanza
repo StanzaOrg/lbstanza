@@ -164,6 +164,9 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
                             cache-params = cache-params)
     val src-path = source-file?(name)
     val read-pkg? = match(pkg-file, src-path) :
+    
+      ;If we found a .pkg file and a corresponding source file, then
+      ;check with the auxfile to see whether the .pkg file is up-to-date.
       (pkg-file:PkgFile, src-path:String) :
         match(auxfile:AuxFile) :
           if file-exists?(src-path) :
@@ -177,8 +180,15 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
             else :
               vprintln("Pkg file for package %~ at %~ is not up-to-date." % [name, file(pkg-file)])
             up-to-date?
+            
+      ;If there is no corresponding source file, then read from the
+      ;.pkg file only if it is explicitly from the pkg dir. Do not
+      ;consider .pkgs from the pkg cache.
       (pkg-file:PkgDir, src-path:False) : true
+      
+      ;Otherwise do not read from the .pkg file.
       (pkg-file, src-path) : false
+      
     if read-pkg? or src-path is-not False :
       PkgLocation(name, src-path, pkg-file, read-pkg?)
 
