@@ -211,6 +211,14 @@ defmethod convert (s:ForeignPackageParamsStmtS0, extractor:Extractor) :
     projdir,
     entries(resolved-value))
 
+defmethod map-fields (s:PkgCacheStmtS0, mapper:Mapper) :
+  PkgCacheStmtS0(
+    info(s),
+    map-field(mapper, directory(s), SINGLE-PATH))
+defmethod convert (s:PkgCacheStmtS0, extractor:Extractor) :
+  PkgCacheStmt(
+    extract(extractor, directory(s), SINGLE-PATH))
+
 ;Follow the structure of the given type, and prefix
 ;the working directory to the value wherever type is a FilepathType,
 ;or a StanzaInputType.
