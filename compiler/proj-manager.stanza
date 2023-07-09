@@ -84,6 +84,9 @@ public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symb
 ;the folders to load them from.
 public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> RequiredLibraries
 
+;Return the pkg cache directory if one is supplied.
+public defmulti pkg-cache-dir (l:ProjManager) -> String|False
+
 ;Represents the required libraries and folders for a set of Stanza packages.
 public defstruct RequiredLibraries :
   packages: Tuple<KeyValue<Symbol,Tuple<String>>>
@@ -135,6 +138,9 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       if empty?(dylibs(req)) : None()
       else : One(package(req) => dylibs(req))
 
+  ;Retrieve the pkg cache directory.
+  val pkg-cache-dir = pkg-cache-dir(proj)
+
   ;Find the source file that contains the package.
   defn source-file? (name:Symbol) -> String|False :
     match(get?(source-file-table, name)) :
@@ -152,26 +158,29 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
   ;Find a package
   defn find-package (name:Symbol) -> PkgLocation|False :
-    val pkg-path = find-pkg(name, optimize?(params))
+    val cache-params = match(pkg-cache-dir:String) :
+      CacheParams(flags(params), pkg-cache-dir, in-repl?(params))
+    val pkg-file = find-pkg(name, optimize?(params),
+                            cache-params = cache-params)
     val src-path = source-file?(name)
-    val read-pkg? = match(pkg-path, src-path) :
-      (pkg-path:String, src-path:String) :
+    val read-pkg? = match(pkg-file, src-path) :
+      (pkg-file:PkgFile, src-path:String) :
         match(auxfile:AuxFile) :
           if file-exists?(src-path) :
-            val pkg-rec = make-pkg-record(name, filestamp(pkg-path), filestamp(src-path))
+            val pkg-rec = make-pkg-record(name, filestamp(file(pkg-file)), filestamp(src-path))
             vprintln("Check whether package %~ is up-to-date." % [name])
             within indented() :
               vprintln(pkg-rec)
             val up-to-date? = key?(auxfile, pkg-rec)
             if up-to-date? :
-              vprintln("Pkg file for package %~ at %~ is up-to-date." % [name, pkg-path])
+              vprintln("Pkg file for package %~ at %~ is up-to-date." % [name, file(pkg-file)])
             else :
-              vprintln("Pkg file for package %~ at %~ is not up-to-date." % [name, pkg-path])
+              vprintln("Pkg file for package %~ at %~ is not up-to-date." % [name, file(pkg-file)])
             up-to-date?
-      (pkg-path:String, src-path:False) : true
-      (pkg-path:False, src-path) : false
-    if pkg-path is-not False or src-path is-not False :
-      PkgLocation(name, src-path, pkg-path, read-pkg?)
+      (pkg-file:PkgDir, src-path:False) : true
+      (pkg-file, src-path) : false
+    if read-pkg? or src-path is-not False :
+      PkgLocation(name, src-path, pkg-file, read-pkg?)
 
   ;Find a set of syntax packages
   defn find-syntax-packages (names:Tuple<Symbol>) -> String|False :
@@ -214,7 +223,6 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
   ;Return new project manager
   new ProjManager :
     defmethod find-package (this, name:Symbol) : find-package(name)
-    defmethod update-aux-file (this, pkgs:Seqable<SavedPkg>) : update-aux-file(pkgs)
     defmethod conditional-imports (this, packages:Seqable<Symbol>) : conditional-imports(packages)
     defmethod find-syntax-packages (this, names:Tuple<Symbol>) : find-syntax-packages(names)
 
@@ -241,6 +249,9 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       ;Return bundled result
       RequiredLibraries(package-libs, folders)
 
+    defmethod pkg-cache-dir (this) :
+      pkg-cache-dir
+
 ;============================================================
 ;===================== Structures ===========================
 ;============================================================
@@ -249,11 +260,7 @@ public defstruct ProjParams :
   flags: Tuple<Symbol>
   optimize?: True|False
   debug?: True|False
-
-public defstruct SavedPkg :
-  package: Symbol
-  filestamp: FileStamp
-  source: FileStamp
+  in-repl?: True|False
 
 ;============================================================
 ;===================== Package Tree =========================

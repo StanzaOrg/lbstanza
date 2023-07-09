@@ -29,6 +29,7 @@ defpackage stz/pkg :
   import stz/pkg-errors
   import stz/pkg-serializer
   import stz/dir-utils
+  import stz/package-stamps
 
 ;============================================================
 ;==================== Timers ================================
@@ -123,7 +124,7 @@ defn ensure-expected-optimization! (pkg:Pkg, filename:String, optimized?:True|Fa
 ;If the pkg-cache is enabled, then its parameters must be provided.
 public defn find-pkg! (name:Symbol,
                        optimized?:True|False --
-                       cache-params:CacheParams|False = false) -> String :
+                       cache-params:CacheParams|False = false) -> PkgFile :
   val filename = find-pkg(name, optimized?)
   match(filename:String) : filename
   else : throw(NoPackageException(name))
@@ -132,7 +133,7 @@ public defn find-pkg! (name:Symbol,
 ;If the pkg-cache is enabled, then its parameters must be provided.
 public defn find-pkg (name:Symbol,
                       optimized?:True|False --
-                      cache-params:CacheParams|False = false) -> String|False :
+                      cache-params:CacheParams|False = false) -> PkgFile|False :
 
   label<String|False> return :
   
