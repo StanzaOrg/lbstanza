@@ -140,6 +140,7 @@ defpackage stz/compiler-main :
   import stz/file-stamps
   import stz/dir-utils
   import stz/absolute-info
+  import stz/params
 
 ;============================================================
 ;============== Main Compilation Algorithm ==================
@@ -159,6 +160,12 @@ public defn compile (proj-manager:ProjManager,
   defn driver () :
     val denv = DEnv()
     val macroexpander = StanzaMacroexpander(force-build-macros?, proj-manager, macro-plugins)
+
+    ;Collect the compiler flags before compilation starts just in case
+    ;one of the source files add additional flags.
+    val flags = compiler-flags()
+
+    ;Compile inputs source files to EL packages.
     val result = compile-to-el $ new FrontEndInputs :
       defmethod inputs (this) : to-tuple(inputs)
       defmethod find-package (this, name:Symbol) : find-package(proj-manager, name)
@@ -170,17 +177,25 @@ public defn compile (proj-manager:ProjManager,
       defmethod verbose? (this) : verbose?
       defmethod macroexpander (this) : macroexpander
 
-    ;Build pkgstamp table
-    val pkgstamp-table = to-hashtable(package, pkgstamps(result))
-
-    ;Record filestamp of any output pkgs
-    val output-pkgs = Vector<FileStamp>()
+    ;Create pkg saver for saving output .pgk files.
+    val cache-dir = pkg-cache-dir(proj-manager)
+    val pkgsaver = PkgSaver(auxfile(proj-manager),
+                            pkgstamps(result),
+                            pkg-dir,
+                            flags,
+                            debug?,
+                            false,
+                            cache-dir)
 
     ;Save optimized packages if necessary
     if pkg-dir is String and optimize? :
-      within save = save-pkgs(pkgstamp-table, output-pkgs) :
-        for p in filter-by<EPackage>(packages(result)) do :
-          save(FastPkg(packageio(p), exps(p)))
+      for p in packages(result) do :
+        ;Convert to Pkg if not already in that form.
+        val pkg = match(p) :
+          (p:EPackage) : FastPkg(packageio(p), exps(p))
+          (p:Pkg) : p
+        ;Save it using the PkgSaver.
+        save-when-appropriate(pkgsaver, pkg)
 
     ;Compute whether the package list includes stz/vm?.
     ;Required to ultimately decide whether to include the vm stubs in the
@@ -196,9 +211,8 @@ public defn compile (proj-manager:ProjManager,
         (opt?:False, output:False) : `unoptimized-pkgs
     switch(situation) :
       `optimized-asm :
-        val packages = Vector<VMPackage|StdPkg>()
-        add(packages, combine-and-lower(/packages(result) as Tuple<EPackage|FastPkg>))
-        compile-vmpackages({false}, to-tuple(packages), bindings(result), output as String, false, includes-stz-vm?)
+        val combined-pkg = combine-and-lower(/packages(result) as Tuple<EPackage|FastPkg>)
+        compile-vmpackages(false, [combined-pkg], bindings(result), output as String, includes-stz-vm?)
       `optimized-pkgs :
         ;Already done
         false
@@ -208,12 +222,10 @@ public defn compile (proj-manager:ProjManager,
           match(p) :
             (p:EPackage) : add(packages, compile(lower-unoptimized(p), debug?))
             (p:StdPkg)  : add(packages, p)
-        within save = save-pkgs(pkgstamp-table, output-pkgs) :
-          compile-vmpackages(save, to-tuple(packages), bindings(result), output as String, pkg-dir is String, includes-stz-vm?)
+        val pkgsaver? = pkgsaver when pkg-dir is String or cache-dir is String
+        compile-vmpackages(pkgsaver?, to-tuple(packages), bindings(result), output as String, includes-stz-vm?)
       `unoptimized-pkgs :
-        val epackages = to-tuple $ filter-by<EPackage>(packages(result))
-        within save = save-pkgs(pkgstamp-table, output-pkgs) :
-          compile-to-pkgs(save, epackages)
+        compile-to-pkgs(pkgsaver, packages(result) as Tuple<EPackage|StdPkg>)
 
     ;Return result
     CompilationResult(map(name, packages(result)),
@@ -221,39 +233,18 @@ public defn compile (proj-manager:ProjManager,
                       pkgstamps(result),
                       to-tuple(output-pkgs))
 
-  defn save-pkgs (body:(Pkg -> False) -> ?,
-                  pkgstamp-table:HashTable<Symbol,PackageStamp>,
-                  output-pkgs:Vector<FileStamp>) :
-    match(pkg-dir:String) :
-      val saved-pkgs = Vector<SavedPkg>()
-      defn save-pkg (pkg:Pkg) :
-        val filename = save-package(pkg-dir as String, pkg)
-        val stamp = pkgstamp-table[name(pkg)]
-        val filestamp = filestamp(filename)
-        add(output-pkgs, filestamp)
-        val full-source-path = resolve-path!(source-file(location(stamp)) as String)
-        val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
-        vprintln("Save output .pkg for package %~:" % [name(pkg)])
-        vprintln("  source-hashstamp: %_" % [sourcestamp])
-        vprintln("  pkg-hashstamp: %_" % [filestamp])
-        add(saved-pkgs, SavedPkg(name(pkg), filestamp, sourcestamp))
-      body(save-pkg)
-      update-aux-file(proj-manager, saved-pkgs)
-    else :
-      defn save-pkg (pkg:Pkg) : false
-      body(save-pkg)
-
   defn combine-and-lower (packages:Tuple<EPackage|FastPkg>) :
     val epackages = for p in packages map :
       match(p:FastPkg) : EPackage(packageio(p), exps(p))
       else : p as EPackage
     compile(lower-optimized(epackages), debug?)
 
-  defn compile-vmpackages (save-pkg:Pkg -> ?,
+  ;- pkgsaver: False if we not need to write out any .pkg files to disk (either
+  ;  to pkg dir or to pkg cache.). 
+  defn compile-vmpackages (pkgsaver:PkgSaver|False,
                            packages:Tuple<VMPackage|StdPkg>,
                            bindings:Bindings|False,
                            filename:String,
-                           save-pkgs?:True|False,
                            includes-stz-vm?:True|False) :
     val stubs = AsmStubs(backend)
     val npkgs = for p in packages map :
@@ -265,9 +256,16 @@ public defn compile (proj-manager:ProjManager,
       for (pkg in packages, npkg in npkgs) do :
         match(npkg) :
           (npkg:NormVMPackage) :
-            val ins = compile-normalized-vmpackage(filestream, npkg, stitcher, stubs, save-pkgs?)
-            save-pkg(StdPkg(pkg as VMPackage, ins as Tuple<Ins>, datas(npkg))) when save-pkgs?
+            match(pkgsaver:PkgSaver) :
+              ;Compile and return instructions.
+              val ins = compile-normalized-vmpackage(filestream, npkg, stitcher, stubs, true)
+              val output-pkg = StdPkg(pkg as VMPackage, ins as Tuple<Ins>, datas(npkg))
+              save-when-appropriate(pkgsaver, output-pkg)
+            else :
+              ;Compile without returning instructions.
+              compile-normalized-vmpackage(filestream, npkg, stitcher, stubs, false)
           (std-pkg:StdPkg) :
+            match(pkgsaver:PkgSaver) : save-when-appropriate(pkgsaver, std-pkg)
             compile-stdpkg(filestream, std-pkg, stitcher)
       emit-all-system-stubs(filestream, stitcher, stubs, includes-stz-vm?)
       emit-text-section-markers(filestream, stubs, `stanza_text_section_end)
@@ -299,14 +297,18 @@ public defn compile (proj-manager:ProjManager,
       val emitter = emitter(stitcher, name(npkg), file-emitter(filestream, stubs))
       emit-normalized-package(npkg, emitter, stubs)
 
-  defn compile-to-pkgs (save-pkg:Pkg -> ?, epackages:Tuple<EPackage>) :
+  defn compile-to-pkgs (pkgsaver:PkgSaver, packages:Tuple<EPackage|StdPkg>) :
     val stubs = AsmStubs(backend)
-    for epackage in epackages do :
-      val vmpackage = compile(lower-unoptimized(epackage), debug?)
-      val npkg = normalize(vmpackage, backend)
-      val buffer = Vector<Ins>()
-      emit-normalized-package(npkg, buffer-emitter(buffer, stubs), stubs)
-      save-pkg(StdPkg(vmpackage, to-tuple(buffer), datas(npkg)))
+    for package in packages do :
+      match(package) :
+        (epackage:EPackage) :
+          val vmpackage = compile(lower-unoptimized(epackage), debug?)
+          val npkg = normalize(vmpackage, backend)
+          val buffer = Vector<Ins>()
+          emit-normalized-package(npkg, buffer-emitter(buffer, stubs), stubs)
+          save-when-appropriate(pkgsaver, StdPkg(vmpackage, to-tuple(buffer), datas(npkg)))
+        (package:StdPkg) :
+          save-when-appropriate(pkgsaver, package)
 
   defn emit-normalized-package (npkg:NormVMPackage, emitter:CodeEmitter, stubs:AsmStubs) :
     ;Create the debug table so that we can add debug comments

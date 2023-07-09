@@ -81,6 +81,26 @@ public defn pkg-path (l:PkgLocation) -> String|False :
     (f:False) : false
 
 ;============================================================
+;=================== Package Origin =========================
+;============================================================
+
+;Represents the three origins for a package.
+;Can be computed from the PkgLocation.
+public defenum PackageOrigin :
+  FromSource
+  FromPkg
+  FromPkgCache
+
+;Compute the origin from PkgLocation.
+public defn origin (loc:PkgLocation) -> PackageOrigin :
+  if read-pkg?(loc) :
+    match(pkg-file) :
+      (file:PkgCache) : FromPkgCache
+      (file:PkgDir) : FromPkg
+  else :
+    FromSource
+
+;============================================================
 ;====================== Printers ============================
 ;============================================================
 

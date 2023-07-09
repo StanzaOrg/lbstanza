@@ -21,6 +21,9 @@ public defmulti cache (saver:PkgSaver, pkg:Pkg) -> False
 ;Return the FileStamps of all pkgs saved by this saver.
 public defmulti output-filestamps (saver:PkgSaver) -> Tuple<FileStamp>
 
+;Save the given pkg to the correct locations when appropriate.
+public defmulti save-when-appropriate (saver:PkgSaver, pkg:Pkg) -> False
+
 ;============================================================
 ;===================== Main Implementation ==================
 ;============================================================
@@ -52,6 +55,10 @@ public defn PkgSaver (auxfile:AuxFile,
     val stamp = pkgstamp-table[name]
     val full-source-path = resolve-path!(source-file(location(stamp)) as String)
     val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
+    ;Log details
+    vprintln("Save output .pkg for package %~:" % [name])
+    vprintln("  source-hashstamp: %_" % [sourcestamp])
+    vprintln("  pkg-hashstamp: %_" % [filestamp])
     ;Add a record to the auxfile.
     add(auxfile, 
         PkgRecord(name,
@@ -61,38 +68,40 @@ public defn PkgSaver (auxfile:AuxFile,
                   pkg is FastPkg,
                   debug?))
 
-  ;Helper: Returns true if the given package originated from a
-  ;source file.
-  defn from-source? (name:Symbol) -> True|False :
-    val stamp = pkgstamp-table[name]
-    not read-pkg?(location(stamp))  
-
-  ;Helper: Returns true if the given package originated from a .pkg
-  ;file that was not from the pkg cache.
-  defn from-non-cache-pkg? (name:Symbol) -> True|False :
-    val loc = location(pkgstamp-table[name])
-    read-pkg?(loc) and pkg-file(loc) is PkgCache
+  ;Helper: Read the pkgstamp-table to determine the origin
+  ;of the given package.
+  defn origin (pkg:Pkg) -> PackageOrigin :
+    /origin(location(pkgstamp-table[name(pkg)]))
   
   ;Main implementation.
   new PkgSaver :
 
     ;Save a Pkg to the explicitly provided user location.
     defmethod save (this, pkg:Pkg) :
-      if from-non-cache-pkg?(name(pkg)) :
-        fatal("No need to ever save a .pkg that originated from a .pkg file.")        
+      if origin(pkg) == FromPkg :
+        fatal("No need to ever save a .pkg that originated from a .pkg file.")
       val filename = save-package(dir as String, pkg)
       val filestamp = filestamp(filename)
       add(output-stamps, filestamp)
-      save-aux-record(name(pkg), filestamp) when from-source?(name(pkg))
+      save-aux-record(name(pkg), filestamp) when origin(pkg) == FromSource
 
     ;Save a Pkg to the package cache.
     defmethod cache (this, pkg:Pkg) :
-      if not from-source?(name(pkg)) :
+      if origin(pkg) != FromSource :
         fatal("Cannot cache a .pkg that did not originate from source file.")
       val params = CacheParams(flags, cache-dir as String, repl?)
-      val filename = cache-package(params, pkg)
+      val filename = save-package-to-cache(params, pkg)
       val filestamp = filestamp(filename)
       save-aux-record(name(pkg), filestamp)
+
+    ;Save the given pkg to the appropriate places.
+    defmethod save-when-appropriate (this, pkg:Pkg) :
+      ;Save to cache if pkg was compiled from source.
+      if cache-dir is String and origin(pkg) == FromSource :
+        cache(this, pkg)
+      ;Save to pkgdir if pkg was not from explicit pkg.
+      if dir is String and origin(pkg) != FromPkg :
+        save(this, pkg)
 
     ;Retrieve all the filestamps of all the saved pkgs.
     defmethod output-filestamps (this) :

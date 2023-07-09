@@ -47,7 +47,7 @@ public defn save-package (dir:String, p:Pkg) -> String :
   save-package(p, dir, filename)
 
 ;Save the given Pkg to the pkg cache with the given caching parameters.
-public defn cache-package (params:CacheParams, p:Pkg) -> String :
+public defn save-package-to-cache (params:CacheParams, p:Pkg) -> String :
   ;Calculate the filename mode from the given Pkg structure.
   val mode = CacheFilename(p is FastPkg, flags(params), repl?(params))
   ;Compute the filename.
