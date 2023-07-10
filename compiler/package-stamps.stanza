@@ -32,10 +32,14 @@ public defmulti file (d:PkgFile) -> String
 ;Represents a .pkg loaded from cache.
 public defstruct PkgCache <: PkgFile :
   file:String with: (as-method => true)
+with:
+  printer => true
 
 ;Represents a .pkg loaded from the -pkg directory.
 public defstruct PkgDir <: PkgFile :
   file:String with: (as-method => true)
+with:
+  printer => true
 
 ;============================================================
 ;================== Package Location ========================

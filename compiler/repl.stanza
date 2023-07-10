@@ -498,7 +498,8 @@ public defn REPL (macro-plugins:Tuple<String>,
               within log-time(REPL-COMPILE-LOWERED) :
                 compile(lowered, false)
             vprintln("REPL: Done Compiling EPackage %_ to VMPackage." % [name(p)])
-            save-when-appropriate(pkgsaver, StdPkg(vmp, false, false))
+            if name(p) != repl-package? :
+              save-when-appropriate(pkgsaver, StdPkg(vmp, false, false))
             vmp
           (p:StdPkg) :
             vprintln("REPL: Skipping VMPackage compilation of %_. Loaded directly from .pkg." % [name(p)])

@@ -199,6 +199,8 @@ public defmulti optimized? (mode:FilenameMode) -> True|False
 ;Standard .pkg filenaming. Does not go through the cache.
 public defstruct StandardFilename <: FilenameMode :
   optimized?:True|False with: (as-method => true)
+with:
+  printer => true
 
 ;Hashed filenaming for use with the cache.
 ;- flags: The active compilation flags.
