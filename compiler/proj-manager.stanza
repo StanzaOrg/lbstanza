@@ -156,14 +156,18 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
   ;Find a package
   defn find-package (name:Symbol) -> PkgLocation|False :
 
-    ;Find the pkg file. 
-    val cache-params = match(pkg-cache-dir:String) :
+    ;Retrieve the corresponding source file for the package.
+    val src-path = source-file?(name)
+
+    ;Load the pkg file for the package.
+    ;Note: If there is no source file present, then we skip looking in the cache
+    ;entirely.
+    val cache-params = match(pkg-cache-dir:String, src-path:String) :
       CacheParams(flags(params), pkg-cache-dir, in-repl?(params), debug?(params))
     val pkg-file = find-pkg(name, optimize?(params),
                             cache-params = cache-params)
 
     ;Determine whether the pkg is up-to-date and should be read from.
-    val src-path = source-file?(name)
     val read-pkg? = match(pkg-file, src-path) :
     
       ;If we found a .pkg file and a corresponding source file, then
