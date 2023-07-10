@@ -87,6 +87,7 @@ defserializer AuxFileSerializer () :
     ImportWhenStmt: (package:symbol, dependencies:tuple(symbol))
     CompileStmt: (file?:bool, name:string-or-tuple, dependencies:tuple(string), foreign-packages:tuple(foreign-package), commands:tuple(string))
     ForeignPackageParamsStmt: (package-manager:symbol, projdir:string, entries:tuple(keyvalue(symbol,projitem)))
+    PkgCacheStmt: (directory:string)
 
   defunion projitem (?) :
     Symbol: symbol
