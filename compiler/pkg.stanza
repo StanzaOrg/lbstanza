@@ -217,7 +217,7 @@ public defn CacheFilename (optimized?:True|False,
                            flags:Tuple<Symbol>,
                            repl?:True|False,
                            debug?:True|False) -> CacheFilename :
-  CacheFilename(optimized?, qsort(to-string, flags), repl?, debug?)
+  #CacheFilename(optimized?, qsort(to-string, flags), repl?, debug?)
 
 ;Return the on-disk name of the .pkg file.
 public defn pkg-filename (name:Symbol,
