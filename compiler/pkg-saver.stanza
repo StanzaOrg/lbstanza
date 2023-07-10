@@ -1,0 +1,113 @@
+defpackage stz/pkg-saver :
+  import core
+  import collections
+  import stz/utils
+  import stz/pkg
+  import stz/pkg-ir
+  import stz/package-stamps
+  import stz/aux-file
+  import stz/file-stamps
+  import stz/verbose
+
+;============================================================
+;====================== API =================================
+;============================================================
+
+;A type for saving multiple packages and returning their
+;output file stamps.
+public deftype PkgSaver
+
+;Save one Pkg file.
+public defmulti save (saver:PkgSaver, pkg:Pkg) -> False
+
+;Save one Pkg file to the pkg cache.
+public defmulti cache (saver:PkgSaver, pkg:Pkg) -> False
+
+;Return the FileStamps of all pkgs saved by this saver.
+public defmulti output-filestamps (saver:PkgSaver) -> Tuple<FileStamp>
+
+;Save the given pkg to the correct locations when appropriate.
+public defmulti save-when-appropriate (saver:PkgSaver, pkg:Pkg) -> False
+
+;============================================================
+;===================== Main Implementation ==================
+;============================================================
+
+;Handles how to save packages to disk.
+;1. Serializes the packages to disk.
+;2. Caller can choose whether saved to pkg dir or to pkg cache.
+;3. Records are automatically added to the AuxFile (but not saved).
+;   Caller is responsible for saving AuxFile when appropriate.
+
+public defn PkgSaver (auxfile:AuxFile,
+                      package-stamps:Seqable<PackageStamp>,
+                      dir:String|False,
+                      flags:Tuple<Symbol>,
+                      debug?:True|False,
+                      repl?:True|False,
+                      cache-dir:String|False) :
+
+  ;Table of PackageStamps for easy retrieval.
+  val pkgstamp-table = to-hashtable(package, package-stamps)
+
+  ;Accumulate file stamps of all saved pkgs here.
+  val output-stamps = Vector<FileStamp>()
+
+  ;Helper: Create a PkgRecord that relates a package's source files
+  ;to its saved .pkg file.
+  defn save-aux-record (pkg:Pkg, filestamp:FileStamp) -> False :
+    ;Retrieve the stamp of the input source file.
+    val stamp = pkgstamp-table[name(pkg)]
+    val full-source-path = resolve-path!(source-file(location(stamp)) as String)
+    val sourcestamp = FileStamp(full-source-path, source-hashstamp(stamp) as ByteArray)
+    ;Log details
+    vprintln("Save output .pkg for package %~:" % [name(pkg)])
+    vprintln("  source-hashstamp: %_" % [sourcestamp])
+    vprintln("  pkg-hashstamp: %_" % [filestamp])
+    ;Add a record to the auxfile.
+    add(auxfile, 
+        PkgRecord(name(pkg),
+                  filestamp,
+                  sourcestamp,
+                  flags,
+                  pkg is FastPkg,
+                  debug?))
+
+  ;Helper: Read the pkgstamp-table to determine the origin
+  ;of the given package.
+  defn origin (pkg:Pkg) -> PackageOrigin :
+    /origin(location(pkgstamp-table[name(pkg)]))
+  
+  ;Main implementation.
+  new PkgSaver :
+
+    ;Save a Pkg to the explicitly provided user location.
+    defmethod save (this, pkg:Pkg) :
+      if origin(pkg) == FromPkg :
+        fatal("No need to ever save a .pkg that originated from a .pkg file.")
+      val filename = save-package(dir as String, pkg)
+      val filestamp = filestamp(filename)
+      add(output-stamps, filestamp)
+      save-aux-record(pkg, filestamp) when origin(pkg) == FromSource
+
+    ;Save a Pkg to the package cache.
+    defmethod cache (this, pkg:Pkg) :
+      if origin(pkg) != FromSource :
+        fatal("Cannot cache a .pkg that did not originate from source file.")
+      val params = CacheParams(flags, cache-dir as String, repl?, debug?)
+      val filename = save-package-to-cache(params, pkg)
+      val filestamp = filestamp(filename)
+      save-aux-record(pkg, filestamp)
+
+    ;Save the given pkg to the appropriate places.
+    defmethod save-when-appropriate (this, pkg:Pkg) :
+      ;Save to cache if pkg was compiled from source.
+      if cache-dir is String and origin(pkg) == FromSource :
+        cache(this, pkg)
+      ;Save to pkgdir if pkg was not from explicit pkg.
+      if dir is String and origin(pkg) != FromPkg :
+        save(this, pkg)
+
+    ;Retrieve all the filestamps of all the saved pkgs.
+    defmethod output-filestamps (this) :
+      to-tuple(output-stamps)

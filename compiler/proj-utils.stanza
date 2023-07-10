@@ -94,6 +94,9 @@ public defn isolate-stmts (proj:ProjFile, root-packages:Tuple<Symbol>) -> ProjIs
       match(s) :
         (s:PackagesDefinedInStmt) :
           non-empty-root?(package-tree, packages(s))
+        ;Always relevant. Always include as part of isolate.
+        (s:PkgCacheStmt) :
+          true
         (s) :
           within item = main-items(s) :
             return(true) when relevant-items[item]

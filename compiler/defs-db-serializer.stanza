@@ -74,10 +74,16 @@ defserializer DefsDbSerializer () :
     source-hashstamp:opt(bytearray)
     pkg-hashstamp:opt(bytearray)
 
+  defunion pkgfile (PkgFile) :
+    PkgCache :
+      file:string
+    PkgDir :
+      file:string
+
   deftype pkglocation (PkgLocation) :
     package:symbol
     source-file:opt(string)
-    pkg-file:opt(string)
+    pkg-file:opt(pkgfile)
     read-pkg?:bool
 
   deftype fn-arg-annotation (FnArgAnnotation) : 

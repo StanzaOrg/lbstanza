@@ -92,6 +92,8 @@ defserializer PkgSerializer (include-asm?:True|False) :
         ;not deserialized.
         val version = #read[stanza-version]
         val vmp = #read[vmpackage]
+        #skip[opt(tuple(ins))]
+        #skip[opt(tuple(vmdata))]
         StdPkg(version, vmp, false, false)        
     skip :
       #skip[stdpkg]
@@ -99,8 +101,8 @@ defserializer PkgSerializer (include-asm?:True|False) :
   deftype stdpkg (StdPkg) :
     stanza-version:stanza-version
     vmp:vmpackage
-    asm:tuple(ins)
-    datas:tuple(vmdata)
+    asm?:opt(tuple(ins))
+    datas?:opt(tuple(vmdata))
 
   ;==========================================================
   ;====================== Literals ==========================

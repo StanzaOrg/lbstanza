@@ -116,6 +116,11 @@ public defstruct ForeignPackageParamsStmtS0 <: ProjStmt :
   entries: Tuple<KeyValue<Symbol, ProjValue>> with: (updater => sub-entries)
 with: (printer => true)
 
+public defstruct PkgCacheStmtS0 <: ProjStmt :
+  info: FileInfo|False with: (as-method => true)
+  directory: ProjValue 
+with: (printer => true)
+
 ;------------------------------------------------------------
 ;---------- Statement Introduced During Processing ----------
 ;------------------------------------------------------------
@@ -310,6 +315,7 @@ public defn map<?T> (f:ProjItem -> ProjItem, x:?T&ProjItem) -> T :
     (x:SyntaxPackagesDefinedInStmtS0) : SyntaxPackagesDefinedInStmtS0(info(x), packages(x), h(filename(x)))
     (x:VarStmtS0) : VarStmtS0(info(x), name(x), h(value(x)))
     (x:ForeignPackageParamsStmtS0) : ForeignPackageParamsStmtS0(info(x), package-manager(x), h(projdir(x)), h(entries(x)))
+    (x:PkgCacheStmtS0) : PkgCacheStmtS0(info(x), h(directory(x)))
     (x:AtomValue) : x
     (x:CondPlatform) : CondPlatform(info(x), h(values(x)))
     (x:CondLink) : CondLink(info(x), h(values(x)))
@@ -319,7 +325,7 @@ public defn map<?T> (f:ProjItem -> ProjItem, x:?T&ProjItem) -> T :
     (x:ProjTableS0) : ProjTableS0(info(x), h(values(x)))
     (x:SplicedString) : SplicedString(info(x), h(values(x))) 
     (x:ProjDir) : x
-    (x:WorkDir) : x
+    (x:WorkDir) : x    
   result as T&ProjItem
 
 ;Generalized doer for all ProjItem.
@@ -361,6 +367,10 @@ public defn stmt-description (s:ProjStmt) -> String :
       "initialization statement for variable %_" % [name(s)]
     (s:ForeignPackageParamsStmtS0) :
       "params for %_ package manager" % [package-manager(s)]
+    (s:PkgCacheStmtS0) :
+      ".pkg caching directory %_" % [directory(s)]
+
+
 
 ;============================================================
 ;==================== Duplication Key =======================
@@ -394,3 +404,5 @@ public defn duplication-key (s:ProjStmt) -> Hashable&Equalable :
       false
     (s:ForeignPackageParamsStmtS0) :
       [`ForeignPackageParams, package-manager(s)]
+    (s:PkgCacheStmtS0) : 
+      `PkgCache

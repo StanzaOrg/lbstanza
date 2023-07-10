@@ -31,12 +31,6 @@ Input: The name of the package
 
 Output: The PkgLocation structure if the package is found.
 
-### Updating the Auxiliary File ###
-
-Input:
-
-The statistics corresponding to all the saved packages.
-
 ### Collect Conditional Imports From Current Load List ###
 
 Input:
@@ -64,8 +58,11 @@ syntax packages, if there is one.
 ;=======================================================<doc>
 
 public deftype ProjManager
+
+;Find the location of the package with the given name.
 public defmulti find-package (l:ProjManager, name:Symbol) -> PkgLocation|False
-public defmulti update-aux-file (l:ProjManager, pkgs:Seqable<SavedPkg>) -> False
+
+;Retrieve all the packages that must be imported given the current list of packages.
 public defmulti conditional-imports (l:ProjManager, packages:Seqable<Symbol>) -> Tuple<Symbol>
 
 ;Given the set of syntax packages we need, find the name of the plugin
@@ -83,6 +80,9 @@ public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symb
 ;Given the Stanza packages, return the list of dynamic libraries that must be loaded, and
 ;the folders to load them from.
 public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> RequiredLibraries
+
+;Return the pkg cache directory if one is supplied.
+public defmulti pkg-cache-dir (l:ProjManager) -> String|False
 
 ;Represents the required libraries and folders for a set of Stanza packages.
 public defstruct RequiredLibraries :
@@ -135,6 +135,9 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       if empty?(dylibs(req)) : None()
       else : One(package(req) => dylibs(req))
 
+  ;Retrieve the pkg cache directory.
+  val pkg-cache-dir = pkg-cache-dir(proj)
+
   ;Find the source file that contains the package.
   defn source-file? (name:Symbol) -> String|False :
     match(get?(source-file-table, name)) :
@@ -152,26 +155,49 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
   ;Find a package
   defn find-package (name:Symbol) -> PkgLocation|False :
-    val pkg-path = find-pkg(name, optimize?(params))
+
+    ;Retrieve the corresponding source file for the package.
     val src-path = source-file?(name)
-    val read-pkg? = match(pkg-path, src-path) :
-      (pkg-path:String, src-path:String) :
+
+    ;Load the pkg file for the package.
+    ;Note: If there is no source file present, then we skip looking in the cache
+    ;entirely.
+    val cache-params = match(pkg-cache-dir:String, src-path:String) :
+      CacheParams(flags(params), pkg-cache-dir, in-repl?(params), debug?(params))
+    val pkg-file = find-pkg(name, optimize?(params),
+                            cache-params = cache-params)
+
+    ;Determine whether the pkg is up-to-date and should be read from.
+    val read-pkg? = match(pkg-file, src-path) :
+    
+      ;If we found a .pkg file and a corresponding source file, then
+      ;check with the auxfile to see whether the .pkg file is up-to-date.
+      (pkg-file:PkgFile, src-path:String) :
         match(auxfile:AuxFile) :
           if file-exists?(src-path) :
-            val pkg-rec = make-pkg-record(name, filestamp(pkg-path), filestamp(src-path))
+            val pkg-rec = make-pkg-record(name, filestamp(file(pkg-file)), filestamp(src-path))
             vprintln("Check whether package %~ is up-to-date." % [name])
             within indented() :
               vprintln(pkg-rec)
             val up-to-date? = key?(auxfile, pkg-rec)
             if up-to-date? :
-              vprintln("Pkg file for package %~ at %~ is up-to-date." % [name, pkg-path])
+              vprintln("Pkg file for package %~ at %~ is up-to-date." % [name, file(pkg-file)])
             else :
-              vprintln("Pkg file for package %~ at %~ is not up-to-date." % [name, pkg-path])
+              vprintln("Pkg file for package %~ at %~ is not up-to-date." % [name, file(pkg-file)])
             up-to-date?
-      (pkg-path:String, src-path:False) : true
-      (pkg-path:False, src-path) : false
-    if pkg-path is-not False or src-path is-not False :
-      PkgLocation(name, src-path, pkg-path, read-pkg?)
+            
+      ;If there is no corresponding source file, then read from the
+      ;.pkg file only if it is explicitly from the pkg dir. Do not
+      ;consider .pkgs from the pkg cache.
+      (pkg-file:PkgDir, src-path:False) : true
+      
+      ;Otherwise do not read from the .pkg file.
+      (pkg-file, src-path) : false
+
+    ;We successfully found the package if we should read from the .pkg file
+    ;or if there is a source file.
+    if read-pkg? or src-path is-not False :
+      PkgLocation(name, src-path, pkg-file, read-pkg?)
 
   ;Find a set of syntax packages
   defn find-syntax-packages (names:Tuple<Symbol>) -> String|False :
@@ -192,12 +218,6 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       if superset-of-names?(added-packages) : One(filename(stmt))
       else : None()
 
-  ;Updating the auxiliary file
-  defn update-aux-file (pkgs:Seqable<SavedPkg>) :
-    fatal("No auxiliary file provided to project manager.") when auxfile is False
-    for pkg in pkgs do :
-      add(auxfile as AuxFile, make-pkg-record(package(pkg), filestamp(pkg), source(pkg)))
-
   ;Retrieve conditional imports
   defn conditional-imports (packages:Seqable<Symbol>) :
     val load-set = to-hashset<Symbol>(packages)
@@ -214,7 +234,6 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
   ;Return new project manager
   new ProjManager :
     defmethod find-package (this, name:Symbol) : find-package(name)
-    defmethod update-aux-file (this, pkgs:Seqable<SavedPkg>) : update-aux-file(pkgs)
     defmethod conditional-imports (this, packages:Seqable<Symbol>) : conditional-imports(packages)
     defmethod find-syntax-packages (this, names:Tuple<Symbol>) : find-syntax-packages(names)
 
@@ -241,6 +260,9 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
       ;Return bundled result
       RequiredLibraries(package-libs, folders)
 
+    defmethod pkg-cache-dir (this) :
+      pkg-cache-dir
+
 ;============================================================
 ;===================== Structures ===========================
 ;============================================================
@@ -249,11 +271,7 @@ public defstruct ProjParams :
   flags: Tuple<Symbol>
   optimize?: True|False
   debug?: True|False
-
-public defstruct SavedPkg :
-  package: Symbol
-  filestamp: FileStamp
-  source: FileStamp
+  in-repl?: True|False
 
 ;============================================================
 ;===================== Package Tree =========================

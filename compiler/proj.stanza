@@ -196,13 +196,26 @@ public defn build-target! (proj:ProjFile, target:Symbol) -> BuildStmt :
   else : throw(ProjFileError(false, to-string("No build target named %~." % [target])))
 
 ;============================================================
+;============ Retrieve the Pkg Cache Directory ==============
+;============================================================
+
+;If one is specified in this .proj file, return the directory
+;where cached .pkg files are stored. 
+public defn pkg-cache-dir (proj:ProjFile) -> String|False :
+  match(find-by<PkgCacheStmt>(stmts(proj))):
+    (stmt:PkgCacheStmt) : directory(stmt)
+    (f:False) : false
+
+;============================================================
 ;=================== Combine Files ==========================
 ;============================================================
 defn combine (fs:Tuple<ProjFileS0>) -> ProjFileS0 :
   ;Get all statements in a vector.
   val all-stmts = to-vector<ProjStmt>(seq-cat(stmts, fs))
 
-  ;Remove duplicate statements.
+  ;Remove duplicate statements. The last occurrence of
+  ;a statement takes precedence. (Behaves as if we're mutating
+  ;a variable.)
   reverse!(all-stmts)
   val visited-set = HashSet<?>()
   for stmt in all-stmts remove-when :

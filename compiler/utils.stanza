@@ -38,8 +38,19 @@ set-all(VALID-FILENAME-CHARS, to-int('A') through to-int('Z'), true)
 VALID-FILENAME-CHARS[to-int('-')] = true
 VALID-FILENAME-CHARS[to-int('.')] = true
 
-public defn mangle-as-filename (name:Symbol) :
+;Mangle the given Stanza name into a filename. Can optionally
+;attach a suffix at the end if desired.
+public defn mangle-as-filename (name:Symbol --
+                                suffix:String|False = false) -> String :
   val buffer = StringBuffer()
+  mangle-as-filename(buffer,name)
+  match(suffix:String) :
+    add-all(buffer, suffix)
+  to-string(buffer)
+
+;Mangle the given Stanza name into a filename. Pushes
+;the characters directly into the given buffer.
+defn mangle-as-filename (buffer:StringBuffer, name:Symbol) -> False :
   for c in to-string(name) do :
     if VALID-FILENAME-CHARS[to-int(c)] :
       add(buffer, c)
@@ -47,7 +58,17 @@ public defn mangle-as-filename (name:Symbol) :
       add(buffer, '$')
     else :
       print(buffer, "_%_" % [to-hex(c)])
-  to-string(buffer)
+
+;============================================================
+;=============== String Conversion to ByteArray =============
+;============================================================
+
+;Convert a String into a ByteArray.
+public defn to-bytearray (s:StringBuffer) -> ByteArray :
+  val bytes = ByteArray(length(s))
+  for (c in s, i in 0 to false) do :
+    bytes[i] = to-byte(c)
+  bytes
 
 ;============================================================
 ;=============== Low-Level Expanding Buffer =================
