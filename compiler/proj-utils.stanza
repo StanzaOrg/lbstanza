@@ -145,6 +145,7 @@ defn main-item (s:ProjStmt) -> ProjItem :
       else : CCFlagItem(name(s))
     (s:ForeignPackageParamsStmt) : PackageManagerItem(package-manager(s))
     (s:PackagesDefinedInStmt) : PackagePrefixItem(packages(s))
+    (s:PkgCacheStmt) : NoMainItem()
   
 ;------------------------------------------------------------
 ;-------------------- ProjItem Utility ----------------------
@@ -185,6 +186,12 @@ with:
 ;Represents the prefix used by a PackagesDefinedInStmt.
 defstruct PackagePrefixItem <: ProjItem :
   packages:Symbol|False
+with:
+  equalable => true
+  hashable => true
+
+;Represents the absence of a main item.
+defstruct NoMainItem <: ProjItem
 with:
   equalable => true
   hashable => true
