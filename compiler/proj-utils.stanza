@@ -251,6 +251,7 @@ defn type-tag (s:ProjStmt) -> Int :
     (s:CompileStmt) : 3
     (s:ForeignPackageParamsStmt) : 4
     (s:PackagesDefinedInStmt) : 5
+    (s:PkgCacheStmt) : 6
 
 ;Return true if two extracted isolates are equal to each other.
 public defn isomorphic? (a:ProjIsolate, b:ProjIsolate) -> True|False :
