@@ -189,9 +189,13 @@ public defn compile (proj-manager:ProjManager,
                             debug?,
                             false,
                             cache-dir)
+    
+    ;True if pkgs are written out, either to the pkg directory
+    ;or to the cache directory.
+    val write-out-pkgs? = pkg-dir is String or cache-dir is String    
 
     ;Save optimized packages if necessary
-    if pkg-dir is String and optimize? :
+    if write-out-pkgs? and optimize? :
       for p in packages(result) do :
         ;Convert to Pkg if not already in that form.
         val pkg = match(p) :
@@ -220,13 +224,15 @@ public defn compile (proj-manager:ProjManager,
         ;Already done
         false
       `unoptimized-asm :
-        val packages = Vector<VMPackage|StdPkg>()
-        for p in /packages(result) do :
+        val packages = for p in /packages(result) map :
           match(p) :
-            (p:EPackage) : add(packages, compile(lower-unoptimized(p), debug?))
-            (p:StdPkg)  : add(packages, p)
-        val pkgsaver? = pkgsaver when pkg-dir is String or cache-dir is String
-        compile-vmpackages(pkgsaver?, to-tuple(packages), bindings(result), output as String, includes-stz-vm?)
+            (p:EPackage) : compile(lower-unoptimized(p), debug?)
+            (p:StdPkg)  : p
+        compile-vmpackages(pkgsaver when write-out-pkgs?,
+                           packages,
+                           bindings(result),
+                           output as String,
+                           includes-stz-vm?)
       `unoptimized-pkgs :
         compile-to-pkgs(pkgsaver, packages(result) as Tuple<EPackage|StdPkg>)
 
