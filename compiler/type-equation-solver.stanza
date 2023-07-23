@@ -48,7 +48,7 @@ public defstruct SolverState :
   bounds: IntTable<TypeBounds> with:
     init => IntTable<TypeBounds>()
   active-eqns: Queue<TypeEqn> with:
-    init => Queue<TypeEqn>()
+    init => Queue<TypeEqn>() 
   num-solved:Int with:
     init => 0
     setter => set-num-solved
@@ -189,6 +189,11 @@ public defn solve (s:SolverState) -> False :
 ;Return the solution for the given variable.
 public defn get (s:SolverState, v:Int) -> SolverValue :
   solved(s)[v]
+
+;Returns true if 'v' is one of the variables in the state.
+;[TODO] This is a quick fix for handling TDefVar definitions.
+public defn variable? (s:SolverState, v:Int) -> True|False :
+  key?(solved(s), v)
 
 ;Return all the solutions.
 public defn solutions (s:SolverState) -> Tuple<KeyValue<Int,SolverValue>> :
