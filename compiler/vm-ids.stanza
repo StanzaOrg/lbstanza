@@ -8,6 +8,7 @@ defpackage stz/vm-ids :
   import stz/const-pool
   import stz/loaded-dynamic-libraries
   import stz/extern-defn-table
+  import stz/packed-debug-table
 
 ;<doc>=======================================================
 ;================== VirtualMachine Ids ======================
@@ -171,6 +172,7 @@ public defn VMIds (dylibs:LoadedDynamicLibraries,
       val classes = Vector<LoadedClass>()
       val funcs = Vector<VMDefn>()
       val callbacks = Vector<Callback>()
+      val global-debug-table = Vector<PackageDebugInfo>()
       val safepoints = make-safepoint-table() where :
         defn make-safepoint-table () :
           ;Let's ignore file 'base' for now. stitcher-safepoints ignores 'base' too.
@@ -186,6 +188,10 @@ public defn VMIds (dylibs:LoadedDynamicLibraries,
         add-all(classes, resolved-classes(pkg, local-to-global-map))
         add-all(funcs, resolved-defns(pkg, local-to-global-map, local-safepoint-map))
         add-all(callbacks, resolved-callbacks(pkg, local-to-global-map))
+        val global-debug-entries = to-tuple $ for e in filter(global?, entries(debug-name-table(pkg))) seq :
+          DebugEntry(name(e), local-to-global-map[id(e)]) ;Use id instaed of not-yet-known offset
+        if not empty?(global-debug-entries) :
+          add(global-debug-table, PackageDebugInfo(to-string(name(pkg)), global-debug-entries))
         val iotable = IOTable(packageio(pkg))
         record-dependencies(iotable, local-to-global-map, /classes(pkg))
         record-dependencies(iotable, local-to-global-map, /funcs(pkg))
@@ -215,6 +221,7 @@ public defn VMIds (dylibs:LoadedDynamicLibraries,
         to-tuple(classes),
         to-tuple(funcs),
         to-tuple(callbacks),
+        DebugTable(to-tuple(global-debug-table)),
         safepoint-table,
         next(safepoint-counter))
 

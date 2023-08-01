@@ -357,7 +357,7 @@ public defstruct DerefOp <: VMOp
 public defstruct VMDebugNameTable :
   entries: Tuple<VMDebugName>
 
- ;!!!!!;Represents a human-readable name for the given
+ ;Represents a human-readable name for the given
 ;identifier.
 ;- global?: If true, then 'id' refers to a package global. Otherwise,
 ;  it refers to a function-local definition.

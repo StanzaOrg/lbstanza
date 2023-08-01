@@ -15,6 +15,7 @@ defpackage stz/vm :
   import stz/extern-intrinsics
   import stz/jit-code-table
   import stz/loaded-dynamic-libraries
+  import stz/packed-debug-table
   import stz/params
   import stz/stable-arrays
   import stz/timing-log-api
@@ -377,6 +378,7 @@ public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend
 
   vmstate.trie-table = null
   vmstate.class-table = null
+  vmstate.debug-table = make-empty-debug-table()
   vmstate.safepoint-table = make-empty-safepoint-table()
   val extern-defns = ExternDefnTable(backend)
   val vm-ids = VMIds(dylibs, extern-defns)
@@ -389,6 +391,11 @@ public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend
   val vm = new VirtualMachine{dylibs, extern-defns, backend, vmtable, vm-ids, linker, vmstate, false}
   update-vmstate(vm)
   return vm
+
+lostanza defn make-empty-debug-table () -> ptr<?> :
+  val p:ptr<long> = call-c clib/malloc(sizeof(long))
+  [p] = 0 ;num-packages field is immutable
+  return p
 
 lostanza defn make-empty-safepoint-table () -> ptr<?> :
   val p:ptr<long> = call-c clib/malloc(sizeof(SafepointTable))
@@ -935,6 +942,10 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
       within log-time(UPDATE-VMSTATE) :
         update-vmstate(vm)
 
+      vprintln("VM: Building debug table")
+      dispose-debug-table(vm)
+      pack(debug-table(load-unit), vm)
+
       vprintln("VM: Building safepoint table")
       dispose-safepoints(vm)
       pack(safepoints(load-unit), safepoint-map, vm)
@@ -993,6 +1004,13 @@ public lostanza defn clear-globals (vm:ref<VirtualMachine>) -> ref<False> :
     globals[i] = void-marker()
   return false
 
+lostanza defn dispose-debug-table (vm:ref<VirtualMachine>) -> ref<False> :
+  val vms:ptr<VMState> = vm.vmstate
+  val debug-table = vms.debug-table
+  vms.debug-table = null
+  call-c clib/free(debug-table)
+  return false
+
 ;Preconditions (guarenteed by vm-ids):
 ;- VMFileSafepoints with duplicate filenames are merged
 ;- VMInfoEntries are sorted by line number in each VMFieSafepoints
@@ -1022,7 +1040,6 @@ defn pack (safepoint-table:Tuple<VMFileSafepoints>, locations:Array<Vector<Long>
       append-entry(file, current-line, address-list)
     finish-file-safepoints(table, file)
   finish-safepoint-table(table, vm)
-  false
 
 defn compact (safepoints:Tuple<VMFileSafepoints>, locations:Array<Vector<Long>>) :
   ;Are there any unreferenced safepoint entries?
@@ -1157,7 +1174,8 @@ lostanza defn launch-init (vm:ref<VirtualMachine>, fid:ref<Int>) -> ref<True|Fal
 
 public defn shutdown (vm:VirtualMachine) :
   free-code-table(vm)
-
+  dispose-debug-table(vm)
+  dispose-safepoints(vm)
 lostanza defn free-code-table (vm:ref<VirtualMachine>) -> ref<False> :
   free(vm.vmtable.code-table)
   return false

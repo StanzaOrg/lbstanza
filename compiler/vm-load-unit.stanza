@@ -2,6 +2,7 @@ defpackage stz/vm-load-unit :
   import core
   import collections
   import stz/vm-ir
+  import stz/packed-debug-table
   import stz/printing-utils
 
 ;<doc>=======================================================
@@ -62,6 +63,7 @@ public defstruct LoadUnit :
   classes: Tuple<LoadedClass>
   funcs: Tuple<VMDefn>
   callbacks: Tuple<Callback>
+  debug-table: DebugTable
   safepoints: Tuple<VMFileSafepoints>
   max-safepoint-id: Int
 
