@@ -352,6 +352,7 @@ defenum EnterExit: (Enter, Exit)
 ;The information about a function's local frame.
 defstruct FuncInfo :
   deftable:IntTable<VMDef>
+  name-table:IntTable<String> ;empty if no debug info present
   used-labels:IntSet
   max-local:Int
   num-locals:Int
@@ -398,8 +399,7 @@ defn AsmGen (code:CodeHolder,
   defn deftable! () -> IntTable<VMDef> :
     local-deftable as IntTable<VMDef>
 
-  ;Retrieve the stack frame slot that the local is
-  ;stored in.
+  ;Retrieve the stack frame slot that the local is stored in.
   defn slot (l:Local) -> Int :
     /local(deftable!()[index(l)])
 
@@ -410,7 +410,7 @@ defn AsmGen (code:CodeHolder,
     match(x:Local) : slot(x)
     else : 0
 
-  ;Call slot if x is a Local otherwise return dummy value 0.
+  ;Call slot if x is a Local, otherwise report an error.
   defn slot! (x:Local|False) -> Int :
     match(x:Local) : slot(x)
     else : fatal("x is expected to be a Local.")
@@ -485,6 +485,14 @@ defn AsmGen (code:CodeHolder,
     val table = safepoint-entry-table as Vector<SafepointTableEntry>
     val offset = label-offset(code, pos)
     add(table, SafepointTableEntry(offset, id))
+
+  ;=========================================================
+  ;================= Locals Debug Table ====================
+  ;=========================================================
+  var last-record-live:RecordLiveIns|False = false
+  ;Add the given instruction location to the locals table.
+  defn record-locals (pos:Label) :
+    false
 
   ;=========================================================
   ;================ Structure Accessors ====================
@@ -2662,6 +2670,7 @@ defn AsmGen (code:CodeHolder,
         ;varmap?
 
       (ins:RecordLiveIns) :
+        last-record-live = ins
         val live-map = liveness-map(resolver, seq(slot, live(ins)), num-locals())
         mov(a, reg(Tmp1), live-map)
         set-liveness-map(reg(Tmp1))
@@ -2990,26 +2999,6 @@ public defn make-jit-stubs (rt:JitRuntime, resolver:EncodingResolver, backend:Ba
     make-stub-func(emit-jit-launch)
     make-stub-func(emit-extend-stack))
 
-;============================================================
-;======== Compute Absolute Addresses of Trace Entries =======
-;============================================================
-
-;Convert the relative addresses in the trace table entries to
-;absolute addresses.
-;- trace-entries: The trace table entries with addresses relative to the function.
-;- func: The generated ASMJit function, which has an absolute address.
-defn compute-absolute-addresses! (trace-entries:Vector<TraceTableEntry>,
-                                  func:Func) -> False :
-  val func-address = address(func)
-  for e in trace-entries map! :
-    TraceTableEntry(func-address + pc(e), entry(e))
-
-defn compute-absolute-addresses! (safepoint-entries:Vector<SafepointTableEntry>,
-                                  func:Func) -> False :
-  val func-address = address(func)
-  for e in safepoint-entries map! :
-    SafepointTableEntry(func-address + pc(e), id(e))
-
 ;Return the address of the function.
 lostanza defn address (func:ref<Func>) -> ref<Long> :
   return new Long{func.value as long}
@@ -3026,7 +3015,7 @@ public defn encode (func:VMFunction,
                     backend:Backend) -> EncodedFunction :
 
   ;Retrieve the FuncInfo for the function.
-  defn func-info (f:VMFunc) -> FuncInfo :
+  defn func-info (f:VMFunc) :
     ;Compute number of locals in function.
     ;Extra 3 locals for temporary moving.
     val max-local = maximum(-1, seq(local, defs(f)))
@@ -3035,51 +3024,49 @@ public defn encode (func:VMFunction,
     ;Definitions
     val deftable = to-inttable(id, defs(f))
 
+    ;Debug names for some of the definitions
+    val local-name-table = to-inttable<String> $
+      for v in filter({not global?(_)}, entries(debug-name-table(f))) seq :
+        id(v) => name(v)
+
     ;Labels
     val used-labels = to-intset(seq(n, filter-by<LabelIns>(ins(f))))
 
     ;Function Info
-    FuncInfo(deftable, used-labels, max-local, num-locals)
-
-  ;Generate code for multifn
-  defn emit-multifn (code:CodeHolder,
-                     assembler:Assembler,
-                     trace-entry-table:Vector<TraceTableEntry>,
-                     safepoint-entry-table:Vector<SafepointTableEntry>,
-                     f:VMMultifn) :
-    val gen = AsmGen(code, assembler, resolver, false, trace-entry-table, safepoint-entry-table, backend)
-    within func-index = emit-multi-arity-dispatch(gen, arg(f), map(key,funcs(f))) :
-      match(func-index:Int) :
-        val entry = funcs(f)[func-index]
-        emit-fn(code, assembler, trace-entry-table, safepoint-entry-table, value(entry))
-      else :
-        emit-fn(code, assembler, trace-entry-table, safepoint-entry-table, default(f))
-
-  ;Generate code for single fn
-  defn emit-fn (code:CodeHolder,
-                assembler:Assembler,
-                trace-entry-table:Vector<TraceTableEntry>,
-                safepoint-entry-table:Vector<SafepointTableEntry>,
-                f:VMFunc) :
-    within log-time(JIT-EMIT-FN) :
-      val gen = AsmGen(code, assembler, resolver, func-info(f), trace-entry-table, safepoint-entry-table, backend)
-      emit-function-prelude(gen, args(f), extend-stack(stubs))
-      emit-arg-bit-extensions(gen, args(f)) when externfn?
-      do(emit-ins{gen, _}, ins(f))
+    FuncInfo(deftable, local-name-table, used-labels, max-local, num-locals)
 
   ;Launch!
   within log-time(JIT-ENCODER) :
     val trace-entry-table = Vector<TraceTableEntry>()
     val safepoint-entry-table = Vector<SafepointTableEntry>()
     val jit-func = within (code, assembler) = gen-code(rt) :
+      defn AsmGen (func-info:FuncInfo|False) :
+        /AsmGen(code, assembler, resolver, func-info, trace-entry-table, safepoint-entry-table, backend)
+      ;Generate code for single fn
+      defn emit-fn (f:VMFunc) :
+        within log-time(JIT-EMIT-FN) :
+          val gen = AsmGen(func-info(f))
+          emit-function-prelude(gen, args(f), extend-stack(stubs))
+          emit-arg-bit-extensions(gen, args(f)) when externfn?
+          do(emit-ins{gen, _}, ins(f))
+      ;Generate code for multifn
+      defn emit-multifn (f:VMMultifn) :
+        val gen = AsmGen(false)
+        within func-index = emit-multi-arity-dispatch(gen, arg(f), map(key,funcs(f))) :
+          val func = match(func-index:Int) : value(funcs(f)[func-index])
+                     else : default(f)
+          emit-fn(func)
       match(func) :
-        (func:VMMultifn) : emit-multifn(code, assembler, trace-entry-table, safepoint-entry-table, func)
-        (func:VMFunc) : emit-fn(code, assembler, trace-entry-table, safepoint-entry-table, func)
+        (func:VMMultifn) : emit-multifn(func)
+        (func:VMFunc) : emit-fn(func)
 
     ;Relocate trace addresses
     within log-time(COMPUTE-ABSOLUTE-ADDRESSES) :
-      compute-absolute-addresses!(trace-entry-table, jit-func)
-      compute-absolute-addresses!(safepoint-entry-table, jit-func)
+      val base = address(jit-func)
+      for e in trace-entry-table map! :
+        TraceTableEntry(base + pc(e), entry(e))
+      for e in safepoint-entry-table map! :
+        SafepointTableEntry(base + pc(e), id(e))
 
     ;Return the final encoded function
     EncodedFunction(jit-func, trace-entry-table, safepoint-entry-table)

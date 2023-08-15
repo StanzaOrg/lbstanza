@@ -225,7 +225,7 @@ public defn VMIds (dylibs:LoadedDynamicLibraries,
         safepoint-table,
         next(safepoint-counter))
 
-    ;Resolve all ids in the given item using the given given global-ids table.
+    ;Resolve all ids in the given item using given global-ids table.
     ;- x: The item to resolve ids for.
     ;- global-ids: The table containing the mapping from old to new ids.
     defn resolve-ids<?T> (x:VMItem&?T, global-ids:IntTable<Int>) -> T :
