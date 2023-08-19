@@ -823,6 +823,9 @@ defn run-command () :
         ;Add platform flag
         add-flag(platform-flag(OUTPUT-PLATFORM))
 
+        ;!!! MOVE ME
+        if not flag-defined?(`debug) : add-flag(`debug)
+
         ;Setup command line arguments.
         val new-cmd-args = to-tuple $ cat(["run"], get?(cmd-args, "-", []))
         set-command-line-arguments(new-cmd-args)
