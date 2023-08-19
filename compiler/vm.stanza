@@ -1,5 +1,6 @@
 defpackage stz/vm :
   import core
+  import core/local-table
   import core/safepoints
   import core/stack-trace
   import collections
@@ -378,8 +379,9 @@ public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend
 
   vmstate.trie-table = null
   vmstate.class-table = null
-  vmstate.debug-table = make-empty-debug-table()
-  vmstate.safepoint-table = make-empty-safepoint-table()
+  vmstate.debug-table = no-debug-table()
+  vmstate.safepoint-table = no-safepoint-table()
+  vmstate.local-var-table = no-local-vars-table()
   val extern-defns = ExternDefnTable(backend)
   val vm-ids = VMIds(dylibs, extern-defns)
   val class-table = ClassTable()
@@ -392,14 +394,23 @@ public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend
   update-vmstate(vm)
   return vm
 
-lostanza defn make-empty-debug-table () -> ptr<?> :
+lostanza defn no-debug-table () -> ptr<?> :
   val p:ptr<long> = call-c clib/malloc(sizeof(long))
   [p] = 0 ;num-packages field is immutable
   return p
-
-lostanza defn make-empty-safepoint-table () -> ptr<?> :
+lostanza defn no-safepoint-table () -> ptr<?> :
   val p:ptr<long> = call-c clib/malloc(sizeof(SafepointTable))
   [p] = 0 ;num-files field is immutable
+  return p
+lostanza defn no-local-vars-table () -> ptr<?> :
+  val p:ptr<?> = call-c clib/malloc(sizeof(LSLocalVarTable))
+  val limit:ptr<?> = p + sizeof(LSLocalVarTable)
+  for (var q:ptr<ptr<?>> = p, q < limit, q = q + sizeof(ptr<?>)) :
+    [q] = zero-length-container()
+  return p
+lostanza defn zero-length-container () -> ptr<?> :
+  val p:ptr<long> = call-c clib/malloc(sizeof(long))
+  [p] = 0 ;length field, either long or int
   return p
 
 ;Make an appropriate CodeTable depending on whether the user has
@@ -913,6 +924,8 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
       for i in 0 to length(safepoint-map) do :
         safepoint-map[i] = Vector<Long>()
 
+      val local-table-packer = LocalTablePacker()
+
       ;Load functions
       vprintln("VM: Encoding functions")
       within log-time(LOAD-FUNCTIONS) :
@@ -926,6 +939,7 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
           val loaded-function = load-function(vmt, f, callback-set[id(f)], encoding-resolver, backend(vm))
           for safepoint-entry in safepoint-entries(loaded-function) do:
             add(safepoint-map[id(safepoint-entry)], pc(safepoint-entry))
+          add(local-table-packer, local-var-context(loaded-function), local-var-map-entries(loaded-function))
 
       ;Load datas and consts
       vprintln("VM: Loading datas and constants")
@@ -945,6 +959,10 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
       vprintln("VM: Building debug table")
       dispose-debug-table(vm)
       pack(debug-table(load-unit), vm)
+
+      vprintln("VM: Building local var table")
+      dispose-local-var-table(vm)
+      pack(local-table-packer, vm)
 
       vprintln("VM: Building safepoint table")
       dispose-safepoints(vm)
@@ -1011,6 +1029,10 @@ lostanza defn dispose-debug-table (vm:ref<VirtualMachine>) -> ref<False> :
   call-c clib/free(debug-table)
   return false
 
+;============================================================
+;==================== Safepoint Table =======================
+;============================================================
+
 ;Preconditions (guarenteed by vm-ids):
 ;- VMFileSafepoints with duplicate filenames are merged
 ;- VMInfoEntries are sorted by line number in each VMFieSafepoints
@@ -1067,7 +1089,7 @@ defn compact (safepoints:Tuple<VMFileSafepoints>, locations:Array<Vector<Long>>)
 lostanza defn start-safepoint-table (length:ref<Int>) -> ref<BinaryEmitter> :
   val num-files = length.value
   val emitter = make-binary-emitter(sizeof(SafepointTable) + num-files * sizeof(ptr<FileSafepoints>))
-  emit(emitter, num-files)
+  emit-long(emitter, num-files)
   return emitter
 lostanza defn finish-safepoint-table (emitter:ref<BinaryEmitter>, vm:ref<VirtualMachine>) -> ref<False> :
   vm.vmstate.safepoint-table = emitter.start
@@ -1078,39 +1100,22 @@ lostanza defn start-file-safepoints (name:ref<String>, length:ref<Int>) -> ref<B
   val num-entries = length.value as long
   val filename = call-c strdup(addr!(name.chars))
   val emitter = make-binary-emitter(sizeof(FileSafepoints) + num-entries * sizeof(SafepointEntry))
-  emit(emitter, num-entries)
+  emit-long(emitter, num-entries)
   emit(emitter, filename)
   return emitter
 lostanza defn finish-file-safepoints (table:ref<BinaryEmitter>, file:ref<BinaryEmitter>) -> ref<False> :
   return emit(table, file.start)
 lostanza defn append-entry (file:ref<BinaryEmitter>, line:ref<Int>, address-list:ref<BinaryEmitter>) -> ref<False> :
-  emit(file, line.value as long)
+  emit-long(file, line.value)
   return emit(file, address-list.start)
 lostanza defn create-address-list (length:ref<Int>) -> ref<BinaryEmitter> :
   val len = length.value as long
   val emitter = make-binary-emitter(sizeof(AddressList) + len * sizeof(SafepointAddress))
-  emit(emitter, len)
+  emit-long(emitter, len)
   return emitter
 lostanza defn append-safepoint-address (address-list:ref<BinaryEmitter>, loc:ref<Long>, group:ref<Int>) -> ref<False> :
-  emit(address-list, loc.value)
-  return emit(address-list, group.value as long)
-
-lostanza deftype BinaryEmitter :
-  start:ptr<?>
-  var p:ptr<?>
-lostanza defn make-binary-emitter (size:long) -> ref<BinaryEmitter> :
-  val p:ptr<?> = call-c clib/malloc(size)
-  return new BinaryEmitter{p, p}
-lostanza defn emit (p:ptr<long>, v:long) -> ptr<long> :
-  [p] = v
-  return addr(p[1])
-lostanza defn emit (emitter:ref<BinaryEmitter>, value:long) -> ref<False> :
-  emitter.p = emit(emitter.p, value)
-  return false
-lostanza defn emit (emitter:ref<BinaryEmitter>, value:ptr<?>) -> ref<False> :
-  return emit(emitter, value as long)
-lostanza defn emit (emitter:ref<BinaryEmitter>, value:ref<BinaryEmitter>) -> ref<False> :
-  return emit(emitter, value.start)
+  emit-long(address-list, loc.value)
+  return emit-long(address-list, group.value)
 
 defn count-lines (entries:Tuple<VMSafepointInfo>) :
   var count = 0
@@ -1136,6 +1141,197 @@ lostanza defn dispose-safepoints (safepoints:ptr<FileSafepoints>) -> ref<False> 
   val num-entries = safepoints.num-entries
   for (var i:long = 0, i < num-entries, i = i + 1L) :
     call-c clib/free(safepoints.entries[i].address-list)
+  return false
+
+;============================================================
+;==================== Local Var Table =======================
+;============================================================
+
+defstruct LocalTablePacker :
+  var-names:StringPool with: (default => StringPool())
+  named-vars:Vector<LocalVar> with: (default => Vector<LocalVar>())
+  context-lengths:Vector<Int> with: (default => Vector<Int>())
+  varmaps:Vector<VarMapEntry> with: (default => Vector<VarMapEntry>())
+  index-maps:Vector<Tuple<Int>> with: (default => Vector<Tuple<Int>>())
+  index-map-table:HashTable<Tuple<Int>,Int> with: (default => HashTable<Tuple<Int>,Int>())
+defstruct LocalVar :
+  stack-offset:Int
+  name-offset:Int
+defstruct VarMapEntry :
+  pc:Long
+  context-index:Int
+  index-map-index:Int
+
+defn add (packer:LocalTablePacker, cntx:Vector<NamedLocalVar>, maps:Vector<LocalVarMapEntry>) :
+  if not empty?(maps) :
+    val context-lengths = context-lengths(packer)
+    val cntx-index = length(context-lengths)
+    add(context-lengths, length(cntx))
+
+    add-all(named-vars(packer), seq(LocalVar, cntx)) where :
+      defn LocalVar (v:NamedLocalVar) :
+        /LocalVar(stack-offset(v), /add(var-names(packer), name(v)))
+
+    add-all(varmaps(packer), seq(VarMapEntry, maps)) where :
+      defn VarMapEntry (v:LocalVarMapEntry) :
+        /VarMapEntry(pc(v), cntx-index, index-map-index(indices(v))) where :
+          defn index-map-index (vars:Tuple<Int>) -> Int :
+            val index-maps = index-maps(packer)
+            val index-map-table = index-map-table(packer)
+            match(get?(index-map-table, vars)) :
+              (i:Int) :
+                i
+              (f:False) :
+                val i = length(index-maps)
+                add(index-maps, vars)
+                index-map-table[vars] = i
+                i
+
+defn pack (packer:LocalTablePacker, vm:VirtualMachine) -> False :
+  ;See LSLocalVarTable and local-table-stitcher for the details.
+  val LSLocalVarTable-size = 5 * 8
+  val e = make-binary-emitter(LSLocalVarTable-size)
+  emit(e, emit-varmaps(packer))
+  emit(e, emit-contexts(packer))
+  emit(e, emit-named-vars(packer))
+  emit(e, emit-index-maps(packer))
+  emit(e, emit-indices(packer))
+  set-local-var-table(e, vm)
+  false
+lostanza defn set-local-var-table (e:ref<BinaryEmitter>, vm:ref<VirtualMachine>) -> ref<False> :
+  vm.vmstate.local-var-table = e.start
+  return false
+defn emit-varmaps (packer:LocalTablePacker) -> BinaryEmitter :
+  val varmaps = varmaps(packer)
+  val VarMapEntry-size = 8 + 4 + 4
+  val varmaps-size = 8 + VarMapEntry-size * length(varmaps)
+  val e = make-binary-emitter(varmaps-size)
+  for v in varmaps do :
+    emit-long(e, pc(v))
+    emit-int(e, context-index(v))
+    emit-int(e, index-map-index(v))
+  e
+defn emit-contexts (packer:LocalTablePacker) -> BinaryEmitter :
+  val context-lengths = context-lengths(packer)
+  val length = length(context-lengths) + 1
+  val contexts-size = 4 * (length + 1)
+  val e = make-binary-emitter(contexts-size)
+  emit-int(e, length)
+  var base = 0
+  for len in context-lengths do :
+    emit-int(e, base)
+    base = base + len
+  emit-int(e, base)
+  e
+defn emit-named-vars (packer:LocalTablePacker) -> BinaryEmitter :
+  val var-names = var-names(packer)
+  val vars = named-vars(packer)
+  val vars-size = 8 + 16 * length(vars) ;long length + sizeof(LSNamedVar)
+  val var-names-size = pos(var-names)
+  ;There is no pointer to string table in LSLocalVarTable. Let's append
+  ;string table to named vars to avoid memory leak
+  val e = make-binary-emitter(vars-size + var-names-size)
+  emit-long(e, length(vars))
+  for v in vars do :
+    emit-long(e, stack-offset(v))
+    emit-addr(e, name-offset(v) + vars-size)
+  for x in map(var-names) do :
+    copy(e, value(x) + vars-size, key(x))
+  e
+defn emit-index-maps (packer:LocalTablePacker) -> BinaryEmitter :
+  val index-maps = index-maps(packer)
+  val index-maps-length = length(index-maps)
+  val index-maps-size = 4 + 4 * (index-maps-length + 1)
+  val e = make-binary-emitter(index-maps-size)
+  emit-int(e, index-maps-length)
+  var base = 0
+  for map in index-maps do :
+    emit-int(e, base)
+    base = base + length(map)
+  emit-int(e, base)
+  e
+defn emit-indices (packer:LocalTablePacker) -> BinaryEmitter :
+  val index-maps = index-maps(packer)
+  val num-indices = sum(seq(length, index-maps))
+  val indices-size = 4 + 4 * num-indices
+  val e = make-binary-emitter(indices-size)
+  emit-int(e, num-indices)
+  for i in cat-all(index-maps) do :
+    emit-int(e, i)
+  e
+
+lostanza defn dispose-local-var-table (vm:ref<VirtualMachine>) -> ref<False> :
+  val vms:ptr<VMState> = vm.vmstate
+  val local-var-table:ptr<LSLocalVarTable> = vms.local-var-table
+  vms.local-var-table = null
+  if local-var-table != null :
+    call-c clib/free(local-var-table.varmaps)
+    call-c clib/free(local-var-table.contexts)
+    call-c clib/free(local-var-table.named-vars)
+    call-c clib/free(local-var-table.index-maps)
+    call-c clib/free(local-var-table.indices)
+    call-c clib/free(local-var-table)
+  return false
+
+lostanza defn emit-long (e:ref<BinaryEmitter>, v:ref<Int>) -> ref<False> :
+  return emit-long(e, v.value)
+lostanza defn emit-addr (e:ref<BinaryEmitter>, offset:ref<Int>) -> ref<False> :
+  return emit(e, e.start + offset.value)
+
+defstruct StringPool :
+  map:HashTable<String,Int> ;Maps string value to the offset from the pool start
+  pos:Int with: (setter => set-pos)
+defn StringPool () :
+  StringPool(HashTable<String,Int>(), 0)
+defn add (pool:StringPool, s:String) -> Int :
+  val map = map(pool)
+  match(get?(map, s)) :
+    (pos:Int):
+      pos
+    (f:False):
+      val pos = pos(pool)
+      map[s] = pos
+      set-pos(pool, pos + size(s))
+      pos
+defn size (s:String) :
+  length(s) + 1
+
+lostanza deftype BinaryEmitter :
+  start:ptr<?>
+  var p:ptr<?>
+lostanza defn make-binary-emitter (size:long) -> ref<BinaryEmitter> :
+  val p:ptr<?> = call-c clib/malloc(size)
+  return new BinaryEmitter{p, p}
+lostanza defn make-binary-emitter (size:ref<Long>) -> ref<BinaryEmitter> :
+  return make-binary-emitter(size.value)
+lostanza defn make-binary-emitter (size:ref<Int>) -> ref<BinaryEmitter> :
+  return make-binary-emitter(to-long(size))
+lostanza defn emit (p:ptr<int>, v:int) -> ptr<int> :
+  [p] = v
+  return addr(p[1])
+lostanza defn emit (p:ptr<long>, v:long) -> ptr<long> :
+  [p] = v
+  return addr(p[1])
+lostanza defn emit (dst:ptr<?>, src:ptr<?>, len:long) -> ptr<?> :
+  return call-c clib/memcpy(dst, src, len) + len
+lostanza defn emit (dst:ptr<?>, s:ref<String>) -> ptr<?> :
+  return emit(dst, addr!(s.chars), s.length + 1)
+lostanza defn emit-int (emitter:ref<BinaryEmitter>, value:int) -> ref<False> :
+  emitter.p = emit(emitter.p as ptr<int>, value)
+  return false
+lostanza defn emit-long (emitter:ref<BinaryEmitter>, value:long) -> ref<False> :
+  emitter.p = emit(emitter.p as ptr<long>, value)
+  return false
+lostanza defn emit-int (emitter:ref<BinaryEmitter>, x:ref<Int>) -> ref<False> :
+  return emit-int(emitter, x.value)
+lostanza defn emit-long (emitter:ref<BinaryEmitter>, x:ref<Long>) -> ref<False> :
+  return emit-long(emitter, x.value)
+lostanza defn emit (emitter:ref<BinaryEmitter>, value:ptr<?>) -> ref<False> :
+  return emit-long(emitter, value as long)
+lostanza defn emit (emitter:ref<BinaryEmitter>, value:ref<BinaryEmitter>) -> ref<False> :
+  return emit(emitter, value.start)
+lostanza defn copy (emitter:ref<BinaryEmitter>, pos:ref<Int>, s:ref<String>) -> ref<False> :
+  call-c clib/memcpy(emitter.p + pos.value, addr!(s.chars), s.length + 1)
   return false
 
 ;============================================================
@@ -1175,6 +1371,7 @@ lostanza defn launch-init (vm:ref<VirtualMachine>, fid:ref<Int>) -> ref<True|Fal
 public defn shutdown (vm:VirtualMachine) :
   free-code-table(vm)
   dispose-debug-table(vm)
+  dispose-local-var-table(vm)
   dispose-safepoints(vm)
 lostanza defn free-code-table (vm:ref<VirtualMachine>) -> ref<False> :
   free(vm.vmtable.code-table)

@@ -38,6 +38,8 @@ public defstruct LoadedFunction :
   address:Long
   trace-entries:Vector<TraceTableEntry>
   safepoint-entries:Vector<SafepointTableEntry>
+  local-var-context:Vector<NamedLocalVar>
+  local-var-map-entries:Vector<LocalVarMapEntry>
 
 ;Represents the entry for use during backtraces.
 public defstruct TraceTableEntry :
@@ -49,6 +51,12 @@ with:
 public defstruct SafepointTableEntry :
   pc: Long
   id: Int
+with:
+  printer => true
+
+public defstruct LocalVarMapEntry :
+  pc: Long
+  indices: Tuple<Int> ;Sorted in increasing order, in local-var-context
 with:
   printer => true
 

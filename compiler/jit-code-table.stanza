@@ -57,7 +57,8 @@ defmethod load-function (table:JITCodeTable,
   put<Func>(funcs(table), fid, func(encoded-function))
 
   ;Return the loaded function
-  LoadedFunction(value(func(encoded-function)), trace-entries(encoded-function), safepoint-entries(encoded-function))
+  LoadedFunction(value(func(encoded-function)), trace-entries(encoded-function), safepoint-entries(encoded-function),
+                 local-var-context(encoded-function), local-var-maps(encoded-function))
 
 ;============================================================
 ;================== Launch ==================================

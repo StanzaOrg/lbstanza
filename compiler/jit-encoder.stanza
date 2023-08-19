@@ -52,6 +52,8 @@ public defstruct EncodedFunction :
   func: Func
   trace-entries: Vector<TraceTableEntry>
   safepoint-entries: Vector<SafepointTableEntry>
+  local-var-context: Vector<NamedLocalVar>
+  local-var-maps: Vector<LocalVarMapEntry>
 
 ;============================================================
 ;=================== Configuration ==========================
@@ -368,8 +370,10 @@ defn AsmGen (code:CodeHolder,
              a:Assembler,
              resolver:EncodingResolver,
              func-info:FuncInfo|False,
-             trace-entry-table:Vector<TraceTableEntry>|False,
-             safepoint-entry-table:Vector<SafepointTableEntry>|False,
+             trace-entry-table:Vector<TraceTableEntry>,
+             safepoint-entry-table:Vector<SafepointTableEntry>,
+             local-var-context:Vector<NamedLocalVar>,
+             local-var-maps:Vector<LocalVarMapEntry>,
              backend:Backend) :
 
   ;=========================================================
@@ -389,11 +393,18 @@ defn AsmGen (code:CodeHolder,
   val local-deftable = match(func-info:FuncInfo) :
     deftable(func-info)
 
+  ;Extract the local name table if there is one.
+  val local-name-table = match(func-info:FuncInfo) : name-table(func-info)
+                         else : IntTable<String>()
   ;Force retrieve the input FuncInfo.
   defn func-info! () -> FuncInfo :
     if func-info is False :
       fatal("No function information is given.")
     func-info as FuncInfo
+
+  ;Retrieve the stack frame slot that the local is stored in.
+  defn name? (l:Local) :
+    get?(local-name-table, index(l))
 
   ;Force retrieve the deftable.
   defn deftable! () -> IntTable<VMDef> :
@@ -466,33 +477,53 @@ defn AsmGen (code:CodeHolder,
     gen-label() when used-labels[l] else l
 
   ;=========================================================
+  ;================= Locals Debug Table ====================
+  ;=========================================================
+  defn stack-offset (slot:Int) :
+    slot * SIZEOF-LONG + STACK-FRAME-SLOTS-OFFSET
+  defn stack-offset (local:Local) :
+    stack-offset(slot(local))
+  val emit-varmaps? = not empty?(local-name-table)
+  val named-local-var-map = IntArray(length(deftable!()) when emit-varmaps? else 0, -1)
+  for i in 0 to length(named-local-var-map) do :
+    val local = Local(i)
+    match(name?(local)) :
+      (name:String) :
+        val n = length(local-var-context)
+        add(local-var-context, NamedLocalVar(stack-offset(local), name))
+        named-local-var-map[i] = n
+      (f:False) : false
+  defn index-in-context (local:Local) :
+    named-local-var-map[index(local)]
+  var last-record-live:RecordLiveIns|False = false
+  ;Add the given instruction location to the locals table.
+  defn record-locals (pos:Label) :
+    if emit-varmaps? :
+      match(last-record-live:RecordLiveIns) :
+        val live = to-tuple(filter({name?(_) != false}, live(last-record-live)))
+        if not empty?(live) :
+          val indices = qsort(map(index-in-context, live))
+          val offset = label-offset(code, pos)
+          add(local-var-maps, LocalVarMapEntry(offset, indices))
+
+  ;=========================================================
   ;================= Stack Trace Table =====================
   ;=========================================================
   ;Add the given instruction location to the stack trace table.
   defn record-trace-entry (pos:Label, entry:StackTraceInfo|False) :
-    fatal("No trace table given.") when trace-entry-table is False
-    val table = trace-entry-table as Vector<TraceTableEntry>
     match(entry:StackTraceInfo) :
+      record-locals(pos)
       val offset = label-offset(code, pos)
-      add(table, TraceTableEntry(offset, entry))
+      add(trace-entry-table, TraceTableEntry(offset, entry))
 
   ;=========================================================
   ;================== Safepoint Table ======================
   ;=========================================================
   ;Add the given instruction location to the safepoint table.
   defn record-safepoint-location (pos:Label, id:Int) :
-    fatal("No safepoint table given.") when safepoint-entry-table is False
-    val table = safepoint-entry-table as Vector<SafepointTableEntry>
+    record-locals(pos)
     val offset = label-offset(code, pos)
-    add(table, SafepointTableEntry(offset, id))
-
-  ;=========================================================
-  ;================= Locals Debug Table ====================
-  ;=========================================================
-  var last-record-live:RecordLiveIns|False = false
-  ;Add the given instruction location to the locals table.
-  defn record-locals (pos:Label) :
-    false
+    add(safepoint-entry-table, SafepointTableEntry(offset, id))
 
   ;=========================================================
   ;================ Structure Accessors ====================
@@ -617,8 +648,7 @@ defn AsmGen (code:CodeHolder,
     match(func-info:FuncInfo) :
       to-tuple $
         for i in 0 to num-locals() seq :
-          val offset = i * SIZEOF-LONG + STACK-FRAME-SLOTS-OFFSET
-          MemPtr(reg(StackPointerReg), offset)
+          MemPtr(reg(StackPointerReg), stack-offset(i))
     else :
       []
   defn stack-local (i:Int) -> Gp|MemPtr :
@@ -770,13 +800,22 @@ defn AsmGen (code:CodeHolder,
     set-vmstate-registers(reg(Tmp2))
     set-vmstate-system-registers(reg(Tmp1))
 
+  defn save-cached-local (slot:Int) :
+    mov(a, stack-local-mem(slot), stack-local(slot) as Gp)
+  defn restore-cached-local (slot:Int) :
+    mov(a, stack-local(slot) as Gp, stack-local-mem(slot))
   defn restore-locals-cache () :
     for i in 0 to length(LOCAL-ITEMS) do :
-      mov(a, stack-local(i) as Gp, stack-local-mem(i))
-
+      restore-cached-local(i)
   defn save-locals-cache () :
     for i in 0 to length(LOCAL-ITEMS) do :
-      mov(a, stack-local-mem(i), stack-local(i) as Gp)
+      save-cached-local(i)
+  defn save-locals-cache (live:Tuple<Local>) :
+    val limit = length(LOCAL-ITEMS)
+    for local in live do :
+      if name?(local) != false : ;Debugger can only observe named locals
+        val i = index(local)
+        if i < limit : save-cached-local(i)
 
   defn restore-vm-registers-cache () :
     for i in 0 to length(VMREG-ITEMS) do :
@@ -2663,11 +2702,12 @@ defn AsmGen (code:CodeHolder,
         false
 
       (ins:SafepointIns) :
+        match(last-record-live:RecordLiveIns) :
+          save-locals-cache(live(last-record-live))
         val lbl = new-label(a)
         bind(a, lbl)
         nop(a)
         record-safepoint-location(lbl, id(ins))
-        ;varmap?
 
       (ins:RecordLiveIns) :
         last-record-live = ins
@@ -2990,10 +3030,21 @@ defn AsmGen (code:CodeHolder,
 ;============================================================
 
 public defn make-jit-stubs (rt:JitRuntime, resolver:EncodingResolver, backend:Backend) -> JITStubs :
+  val no-trace-entry-table = Vector<TraceTableEntry>()
+  val no-safepoint-entry-table = Vector<SafepointTableEntry>()
+  val no-local-var-context = Vector<NamedLocalVar>()
+  val no-local-var-maps = Vector<LocalVarMapEntry>()
+
+
   ;Make a Func given an emitter function.
   defn make-stub-func (emit-code:AsmGen -> ?) -> Func :
     within (code, assembler) = gen-code(rt) :
-      emit-code(AsmGen(code, assembler, resolver, false, false, false, backend))
+      emit-code(AsmGen(code, assembler, resolver, false,
+                       no-trace-entry-table,
+                       no-safepoint-entry-table,
+                       no-local-var-context,
+                       no-local-var-maps,
+                       backend))
   ;Compile all stubs
   JITStubs(
     make-stub-func(emit-jit-launch)
@@ -3039,9 +3090,12 @@ public defn encode (func:VMFunction,
   within log-time(JIT-ENCODER) :
     val trace-entry-table = Vector<TraceTableEntry>()
     val safepoint-entry-table = Vector<SafepointTableEntry>()
+    val local-var-context = Vector<NamedLocalVar>()
+    val local-var-maps = Vector<LocalVarMapEntry>()
     val jit-func = within (code, assembler) = gen-code(rt) :
       defn AsmGen (func-info:FuncInfo|False) :
-        /AsmGen(code, assembler, resolver, func-info, trace-entry-table, safepoint-entry-table, backend)
+        /AsmGen(code, assembler, resolver, func-info, trace-entry-table, safepoint-entry-table,
+                local-var-context, local-var-maps, backend)
       ;Generate code for single fn
       defn emit-fn (f:VMFunc) :
         within log-time(JIT-EMIT-FN) :
@@ -3060,13 +3114,15 @@ public defn encode (func:VMFunction,
         (func:VMMultifn) : emit-multifn(func)
         (func:VMFunc) : emit-fn(func)
 
-    ;Relocate trace addresses
+    ;Fixup trace addresses
     within log-time(COMPUTE-ABSOLUTE-ADDRESSES) :
       val base = address(jit-func)
       for e in trace-entry-table map! :
         TraceTableEntry(base + pc(e), entry(e))
       for e in safepoint-entry-table map! :
         SafepointTableEntry(base + pc(e), id(e))
+      for e in local-var-maps map! :
+        LocalVarMapEntry(base + pc(e), indices(e))
 
     ;Return the final encoded function
-    EncodedFunction(jit-func, trace-entry-table, safepoint-entry-table)
+    EncodedFunction(jit-func, trace-entry-table, safepoint-entry-table, local-var-context, local-var-maps)

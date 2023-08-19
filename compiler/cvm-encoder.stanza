@@ -19,6 +19,8 @@ public defstruct EncodedFunction :
   buffer: ByteBuffer
   trace-entries: Vector<TraceTableEntry>
   safepoint-entries: Vector<SafepointTableEntry>
+  local-var-context:Vector<NamedLocalVar>
+  local-var-map-entries:Vector<LocalVarMapEntry>
 
 public defn encode (func:VMFunction,
                     resolver:EncodingResolver,
@@ -37,6 +39,8 @@ public defn encode (func:VMFunction,
   defn record-trace-entry (entry:StackTraceInfo|False) :
     match(entry:StackTraceInfo) :
       add(trace-entry-table, TraceTableEntry(to-long(write-position(buffer)), entry))
+  val local-var-context = Vector<NamedLocalVar>()
+  val local-var-maps = Vector<LocalVarMapEntry>()
 
   ;Delay the generation of this instruction,
   ;Instruction takes up the given number of 'instruction-words'.
@@ -700,7 +704,7 @@ public defn encode (func:VMFunction,
   ;Use delayed actions and encode instructions
   within delay-actions() :
     encode(func as VMMultifn|VMFunc)
-  EncodedFunction(buffer, trace-entry-table, safepoint-entry-table)
+  EncodedFunction(buffer, trace-entry-table, safepoint-entry-table, local-var-context, local-var-maps)
 
 ;============================================================
 ;====================== Utilities ===========================

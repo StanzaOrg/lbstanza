@@ -47,9 +47,11 @@ lostanza defmethod load-function (table:ref<CVMCodeTable>,
   ;Add the offset to the trace entries so that we know their absolute position.
   val relocated-trace-entries = add-offset(trace-entries(encoded-function), new Long{offset})
   val relocated-safepoint-entries = add-offset(safepoint-entries(encoded-function), new Long{offset})
+  val relocated-local-var-map-entries = add-offset(local-var-map-entries(encoded-function), new Long{offset})
 
   ;Return the new loaded function
-  return LoadedFunction(new Long{offset}, relocated-trace-entries, relocated-safepoint-entries)
+  return LoadedFunction(new Long{offset}, relocated-trace-entries, relocated-safepoint-entries,
+                        local-var-context(encoded-function), relocated-local-var-map-entries)
 
 ;Add 'offset' to the 'pc' of every entry in 'trace-entries' and return
 ;the result.
@@ -59,6 +61,9 @@ defn add-offset (trace-entries:Seqable<TraceTableEntry>, offset:Long) -> Vector<
 defn add-offset (safepoint-entries:Seqable<SafepointTableEntry>, offset:Long) -> Vector<SafepointTableEntry> :
   to-vector<SafepointTableEntry> $ for e in safepoint-entries seq :
     SafepointTableEntry(pc(e) + offset, id(e))
+defn add-offset (local-var-map-entries:Seqable<LocalVarMapEntry>, offset:Long) -> Vector<LocalVarMapEntry> :
+  to-vector<LocalVarMapEntry> $ for e in local-var-map-entries seq :
+    LocalVarMapEntry(pc(e) + offset, indices(e))
 
 ;============================================================
 ;================== Launch ==================================
