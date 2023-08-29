@@ -83,7 +83,7 @@ package stz/macro-plugin requires :
 include "debug/stanza.proj"
 
 build stanza-debugger :
-  inputs: stz-debug/debugger
+  inputs: stz-debug/debugger-main
   pkg: "pkgs"
   o: "stanza-debugger"
 

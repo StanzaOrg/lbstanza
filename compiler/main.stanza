@@ -823,9 +823,6 @@ defn run-command () :
         ;Add platform flag
         add-flag(platform-flag(OUTPUT-PLATFORM))
 
-        ;!!! MOVE ME
-        if not flag-defined?(`debug) : add-flag(`debug)
-
         ;Setup command line arguments.
         val new-cmd-args = to-tuple $ cat(["run"], get?(cmd-args, "-", []))
         set-command-line-arguments(new-cmd-args)
@@ -959,11 +956,13 @@ defn debug-command () :
       for flag in get?(cmd-args, "flags", []) do :
         add-flag(to-symbol(flag))
 
+      if not flag-defined?(`debug) : add-flag(`debug)
+
       ;Add platform flag
       add-flag(platform-flag(OUTPUT-PLATFORM))
 
       ;Setup command line arguments.
-      val new-cmd-args = to-tuple $ cat(["run"], get?(cmd-args, "-", []))
+      val new-cmd-args = to-tuple $ cat(["debug"], get?(cmd-args, "-", []))
       set-command-line-arguments(new-cmd-args)
 
       ;Run in REPL

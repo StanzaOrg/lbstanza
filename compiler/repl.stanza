@@ -38,6 +38,7 @@ defpackage stz/repl :
   import stz/aux-file
   import core/sha256
   import stz/package-stamps
+  import stz/pkg-saver
   import stz/terminal-style
   import stz/macroexpander
   import stz/timing-log-api
@@ -45,7 +46,7 @@ defpackage stz/repl :
   import stz/verbose
   import stz/loaded-dynamic-libraries
   import stz/extern-defn-table
-  import stz/pkg-saver
+  import stz-debug/debugger
 
 ;============================================================
 ;====================== Timers ==============================
@@ -278,6 +279,7 @@ defmulti inside (repl:REPL, package:Symbol|False) -> False
 defmulti clear (repl:REPL) -> False
 defmulti use-syntax (repl:REPL, inputs:Tuple<Symbol>, add-to-existing?:True|False) -> False
 defmulti shutdown (repl:REPL) -> False
+defmulti debug-files (repl:REPL, inputs:Tuple<String|Symbol>) -> False
 
 public defn REPL (macro-plugins:Tuple<String>,
                   pkg-cache-dir:String|False,
@@ -335,6 +337,20 @@ public defn REPL (macro-plugins:Tuple<String>,
   ;Load files
   ;Returns the name of the last package that was loaded if any.
   defn load-files (inputs:Tuple<String|Symbol>) -> Symbol|False :
+    val inputs* = load-inputs(inputs)
+    if not empty?(inputs*) :
+      within intercept-errors() :
+        val vmpackages = within log-time(REPL-COMPILE-TO-VMPACKAGES) :
+          compile-to-vmpackages(to-tuple(inputs*), live-recs, false, debug?)
+        load-dynamic-libraries(dylibs, proj-manager(), vmpackages)
+        within log-time(REPL-LOAD-INTO-VM) :
+          load(vm, vmpackages, false)
+        within log-time(REPL-INIT-PACKAGES) :
+          init-packages(vmpackages)
+        if not empty?(vmpackages) :
+          val n = length(vmpackages)
+          name(vmpackages[n - 1])
+  defn load-inputs (inputs:Tuple<String|Symbol>) :
     ;Load project files separately
     var proj-files-added?: True|False = false
     val inputs* = Vector<String|Symbol>()
@@ -349,7 +365,10 @@ public defn REPL (macro-plugins:Tuple<String>,
     ;Update the macroexpander if necessary.
     if proj-files-added? :
       set-proj-manager(macroexpander, proj-manager())
+    to-tuple(inputs*)
 
+  defn debug-files (inputs:Tuple<String|Symbol>) -> False :
+    val inputs* = load-inputs(inputs)
     if not empty?(inputs*) :
       within intercept-errors() :
         val vmpackages = within log-time(REPL-COMPILE-TO-VMPACKAGES) :
@@ -357,11 +376,16 @@ public defn REPL (macro-plugins:Tuple<String>,
         load-dynamic-libraries(dylibs, proj-manager(), vmpackages)
         within log-time(REPL-LOAD-INTO-VM) :
           load(vm, vmpackages, false)
-        within log-time(REPL-INIT-PACKAGES) :
-          init-packages(vmpackages)
-        if not empty?(vmpackages) :
-          val n = length(vmpackages)
-          name(vmpackages[n - 1])
+        val app = new App :
+          defmethod state (this) :
+            get-state(vm)
+          defmethod run (this) :
+            init-packages(vmpackages)
+            0
+          defmethod exit (this) :
+            shutdown(vm)
+        debug(app)
+    false
 
   ;Ensure that a package is loaded
   defn ensure-package-loaded (package:Symbol) :
@@ -576,6 +600,11 @@ public defn REPL (macro-plugins:Tuple<String>,
         throw(ReplErrors([e]))
     defmethod shutdown (this) :
       shutdown(vm)
+    defmethod debug-files (this, inputs:Tuple<String|Symbol>) :
+      debug-files(inputs)
+
+defn debug (vm:VirtualMachine) :
+  false
 
 ;============================================================
 ;==================== Externs ===============================
@@ -1097,6 +1126,9 @@ public defn debug-in-repl (args:Tuple<String>,
                            pkg-cache-dir:String|False) :
   val repl = REPL(macro-plugins, pkg-cache-dir, true)
   try:
-    load-files(repl, make-inputs(args), false)
+    debug-files(repl, make-inputs(args))
   finally:
     shutdown(repl)
+
+lostanza defn get-state (vm:ref<VirtualMachine>) -> ref<AppState> :
+  return new AppState{vm.vmstate as ptr<core/VMState>}

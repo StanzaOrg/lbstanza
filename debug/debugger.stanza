@@ -103,10 +103,10 @@ defn print-help (msg:String|False) :
   println-all(help)
 
 defn run () :
-  println("debug> Program finished wth completion code %_." % [run-main()])
+  println("debug> Program finished wth completion code %_." % [run-app()])
 defn quit () :
   println("Quitting.")
-  exit(0)
+  exit-app()
 
 lostanza defn read-app-stack-trace () -> ref<SingleStackTrace> :
   return read-stack-trace(app-vms)
@@ -244,45 +244,14 @@ lostanza defn print-variable (name:ref<String>, p:ptr<long>) -> ref<False> :
 defn print-variable (name:String, type:String, value:String) :
   println("  var %_ : %_ = %_" % [name, type, value])
 
-lostanza defn run-main () -> ref<Int> :
-  val main = app-main as ptr<( (int, ptr<ptr<byte>>) -> int )>
-  val result = call-c [main](clib/input_argc - 1, addr(clib/input_argv[1]))
-  return new Int{result}
-
-lostanza defn load-app (path:ref<String>) -> ref<False>:
-  val lib = dynamic-library-open(path)
-  unprotect-code(lib)
-  val vms = vmstate(lib).address as ptr<core/VMState>
-  app-vms = vms
-  app_safepoint_table = app-vms.safepoint-table ;Export safepoint table to native code
-  app-locals = LocalVarTable(vms.local-var-table)
-  app-globals = DebugTable(vms.debug-table)
-  app-main = dynamic-library-symbol(lib, String("main")).address
-  call-c set_SIGINT_handler()
-  return false
-defn vmstate (lib:DynamicLibrary) :
-  dynamic-library-symbol(lib, String("stanza_vmstate"))
 lostanza defn app-safepoints () -> ptr<SafepointTable> :
   return app_safepoint_table
 extern set_SIGINT_handler : () -> int
 
-lostanza defn unprotect-code (lib:ref<DynamicLibrary>) -> ref<False> :
-  val start = dynamic-library-symbol(lib, String("stanza_text_section_start")).address
-  val end = dynamic-library-symbol(lib, String("stanza_text_section_end")).address
-  val start-page = align-down-to-page-size(start)
-  val limit-page = align-down-to-page-size(end + (PAGE-SIZE - 1L))
-  call-c mprotect(start-page, limit-page - start-page, 0x7)
-  return false
-extern mprotect: (ptr<?>, long, int) -> int
-lostanza val PAGE-SIZE:long = 4096
-lostanza defn align-down-to-page-size (p:ptr<?>) -> ptr<?> :
-  val x = p as long
-  val y = x & (- PAGE-SIZE)
-  return y as ptr<?>
-
 ;Debugger state
 lostanza var app-vms : ptr<core/VMState>
-lostanza var app-main : ptr<?>
+var app-run : (() -> Int)
+var app-exit : (() -> False)
 var app-locals : LocalVarTable
 var app-globals : DebugTable
 
@@ -689,17 +658,32 @@ lostanza defn forget-stepping-coroutine () -> ref<False> :
     [stepping-coroutine-ptr] = false
   return false
 
-defn main () :
-  val args = command-line-arguments()
-  if length(args) < 2 :
-    println("Usage: %_ app-path app-args")
-    exit(-1)
-  load-app(args[1])
-  set-sighandler(when-paused-at-safepoint)
+var app:App
+defn run-app () : run(app)
+defn exit-app () : exit(app)
+defn app-state () : state(app)
 
+public deftype App
+public lostanza deftype AppState :
+  vms:ptr<core/VMState>
+public defmulti state (app:App) -> AppState
+public defmulti run (app:App) -> Int
+public defmulti exit (app:App) -> False
+
+public defn debug (app:App) -> False :
+  /app = app
+  init()
+  set-sighandler(when-paused-at-safepoint)
   println("Paused at entry")
   try :
     command-loop(false)
   catch (e:Exception) :
     println(e)
-main()
+lostanza defn init () -> ref<False> :
+  val vms = app-state().vms
+  app-vms = vms
+  app_safepoint_table = vms.safepoint-table ;Export safepoint table to native code
+  app-locals = LocalVarTable(vms.local-var-table)
+  app-globals = DebugTable(vms.debug-table)
+  call-c set_SIGINT_handler()
+  return false
