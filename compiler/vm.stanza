@@ -589,6 +589,10 @@ defn add-entries (b:StackTraceBuilder, es:Seqable<StackTraceEntry>) :
   for e in es do :
     add-entry(b, e)
 
+public lostanza defn collect-stack-trace (vm:ref<VirtualMachine>) -> ref<SingleStackTrace> :
+  val trace = collect-stack-trace(current-stack(vm), vmtable(vm), live-map-table(vm))
+  return new SingleStackTrace{trace}
+
 ;------------------------------------------------------------
 ;-------------------- Common Utilities ----------------------
 ;------------------------------------------------------------

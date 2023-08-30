@@ -7,7 +7,6 @@ defpackage stz-debug/debugger :
   import core/debug-table
   import core/sighandler
   import stz/line-noise-prompter
-  import stz-debug/read-stack-trace
   import core/stack-trace
   import core/local-table
 
@@ -23,7 +22,7 @@ defn* command-loop (running?:True|False) -> False :
             defn no-core-packages (package:Symbol, sig:String|False) -> True|False :
               package != `core
             ;Print out the stack trace using the filter.
-            print-stack-trace(current-output-stream(), read-app-stack-trace(), no-core-packages)
+            print-stack-trace(current-output-stream(), stack-trace(app), no-core-packages)
           else :
             println("Program is not running.")
           ;Do not advance the program.
@@ -69,7 +68,7 @@ defn* command-loop (running?:True|False) -> False :
         (stop) :
           if running? :
             println("Stopping the program.")
-          throw(Exception("Program stopped."))
+          quit()
         (quit) :
           quit()
         (help) :
@@ -107,9 +106,6 @@ defn run () :
 defn quit () :
   println("Quitting.")
   exit-app()
-
-lostanza defn read-app-stack-trace () -> ref<SingleStackTrace> :
-  return read-stack-trace(app-vms)
 
 lostanza defn print-safepoints () -> ref<False> :
   return dump-safepoint-table(app-safepoints())
@@ -669,6 +665,7 @@ public lostanza deftype AppState :
 public defmulti state (app:App) -> AppState
 public defmulti run (app:App) -> Int
 public defmulti exit (app:App) -> False
+public defmulti stack-trace (app:App) -> SingleStackTrace
 
 public defn debug (app:App) -> False :
   /app = app

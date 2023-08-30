@@ -1,7 +1,9 @@
 defpackage stz-debug/debugger-main :
   import core
   import core/dynamic-library
+  import core/stack-trace
   import stz-debug/debugger
+  import stz-debug/read-stack-trace
 
 lostanza deftype CompiledApp <: App :
   vms : ptr<core/VMState>
@@ -9,12 +11,15 @@ lostanza deftype CompiledApp <: App :
 defmethod state (app:CompiledApp) : get-state(app)
 defmethod run (app:CompiledApp) : run-app(app)
 defmethod exit (app:CompiledApp) : exit(0)
+defmethod stack-trace (app:CompiledApp) : read-stack-trace(app)
 lostanza defn get-state (app:ref<CompiledApp>) -> ref<AppState> :
   return new AppState{app.vms}
 lostanza defn run-app (app:ref<CompiledApp>) -> ref<Int> :
   val main = app.main as ptr<( (int, ptr<ptr<byte>>) -> int )>
   val result = call-c [main](clib/input_argc - 1, addr(clib/input_argv[1]))
   return new Int{result}
+lostanza defn read-stack-trace (app:ref<CompiledApp>) -> ref<SingleStackTrace> :
+  return read-stack-trace(app.vms)
 
 lostanza defn load-app (path:ref<String>) -> ref<CompiledApp>:
   val lib = dynamic-library-open(path)

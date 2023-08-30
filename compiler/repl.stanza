@@ -384,6 +384,8 @@ public defn REPL (macro-plugins:Tuple<String>,
             0
           defmethod exit (this) :
             shutdown(vm)
+          defmethod stack-trace (this) :
+            collect-stack-trace(vm)
         debug(app)
     false
 
@@ -602,9 +604,6 @@ public defn REPL (macro-plugins:Tuple<String>,
       shutdown(vm)
     defmethod debug-files (this, inputs:Tuple<String|Symbol>) :
       debug-files(inputs)
-
-defn debug (vm:VirtualMachine) :
-  false
 
 ;============================================================
 ;==================== Externs ===============================
