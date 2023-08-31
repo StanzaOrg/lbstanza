@@ -521,7 +521,6 @@ defn AsmGen (code:CodeHolder,
   ;=========================================================
   ;Add the given instruction location to the safepoint table.
   defn record-safepoint-location (pos:Label, id:Int) :
-    record-locals(pos)
     val offset = label-offset(code, pos)
     add(safepoint-entry-table, SafepointTableEntry(offset, id))
 
@@ -2707,6 +2706,7 @@ defn AsmGen (code:CodeHolder,
         val lbl = new-label(a)
         bind(a, lbl)
         nop(a)
+        record-trace-entry(lbl, trace-entry(ins))
         record-safepoint-location(lbl, id(ins))
 
       (ins:RecordLiveIns) :

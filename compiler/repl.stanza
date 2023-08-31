@@ -385,7 +385,7 @@ public defn REPL (macro-plugins:Tuple<String>,
           defmethod exit (this) :
             shutdown(vm)
           defmethod stack-trace (this) :
-            collect-stack-trace(vm)
+            collect-current-stack-trace(vm)
         debug(app)
     false
 

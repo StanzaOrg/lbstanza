@@ -2,6 +2,7 @@ defpackage stz/vm :
   import core
   import core/local-table
   import core/safepoints
+  import core/sighandler
   import core/stack-trace
   import collections
   import stz/absolute-info
@@ -578,45 +579,37 @@ defn print-stack-entry (e:StackTraceEntry) -> False :
 
 
 lostanza defn collect-stack-trace (stack:ptr<Stack>, vmtable:ref<VMTable>, livemap:ref<LiveMapTable>) -> ptr<PackedStackTrace> :
-  val buffer = collect-stack-trace-entries(stack, vmtable, livemap)
+  return pack(collect-stack-trace-entries(stack, vmtable, livemap))
 
-  ;Pack items into stable memory.
+;Pack items into stable memory.
+lostanza defn pack (buffer:ref<Vector<StackTraceEntry>>) -> ptr<PackedStackTrace> :
   val builder = StackTraceBuilder()
   add-entries(builder, buffer)
   return pack(builder)
-
 defn add-entries (b:StackTraceBuilder, es:Seqable<StackTraceEntry>) :
   for e in es do :
     add-entry(b, e)
 
-public lostanza defn collect-stack-trace (vm:ref<VirtualMachine>) -> ref<SingleStackTrace> :
-  val trace = collect-stack-trace(current-stack(vm), vmtable(vm), live-map-table(vm))
-  return new SingleStackTrace{trace}
+public lostanza defn collect-current-stack-trace (vm:ref<VirtualMachine>) -> ref<SingleStackTrace> :
+  val buffer = collect-current-stack-trace-entries(current-stack(vm), vmtable(vm), live-map-table(vm))
+  return new SingleStackTrace{pack(buffer)}
 
 ;------------------------------------------------------------
 ;-------------------- Common Utilities ----------------------
 ;------------------------------------------------------------
 
-defn make-entry (ip:Long, sp:Long, st-info:StackTraceInfo) :
-  StackTraceEntry(ip, sp, package(st-info), signature(st-info), info(st-info))
-
 lostanza defn collect-stack-trace-entries (stack:ptr<Stack>,
                                            vmtable:ref<VMTable>,
                                            livemap:ref<LiveMapTable>) -> ref<Vector<StackTraceEntry>> :
+  val trace-table = vmtable.trace-table
   ;Accumulate all entries into a buffer.
   val buffer = Vector<StackTraceEntry>()
-
   ;Discover return addresses
   val end-sp = stack.stack-pointer
   labels :
     begin : goto loop(stack.frames)
     loop (sp:ptr<StackFrame>) :
-      ;Store in return buffer
-      ;if it exists in the file info table
-      val ret = new Long{sp.return}
-      match(get?(vmtable.trace-table, ret)) :
-        (info:ref<StackTraceInfo>) : add(buffer, make-entry(ret, new Long{sp as long}, info))
-        (info) : ()
+      add-entry(buffer, new Long{sp.return}, new Long{sp as long}, trace-table)
 
       ;Continue if we're not at the end of the stack
       if sp < end-sp :
@@ -625,11 +618,39 @@ lostanza defn collect-stack-trace-entries (stack:ptr<Stack>,
         val num-slots = num-slots(stackmap).value
         val next-frame = addr(sp.slots[num-slots]) as ptr<StackFrame>
         goto loop(next-frame)
+  reverse!(buffer)
+  return buffer
+defn add-entry (buffer:Vector<StackTraceEntry>, pc:Long, sp:Long, trace-table:HashTable<Long,StackTraceInfo>) :
+  val st-info = get?(trace-table, pc)
+  ;Store in the buffer if it exists in the stack trace table
+  match(st-info:StackTraceInfo) :
+    add(buffer, StackTraceEntry(pc, sp, package(st-info), signature(st-info), info(st-info)))
 
+lostanza defn collect-current-stack-trace-entries (stack:ptr<Stack>,
+                                                   vmtable:ref<VMTable>,
+                                                   livemap:ref<LiveMapTable>) -> ref<Vector<StackTraceEntry>> :
+  val trace-table = vmtable.trace-table
+  ;Accumulate all entries into a buffer.
+  val buffer = Vector<StackTraceEntry>()
+  ;Discover return addresses
+  val end-sp = stack.stack-pointer
+  labels :
+    begin : goto loop(stack.frames)
+    loop (sp:ptr<StackFrame>) :
+      ;Continue if we're not at the end of the stack
+      if sp < end-sp :
+        add-entry(buffer, new Long{sp.return}, new Long{sp as long}, trace-table)
+
+        val map-index = sp.liveness-map as int
+        val stackmap = get(livemap, new Int{map-index})
+        val num-slots = num-slots(stackmap).value
+        val next-frame = addr(sp.slots[num-slots]) as ptr<StackFrame>
+        goto loop(next-frame)
+      else :
+        add-entry(buffer, get-sighandler-instruction-address(), new Long{sp as long}, trace-table)
   ;Return the vector of entries in reverse order
   reverse!(buffer)
   return buffer
-
 
 ;============================================================
 ;==================== Heap/Stack Extension ==================
