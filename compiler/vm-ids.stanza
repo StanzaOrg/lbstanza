@@ -71,22 +71,7 @@ public defmulti package-init (ids:VMIds, package:Symbol) -> Int|False
 public defn VMIds (dylibs:LoadedDynamicLibraries,
                    extern-defns:ExternDefnTable) :
   ;Fixed Ids
-  val fixed-ids = [
-    CORE-EXTEND-HEAP-ID => EXTEND-HEAP-FN
-    CORE-EXTEND-STACK-ID => EXTEND-STACK-FN
-    CORE-INIT-CONSTS-ID => INIT-CONSTS-FN
-    CORE-EXECUTE-TOPLEVEL-COMMAND-ID => EXECUTE-TOPLEVEL-COMMAND-FN
-    CORE-FALSE-ID => FALSE-TYPE
-    CORE-TRUE-ID => TRUE-TYPE
-    CORE-BYTE-ID => BYTE-TYPE
-    CORE-CHAR-ID => CHAR-TYPE
-    CORE-INT-ID => INT-TYPE
-    CORE-FLOAT-ID => FLOAT-TYPE
-    CORE-STACK-ID => STACK-TYPE
-    CORE-FN-ID => FN-TYPE
-    CORE-TYPE-ID => TYPE-TYPE
-    CORE-LIVENESS-TRACKER-ID => LIVENESS-TRACKER-TYPE,
-    CORE-UNIQUE-ID => UNIQUE-TYPE]
+  val fixed-ids = to-tuple(cat(FIXED-TYPE-IDS, BUILTIN-FUNCTION-IDS))
 
   ;Fundamental State
   val id-table = HashTable<RecId,Int>()

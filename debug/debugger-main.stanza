@@ -10,8 +10,8 @@ lostanza deftype CompiledApp <: App :
   main : ptr<?>
 defmethod state (app:CompiledApp) : get-state(app)
 defmethod run (app:CompiledApp) : run-app(app)
-defmethod exit (app:CompiledApp) : exit(0)
 defmethod stack-trace (app:CompiledApp) : read-stack-trace(app)
+defmethod class-name (app:CompiledApp, id:Int) : get-class-name(app, id)
 lostanza defn get-state (app:ref<CompiledApp>) -> ref<AppState> :
   return new AppState{app.vms}
 lostanza defn run-app (app:ref<CompiledApp>) -> ref<Int> :
@@ -20,6 +20,11 @@ lostanza defn run-app (app:ref<CompiledApp>) -> ref<Int> :
   return new Int{result}
 lostanza defn read-stack-trace (app:ref<CompiledApp>) -> ref<SingleStackTrace> :
   return read-stack-trace(app.vms)
+lostanza defn get-class-name (app:ref<CompiledApp>, id:ref<Int>) -> ref<String> :
+  return String(get-class-name(app, id.value))
+lostanza defn get-class-name (app:ref<CompiledApp>, id:int) -> ptr<byte> :
+  val record = app.vms.class-table[id].record
+  return (record + record.num-bytes) as ptr<byte>
 
 lostanza defn load-app (path:ref<String>) -> ref<CompiledApp>:
   val lib = dynamic-library-open(path)

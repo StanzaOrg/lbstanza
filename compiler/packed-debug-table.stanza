@@ -148,8 +148,8 @@ public defn pack (t:DebugTable, vm:VirtualMachine) -> False :
       val num-entries = to-long(length(entries(pkg)))
     package-section-emit(emitter, string-section-emit(emitter, name(pkg)))
     for e in entries(pkg) do :
-      table-section-emit(emitter, string-section-emit(emitter, name(e)))
-      table-section-emit(emitter, global-offsets[offset(e)])
+      package-section-emit(emitter, string-section-emit(emitter, name(e)))
+      package-section-emit(emitter, global-offsets[offset(e)])
 lostanza defn make-binary-emitter (t-size:ref<Int>, p-size:ref<Int>, s-size:ref<Int>, vm:ref<VirtualMachine>) -> ref<DebugTableEmitter> :
   val table-section-size = t-size.value
   val package-section-size = p-size.value
@@ -164,7 +164,7 @@ lostanza deftype DebugTableEmitter :
   var package-section-pos:ptr<?>
   var string-section-pos:ptr<?>
 lostanza defn package-section-pos (e:ref<DebugTableEmitter>) -> ref<Long> :
-  return new Long{e.table-section-pos as long}
+  return new Long{e.package-section-pos as long}
 lostanza defn table-section-emit (e:ref<DebugTableEmitter>, x:ref<Long>) -> ref<False> :
   e.table-section-pos = emit(e.table-section-pos, x.value)
   return false

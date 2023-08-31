@@ -102,7 +102,7 @@ defn print-help (msg:String|False) :
   println-all(help)
 
 defn run () :
-  println("debug> Program finished wth completion code %_." % [run-app()])
+  println("debug> Program finished wth completion code %_." % [run(app)])
 defn quit () :
   println("Quitting.")
   exit(0)
@@ -276,10 +276,7 @@ public lostanza defn type-of (v:long) -> ref<String> :
   val type-id = type-id(v)
   if type-id < 0 : return String("Unknown")
   if type-id == tagof(core/Box) : return type-of(unbox(v))
-  return String(app-class-name(type-id))
-lostanza defn app-class-name (x:long) -> ptr<byte> :
-  val record = app-vms.class-table[x].record
-  return (record + record.num-bytes) as ptr<byte>
+  return app-class-name(new Int{type-id as int})
 
 lostanza defn untag (x:long) -> ptr<?> :
   #if-not-defined(OPTIMIZE) :
@@ -287,6 +284,7 @@ lostanza defn untag (x:long) -> ptr<?> :
     if tagbits != 1 : fatal("Not a heap-allocated object!")
   return (x - 1 + 8) as ptr<?>
 
+;Recognized types ids must be registered in FIXED-TYPE-IDS
 deftype RecognizedType :
   True <: RecognizedType
   False <: RecognizedType
@@ -655,8 +653,8 @@ lostanza defn forget-stepping-coroutine () -> ref<False> :
   return false
 
 var app:App
-defn run-app () : run(app)
 defn app-state () : state(app)
+defn app-class-name (id:Int) : class-name(app, id)
 
 public deftype App
 public lostanza deftype AppState :
@@ -664,6 +662,7 @@ public lostanza deftype AppState :
 public defmulti state (app:App) -> AppState
 public defmulti run (app:App) -> Int
 public defmulti stack-trace (app:App) -> SingleStackTrace
+public defmulti class-name (app:App, id:Int) -> String
 
 public defn debug (app:App) -> False :
   /app = app

@@ -858,6 +858,11 @@ lostanza defn print-tag (ref:long) -> int :
 lostanza defn function-addresses (vmt:ref<VMTable>) -> ref<StableLongArray> :
   return vmt.function-addresses
 
+public defn class-name (id:Int, vm:VirtualMachine) :
+  match(class-table(vm)[id]) :
+    (class:VMLeafClass) : name(class)
+    (class:VMArrayClass) : name(class)
+
 ;============================================================
 ;================= Instruction Encoding =====================
 ;============================================================

@@ -384,6 +384,8 @@ public defn REPL (macro-plugins:Tuple<String>,
             0
           defmethod stack-trace (this) :
             collect-current-stack-trace(vm)
+          defmethod class-name (this, id:Int) :
+            class-name(id, vm)
         debug(app)
     false
 
