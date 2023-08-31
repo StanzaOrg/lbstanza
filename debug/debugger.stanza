@@ -105,7 +105,7 @@ defn run () :
   println("debug> Program finished wth completion code %_." % [run-app()])
 defn quit () :
   println("Quitting.")
-  exit-app()
+  exit(0)
 
 lostanza defn print-safepoints () -> ref<False> :
   return dump-safepoint-table(app-safepoints())
@@ -656,7 +656,6 @@ lostanza defn forget-stepping-coroutine () -> ref<False> :
 
 var app:App
 defn run-app () : run(app)
-defn exit-app () : exit(app)
 defn app-state () : state(app)
 
 public deftype App
@@ -664,7 +663,6 @@ public lostanza deftype AppState :
   vms:ptr<core/VMState>
 public defmulti state (app:App) -> AppState
 public defmulti run (app:App) -> Int
-public defmulti exit (app:App) -> False
 public defmulti stack-trace (app:App) -> SingleStackTrace
 
 public defn debug (app:App) -> False :
