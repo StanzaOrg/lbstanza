@@ -46,6 +46,7 @@ defserializer DefsDbSerializer () :
     source:src-def-src
     imports:tuple(package-import)
     definitions:tuple(definition)
+    documentation?:opt(string)
 
   deftype unresolved-symbol (UnresolvedSymbol) :
     symbol:symbol
