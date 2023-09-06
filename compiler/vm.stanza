@@ -1268,7 +1268,7 @@ defn emit-named-vars (packer:LocalTablePacker) -> BinaryEmitter :
     emit-long(e, stack-offset(v))
     emit-addr(e, name-offset(v) + vars-size)
   for x in map(var-names) do :
-    copy(e, value(x) + vars-size, key(x))
+    copy(e, value(x), key(x))
   e
 defn emit-index-maps (packer:LocalTablePacker) -> BinaryEmitter :
   val index-maps = index-maps(packer)
