@@ -1233,9 +1233,11 @@ lostanza defn set-local-var-table (e:ref<BinaryEmitter>, vm:ref<VirtualMachine>)
   return false
 defn emit-varmaps (packer:LocalTablePacker) -> BinaryEmitter :
   val varmaps = varmaps(packer)
+  val length = length(varmaps)
   val VarMapEntry-size = 8 + 4 + 4
-  val varmaps-size = 8 + VarMapEntry-size * length(varmaps)
+  val varmaps-size = 8 + VarMapEntry-size * length
   val e = make-binary-emitter(varmaps-size)
+  emit-long(e, length)
   for v in varmaps do :
     emit-long(e, pc(v))
     emit-int(e, context-index(v))

@@ -386,6 +386,8 @@ public defn REPL (macro-plugins:Tuple<String>,
             collect-current-stack-trace(vm)
           defmethod class-name (this, id:Int) :
             class-name(id, vm)
+          defmethod stack-pointer (this) :
+            get-current-stack-pointer(vm)
         debug(app)
     false
 
@@ -1131,3 +1133,7 @@ public defn debug-in-repl (args:Tuple<String>,
 
 lostanza defn get-state (vm:ref<VirtualMachine>) -> ref<AppState> :
   return new AppState{vm.vmstate as ptr<core/VMState>}
+
+lostanza defn get-current-stack-pointer (vm:ref<VirtualMachine>) -> ref<Long> :
+  val current-stack = vm.vmstate.heap.current-stack as ref<Stack>
+  return new Long{current-stack.stack-pointer as long}

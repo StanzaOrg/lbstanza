@@ -39,9 +39,12 @@ defn* command-loop (running?:True|False) -> False :
           print-locals(ip, sp)
           loop()
         (locals) :
-          val ip = get-sighandler-instruction-address()
-          val sp = get-sighandler-stack-pointer()
-          print-locals(ip, sp)
+          if running? :
+            val ip = get-sighandler-instruction-address()
+            val sp = stack-pointer(app)
+            print-locals(ip, sp)
+          else :
+            println("Program is not running.")
           loop()
         (break ?filename ?line) :
           set-breakpoint(unwrap-token(filename) as String, unwrap-token(line) as Int)
@@ -213,6 +216,7 @@ lostanza defn find (list:ptr<AddressList>, ip:ptr<?>) -> ptr<SafepointAddress> :
 defn print-locals (ip:Long, sp:Long) :
   val ctxt = context(app-locals, ip)
   match(ctxt:VarContext) :
+    val len = length(ctxt)
     if length(ctxt) == 0 :
       println("No named locals recorded.")
     else :
@@ -663,6 +667,7 @@ public defmulti state (app:App) -> AppState
 public defmulti run (app:App) -> Int
 public defmulti stack-trace (app:App) -> SingleStackTrace
 public defmulti class-name (app:App, id:Int) -> String
+public defmulti stack-pointer (app:App) -> Long
 
 public defn debug (app:App) -> False :
   /app = app

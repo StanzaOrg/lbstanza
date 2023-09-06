@@ -1,6 +1,7 @@
 defpackage stz-debug/debugger-main :
   import core
   import core/dynamic-library
+  import core/sighandler
   import core/stack-trace
   import stz-debug/debugger
   import stz-debug/read-stack-trace
@@ -12,6 +13,8 @@ defmethod state (app:CompiledApp) : get-state(app)
 defmethod run (app:CompiledApp) : run-app(app)
 defmethod stack-trace (app:CompiledApp) : read-stack-trace(app)
 defmethod class-name (app:CompiledApp, id:Int) : get-class-name(app, id)
+defmethod stack-pointer (app:CompiledApp) : get-sighandler-stack-pointer()
+
 lostanza defn get-state (app:ref<CompiledApp>) -> ref<AppState> :
   return new AppState{app.vms}
 lostanza defn run-app (app:ref<CompiledApp>) -> ref<Int> :
