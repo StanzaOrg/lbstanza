@@ -20,6 +20,7 @@ public defstruct PackageDefinitions :
   source: SrcDefinitionSource
   imports:Tuple<PackageImport>
   definitions:Tuple<Definition>
+  documentation?:False|String
 
 doc: "A single defined item."
 public defstruct Definition <: Equalable : 
@@ -114,6 +115,7 @@ defmethod print (o:OutputStream, defs:PackageDefinitions) :
   val o2 = IndentedStream(o)
   lnprint(o2, "stamp: %_" % [stamp(defs)])
   lnprint(o2, "source: %_" % [source(defs)])
+  lnprint(o2, "documentation?:\n%_" % [Indented(documentation?(defs))])  
   do(lnprint{o2, _}, imports(defs))
   do(lnprint{o2, _}, definitions(defs))
 
