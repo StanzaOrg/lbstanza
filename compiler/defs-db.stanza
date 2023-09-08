@@ -279,6 +279,18 @@ protected-when(TESTING) defn index-expressions (exps:List<IExp>, nm:NameMap) -> 
 ;------------- Computing Definition Annotations -------------
 ;------------------------------------------------------------
 
+defn is-keyword (arg:IExp) -> True|False :
+  match(arg:IKeyword|IOptionalKeyword): true
+  else: false
+
+defn is-optional (arg:IExp) -> True|False :
+  match(arg:IOptional|IOptionalKeyword): true
+  else: false
+
+defn is-variadic (arg:IExp) -> True|False :
+  match(arg:IRest): true
+  else: false
+
 ;Create an annotation for a top-level expression.
 defn annotate? (iexp:IExp, nm:NameMap) -> False|DefinitionAnnotation :
   match(iexp) :
@@ -290,11 +302,29 @@ defn annotate? (iexp:IExp, nm:NameMap) -> False|DefinitionAnnotation :
             stringify?(arg, nm) as Symbol
         val args = to-tuple $
           for (arg in args(idefn), type in a1(idefn)) seq :
-            val arg-name = stringify?(arg, nm)
             val type-name = stringify?(type, nm)
-            FnArgAnnotation(arg-name, type-name)
+            val arg-name = stringify?(arg, nm)
+            FnArgAnnotation(
+              arg-name, type-name,
+              is-keyword(arg),
+              is-variadic(arg),
+              is-optional(arg))
     (iexp) :
       false
+
+defn is-keyword (arg:FArg<DType>) -> True|False :
+  match(arg:KeywordArg<DType>): true
+  else: false
+
+defn is-variadic (arg:FArg<DType>) -> True|False :
+  match(arg:VarArg<DType>): true
+  else: false
+
+defn is-optional (arg:FArg<DType>) -> True|False :
+  match(arg):
+    (arg:KeywordArg<DType>): optional?(arg)
+    (arg:PositionalArg<DType>): optional?(arg)
+    (_): false
 
 ;Create an annotation for a PackageIO Export expression.
 defn annotate? (export:Export, nm:NameMap) -> False|DefinitionAnnotation :
@@ -310,8 +340,12 @@ defn annotate? (export:Export, nm:NameMap) -> False|DefinitionAnnotation :
             else :
               to-symbol("?TV%_" % [n])
         val args = to-tuple $
-          for (arg-type in a1(id(rec) as FnId), n in 0 to false) seq :
-            FnArgAnnotation(to-symbol("_%_" % [n]), stringify?(arg-type, nm))
+          for (arg-type in a1(fnid), n in 0 to false) seq :
+            FnArgAnnotation(
+              to-symbol("_%_" % [n]), stringify?(arg-type, nm),
+              is-keyword(arg-type),
+              is-variadic(arg-type),
+              is-optional(arg-type))
     (r:?) :
       false
 
