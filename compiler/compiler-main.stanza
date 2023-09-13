@@ -182,13 +182,15 @@ public defn compile (proj-manager:ProjManager,
 
     ;Create pkg saver for saving output .pgk files.
     val cache-dir = pkg-cache-dir(proj-manager)
+    val ignore-cache? = ignore-cache?(proj-manager)
     val pkgsaver = PkgSaver(auxfile,
                             pkgstamps(result),
                             pkg-dir,
                             flags,
                             debug?,
                             false,
-                            cache-dir)
+                            cache-dir,
+                            ignore-cache?)
     
     ;True if pkgs are written out, either to the pkg directory
     ;or to the cache directory.

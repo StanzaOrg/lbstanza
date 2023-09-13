@@ -84,6 +84,9 @@ public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> Req
 ;Return the pkg cache directory if one is supplied.
 public defmulti pkg-cache-dir (l:ProjManager) -> String|False
 
+;Should pkg saver ignore the cache directory?
+public defmulti ignore-cache? (l:ProjManager) -> True|False
+
 ;Represents the required libraries and folders for a set of Stanza packages.
 public defstruct RequiredLibraries :
   packages: Tuple<KeyValue<Symbol,Tuple<String>>>
@@ -137,6 +140,8 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
   ;Retrieve the pkg cache directory.
   val pkg-cache-dir = pkg-cache-dir(proj)
+
+  val ignore-cache? = ignore-cache?(params)
 
   ;Find the source file that contains the package.
   defn source-file? (name:Symbol) -> String|False :
@@ -263,6 +268,8 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
     defmethod pkg-cache-dir (this) :
       pkg-cache-dir
 
+    defmethod ignore-cache? (this) : ignore-cache?
+
 ;============================================================
 ;===================== Structures ===========================
 ;============================================================
@@ -272,6 +279,7 @@ public defstruct ProjParams :
   optimize?: True|False
   debug?: True|False
   in-repl?: True|False
+  ignore-cache? : True|False
 
 ;============================================================
 ;===================== Package Tree =========================
