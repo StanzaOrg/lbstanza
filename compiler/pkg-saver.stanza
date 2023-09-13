@@ -45,8 +45,7 @@ public defn PkgSaver (auxfile:AuxFile,
                       flags:Tuple<Symbol>,
                       debug?:True|False,
                       repl?:True|False,
-                      cache-dir:String|False,
-                      ignore-cache?:True|False) :
+                      cache-dir:String|False) :
 
   ;Table of PackageStamps for easy retrieval.
   val pkgstamp-table = to-hashtable(package, package-stamps)

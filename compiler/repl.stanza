@@ -486,8 +486,7 @@ public defn REPL (macro-plugins:Tuple<String>,
                               compiler-flags,
                               false,
                               true,
-                              cache-dir,
-                              ignore-cache?)
+                              cache-dir)
 
       ;Compile the EPackages into VMPackages.
       val vmpackages = for p in packages(result) map :

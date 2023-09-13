@@ -25,6 +25,7 @@ public var STANZA-PKG-DIRS:List<String> = List()
 public val STANZA-PROJ-FILES = Vector<String>()
 public var EXPERIMENTAL-FEATURES:Tuple<Symbol> = []
 public var AUX-FILE-OVERRIDE:String|False = false
+public var STANZA-CACHE-DIR:String = ".pkg-cache"
 
 ;====== Currently-Supported Experimental Features =====
 public val SUPPORTED-EXPERIMENTAL-FEATURES = `(
@@ -93,6 +94,7 @@ public defenum SystemFile :
   StanzaAuxFile
   StanzaPkgsDir
   StanzaREPLHistory
+  StanzaPkgCacheDir
 
 public defn system-filepath (install-dir:String, file:SystemFile) -> String :
   ;Compute path relative to installation folder.
@@ -113,6 +115,7 @@ public defn system-filepath (install-dir:String, file:SystemFile) -> String :
       match(AUX-FILE-OVERRIDE:String) : AUX-FILE-OVERRIDE
       else : relative-to-install("stanza.aux")
     StanzaPkgsDir : relative-to-install("pkgs")
+    StanzaPkgCacheDir : relative-to-install(".pkg-cache")
     StanzaREPLHistory : relative-to-install("repl-history.txt")
 
 public defn system-filepath (file:SystemFile) -> String :
