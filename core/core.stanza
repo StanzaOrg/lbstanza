@@ -8363,11 +8363,19 @@ public defn map<?R> (f: Int -> ?R, r:Range) -> List<R> :
 ;================== Optimized Ranges ========================
 ;============================================================
 
+;An efficient implementation for the most commonly-used
+;type of Range: a starting integer, an exclusive ending integer,
+;and a step of +1. 
 public deftype SimpleRange <: Range
+
+;A SimpleRange always has a step of +1, and has
+;an exclusive end.
 defmethod step (r:SimpleRange) : 1
 defmethod inclusive? (r:SimpleRange) : false
 
-public defn SimpleRange (start:Int, end:Int) -> SimpleRange :
+;Constructor for a SimpleRange. The length is computed
+;as long as the length fits within a 32-bit integer.
+public defn Range (start:Int, end:Int) -> SimpleRange :
   val len = safe-minus(end, start)
   match(len:Int) :
     new SimpleRange&Lengthable :
@@ -8379,9 +8387,12 @@ public defn SimpleRange (start:Int, end:Int) -> SimpleRange :
       defmethod start (this) : start
       defmethod end (this) : end
 
-public defn SimpleRange (start:Int, end:False) -> Range :
+;If the end is unknown, then we default the general constructor
+;for a Range.
+public defn Range (start:Int, end:False) -> Range :
   Range(start, end, 1, false)
 
+;An efficient implementation for a SimpleRange.
 defmethod do (f: Int -> ?, r:SimpleRange) :
   val end = end(r) as Int
   let loop (i:Int = start(r)) :
