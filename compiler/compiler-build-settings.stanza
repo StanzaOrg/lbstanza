@@ -17,7 +17,7 @@ public defstruct BuildSettings :
   external-dependencies: String|False
   pkg-dir: String|False
   pkg-cache-dir: String|False with: (updater => sub-pkg-cache-dir)
-  ignore-cache?: True|False
+  disable-cache?: True|False
   optimize?: True|False
   debug?: True|False
   ccfiles: Tuple<String>

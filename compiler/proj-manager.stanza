@@ -138,7 +138,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile|False
 
   ;Retrieve the pkg cache directory.
   val pkg-cache-dir = 
-    if ignore-cache?(params) : false
+    if disable-cache?(params) : false
     else :
       match(pkg-cache-dir(proj):String) : pkg-cache-dir(proj)
       else : system-filepath(StanzaPkgCacheDir) 
@@ -277,7 +277,7 @@ public defstruct ProjParams :
   optimize?: True|False
   debug?: True|False
   in-repl?: True|False
-  ignore-cache? : True|False
+  disable-cache? : True|False
 
 ;============================================================
 ;===================== Package Tree =========================

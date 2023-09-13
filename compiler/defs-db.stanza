@@ -95,7 +95,7 @@ protected-when(TESTING) defn analyze-input (input:DefsDbInput) -> DependencyResu
     false,                                  ;external dependencies
     false,                                  ;pkg-dir
     false,                                  ;pkg-cache-dir
-    false,                                  ;ignore-cache?
+    false,                                  ;disable-cache?
     optimize?(input),                       ;optimize?
     false,                                  ;debug?
     [],                                     ;ccfiles

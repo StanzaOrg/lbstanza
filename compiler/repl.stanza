@@ -281,7 +281,7 @@ defmulti shutdown (repl:REPL) -> False
 
 public defn REPL (macro-plugins:Tuple<String>,
                   pkg-cache-dir:String|False,
-                  ignore-cache?:True|False) :
+                  disable-cache?:True|False) :
   ;============================================================
   ;===================== REPL State ===========================
   ;============================================================
@@ -309,7 +309,7 @@ public defn REPL (macro-plugins:Tuple<String>,
   defn proj-manager () :
     within log-time(REPL-PROJ-MANAGER) :
       val proj = read-proj-files(proj-files, OUTPUT-PLATFORM, `dynamic, StandardProjEnv())
-      val params = ProjParams(compiler-flags, false, false, true, ignore-cache?)
+      val params = ProjParams(compiler-flags, false, false, true, disable-cache?)
       ProjManager(proj, params, auxfile)
 
   add-all(proj-files, default-proj-files())
@@ -1008,8 +1008,8 @@ public defn repl (args:Tuple<String>,
                   style:TerminalStyle,
                   macro-plugins:Tuple<String>,
                   pkg-cache-dir:String|False,
-                  ignore-cache?:True|False) :
-  val repl = REPL(macro-plugins, pkg-cache-dir, ignore-cache?)
+                  disable-cache?:True|False) :
+  val repl = REPL(macro-plugins, pkg-cache-dir, disable-cache?)
 
   ;Create a LoadExp expression out of the command line
   ;arguments. And execute them in the REPL.
@@ -1069,9 +1069,9 @@ public defn repl () :
 public defn run-in-repl (args:Tuple<String>,
                          macro-plugins:Tuple<String>,
                          pkg-cache-dir:String|False,
-                         ignore-cache?:True|False) :
+                         disable-cache?:True|False) :
   val repl = within log-time(REPL-CREATION) :
-    REPL(macro-plugins, pkg-cache-dir, ignore-cache?)
+    REPL(macro-plugins, pkg-cache-dir, disable-cache?)
   try:
     within log-time(REPL-EXP-EVALUATION) :
       eval-exp(repl, make-load-exp(args, false))
