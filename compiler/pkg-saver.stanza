@@ -77,6 +77,11 @@ public defn PkgSaver (auxfile:AuxFile,
   ;of the given package.
   defn origin (pkg:Pkg) -> PackageOrigin :
     /origin(location(pkgstamp-table[name(pkg)]))
+
+  ;Helper: extract source file drom pkgstamp-table
+  ;Precondition: Assumes origin(pkg) == FromSource
+  defn pkg-source (pkg:Pkg) -> String :
+    source-file(location(pkgstamp-table[name(pkg)])) as String
   
   ;Main implementation.
   new PkgSaver :
@@ -94,7 +99,7 @@ public defn PkgSaver (auxfile:AuxFile,
     defmethod cache (this, pkg:Pkg) :
       if origin(pkg) != FromSource :
         fatal("Cannot cache a .pkg that did not originate from source file.")
-      val params = CacheParams(flags, cache-dir as String, repl?, debug?)
+      val params = CacheParams(flags, cache-dir as String, repl?, debug?, pkg-source(pkg))
       val filename = save-package-to-cache(params, pkg)
       val filestamp = filestamp(filename)
       save-aux-record(pkg, filestamp)
