@@ -8840,11 +8840,11 @@ public defn first!<?T,?S,?R> (f: (T,S) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<
 ;  each item in the sequence. When the sequence is empty, f must
 ;  return and continue returning Sentinel.
 ;- free: The callback that is used to free the Seq.
-defn Seq?<R> (f: () -> R|Sentinel, free: () -> False) -> Seq<R> :
+defn Seq?<T> (f: () -> T|Sentinel, free: () -> False) -> Seq<T> :
 
   ;Bucket for holding the most recently generated value
   ;from 'f'.
-  var item: Sentinel|R = sentinel
+  var item: Sentinel|T = sentinel
 
   ;Call 'f' to fill the 'item' bucket. Returns true if
   ;the sequence is empty.
@@ -8919,7 +8919,7 @@ public defn seq?<?T,?S,?R> (f: (T,S) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<?S
 public defn seq?<?T,?S,?U,?R> (f: (T,S,U) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<?S>, zs:Seqable<?U>) -> Seq<R> :
    val xseq = to-seq(xs)
    val yseq = to-seq(ys)
-   val zseq = to-seq(yz)
+   val zseq = to-seq(zs)
    Seq?<R>(fill, free) where :
       defn free () :
          free(xseq)
