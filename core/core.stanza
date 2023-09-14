@@ -8888,8 +8888,8 @@ defn Seq?<T> (f: () -> T|Sentinel, free: () -> False) -> Seq<T> :
 ;otherwise the result is excluded.
 public defn seq?<?T,?R> (f: T -> Maybe<?R>, xs:Seqable<?T>) -> Seq<R> :
    val xseq = to-seq(xs)
-   Seq?<R>(fill, free) where :
-      defn free () :
+   Seq?<R>(fill, free-seqs) where :
+      defn free-seqs () :
          free(xseq)
       defn* fill () :
          if empty?(xseq) :
@@ -8903,8 +8903,8 @@ public defn seq?<?T,?R> (f: T -> Maybe<?R>, xs:Seqable<?T>) -> Seq<R> :
 public defn seq?<?T,?S,?R> (f: (T,S) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<?S>) -> Seq<R> :
    val xseq = to-seq(xs)
    val yseq = to-seq(ys)
-   Seq?<R>(fill, free) where :
-      defn free () :
+   Seq?<R>(fill, free-seqs) where :
+      defn free-seqs () :
          free(xseq)
          free(yseq)
       defn* fill () :
@@ -8920,8 +8920,8 @@ public defn seq?<?T,?S,?U,?R> (f: (T,S,U) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqab
    val xseq = to-seq(xs)
    val yseq = to-seq(ys)
    val zseq = to-seq(zs)
-   Seq?<R>(fill, free) where :
-      defn free () :
+   Seq?<R>(fill, free-seqs) where :
+      defn free-seqs () :
          free(xseq)
          free(yseq)
          free(zseq)
@@ -8941,8 +8941,8 @@ public defn seq?<?T,?S,?U,?R> (f: (T,S,U) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqab
 ;for which 'f(x)' returns true.
 public defn filter<?T> (f: T -> True|False, xs:Seqable<?T>) -> Seq<T> :
    val xseq = to-seq(xs)
-   Seq?<T>(fill, free) where :
-      defn free () :
+   Seq?<T>(fill, free-seqs) where :
+      defn free-seqs () :
          free(xseq)
       defn* fill () :
          if empty?(xseq) :
@@ -8956,8 +8956,8 @@ public defn filter<?T> (f: T -> True|False, xs:Seqable<?T>) -> Seq<T> :
 public defn filter<?T,?S> (f: (T,S) -> True|False, xs:Seqable<?T>, ys:Seqable<?S>) -> Seq<T> :
    val xseq = to-seq(xs)
    val yseq = to-seq(ys)
-   Seq?<T>(fill, free) where :
-      defn free () :
+   Seq?<T>(fill, free-seqs) where :
+      defn free-seqs () :
          free(xseq)
          free(yseq)
       defn* fill () :
