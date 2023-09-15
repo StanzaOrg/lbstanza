@@ -263,11 +263,10 @@ defn check-exported-types (symtables:SymbolTables, pkgs:Collection<IPackage>, pe
     defn check-for-type (e:TypeId) :
       val symtable = symtables[package(e)]
       match(symtable:SymbolTable) :
-        defn exported-type? (e:VEntry) :
-          type(e) is TypeE|LTypeE and
-          package(e) == package(symtable)
-        val entries = filter(exported-type?, base(symtable, name(e)))
-        add(error-accum, MissingType(package(pex), e)) when empty?(entries)
+        val defines-type? = for e in defined(symtable,name(e)) any? :
+          type(e) is TypeE|LTypeE
+        if not defines-type? :
+          add(error-accum, MissingType(package(pex), e))
     ;Recursively scan DItem for typeid
     defn scan-for-type (e:DItem) :
       do(scan-for-type, e)
@@ -939,11 +938,14 @@ defmulti get (t:SymbolTable, name:Symbol) -> List<List<VEntry>>
 defmulti base (t:SymbolTable, name:Symbol) -> List<VEntry>
 defmulti immediate (t:SymbolTable, name:Symbol) -> List<VEntry>
 
+;Returns the entries that are defined within this package itself.
+defmulti defined (t:SymbolTable, name:Symbol) -> List<VEntry>
+
 defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   ;Level Table
   val table = MultilevelTable<Symbol, List<VEntry>>()
-  val basetable = HashTable<Symbol, List<VEntry>>(List())
-  defn add-entry (e:VEntry, prefix:String|False) :
+  val basetable = HashTable<Symbol, List<BaseEntry>>(List())
+  defn add-entry (e:VEntry, prefix:String|False -- forwarded?:True|False = false) :
     val name* = add-prefix(prefix, name(e))
     table[name*] =
       if key?(table, name*) :
@@ -953,7 +955,7 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
           table[name*]
       else : List(e)
     if level(table) == 0 :
-      update(basetable, cons{e,_}, name*)
+      update(basetable, cons{BaseEntry(e,forwarded?),_}, name*)
       false
   defn add-entries (es:Seqable<VEntry>) :
     do(add-entry{_, false}, es)
@@ -967,7 +969,9 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   ; Ensures that qualified references will work.
   defn update-owner (es:Seqable<VEntry>, ptable:PrefixTable) :
     for e in es do :
-      add-entry(sub-package(e, package-name), ptable[name(e)])
+      add-entry(sub-package(e, package-name),
+                ptable[name(e)],
+                forwarded? = true)
 
   ;Initializing the symbol table
   match(base) :
@@ -992,7 +996,12 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
     defmethod get (this, name:Symbol) :
       get-all(table,name)
     defmethod base (this, name:Symbol) :
-      get?(basetable, name, List())
+      map(ventry,basetable[name])
+    defmethod defined (this, name:Symbol) :
+      to-list $ for e in basetable[name] seq? :
+        if package(ventry(e)) == package-name and
+           not forwarded?(e) : One(ventry(e))
+        else : None()
     defmethod immediate (this, name:Symbol) :
       if key?(table,name) : table[name]
       else : List()
@@ -1002,7 +1011,13 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
       print(o, "symbol table for package %~ :" % [package-name])
       for e in basetable do :
         lnprint(o2, "%~ : " % [key(e)])
-        lnprints(o3, value(e))      
+        lnprints(o3, value(e))
+
+;Represents an entry into the base table in the SymbolTable.
+;- forwarded?: True if the entry was inherited from forwarding.
+defstruct BaseEntry :
+  ventry:VEntry
+  forwarded?:True|False
 
 ;============================================================
 ;==================== Prefixes ==============================
