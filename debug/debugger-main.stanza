@@ -1,0 +1,61 @@
+defpackage stz-debug/debugger-main :
+  import core
+  import core/dynamic-library
+  import core/sighandler
+  import core/stack-trace
+  import stz-debug/debugger
+  import stz-debug/read-stack-trace
+
+lostanza deftype CompiledApp <: App :
+  vms : ptr<core/VMState>
+  main : ptr<?>
+defmethod state (app:CompiledApp) : get-state(app)
+defmethod run (app:CompiledApp) : run-app(app)
+defmethod stack-trace (app:CompiledApp) : read-stack-trace(app)
+defmethod class-name (app:CompiledApp, id:Int) : get-class-name(app, id)
+defmethod stack-pointer (app:CompiledApp) : get-sighandler-stack-pointer()
+
+lostanza defn get-state (app:ref<CompiledApp>) -> ref<AppState> :
+  return new AppState{app.vms}
+lostanza defn run-app (app:ref<CompiledApp>) -> ref<Int> :
+  val main = app.main as ptr<( (int, ptr<ptr<byte>>) -> int )>
+  val result = call-c [main](clib/input_argc - 1, addr(clib/input_argv[1]))
+  return new Int{result}
+lostanza defn read-stack-trace (app:ref<CompiledApp>) -> ref<SingleStackTrace> :
+  return read-stack-trace(app.vms)
+lostanza defn get-class-name (app:ref<CompiledApp>, id:ref<Int>) -> ref<String> :
+  return String(get-class-name(app, id.value))
+lostanza defn get-class-name (app:ref<CompiledApp>, id:int) -> ptr<byte> :
+  val record = app.vms.class-table[id].record
+  return (record + record.num-bytes) as ptr<byte>
+
+lostanza defn load-app (path:ref<String>) -> ref<CompiledApp>:
+  val lib = dynamic-library-open(path)
+  unprotect-code(lib)
+  return new CompiledApp{vmstate(lib).address, main(lib).address}
+defn vmstate (lib:DynamicLibrary) :
+  dynamic-library-symbol(lib, "stanza_vmstate")
+defn main (lib:DynamicLibrary) :
+  dynamic-library-symbol(lib, "main")
+lostanza defn unprotect-code (lib:ref<DynamicLibrary>) -> ref<False> :
+  val start = dynamic-library-symbol(lib, String("stanza_text_section_start")).address
+  val end = dynamic-library-symbol(lib, String("stanza_text_section_end")).address
+  val start-page = align-down-to-page-size(start)
+  val limit-page = align-down-to-page-size(end + (PAGE-SIZE - 1L))
+  call-c mprotect(start-page, limit-page - start-page, 0x7)
+  return false
+extern mprotect: (ptr<?>, long, int) -> int
+lostanza val PAGE-SIZE:long = 4096
+lostanza defn align-down-to-page-size (p:ptr<?>) -> ptr<?> :
+  val x = p as long
+  val y = x & (- PAGE-SIZE)
+  return y as ptr<?>
+
+defn main () :
+  val args = command-line-arguments()
+  if length(args) < 2 :
+    println("Usage: %_ app-path app-args")
+    exit(-1)
+  val app = load-app(args[1])
+  debug(app)
+main()

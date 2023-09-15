@@ -12,7 +12,7 @@ defpackage stz/code-table :
 ;============================================================
 ;This contains all the generated code for the functions
 ;loaded into the virtual machine, as well as any additional
-;tables for performing the code encoding. 
+;tables for performing the code encoding.
 
 public deftype CodeTable
 
@@ -37,11 +37,26 @@ public defmulti load-function (t:CodeTable,
 public defstruct LoadedFunction :
   address:Long
   trace-entries:Vector<TraceTableEntry>
+  safepoint-entries:Vector<SafepointTableEntry>
+  local-var-context:Vector<NamedLocalVar>
+  local-var-map-entries:Vector<LocalVarMapEntry>
 
 ;Represents the entry for use during backtraces.
 public defstruct TraceTableEntry :
   pc: Long
   entry: StackTraceInfo
+with:
+  printer => true
+
+public defstruct SafepointTableEntry :
+  pc: Long
+  id: Int
+with:
+  printer => true
+
+public defstruct LocalVarMapEntry :
+  pc: Long
+  indices: Tuple<Int> ;Sorted in increasing order, in local-var-context
 with:
   printer => true
 
@@ -80,7 +95,7 @@ public deftype EncodingResolver
 ;- live: The set of locals that are live at the moment.
 public defmulti liveness-map (r:EncodingResolver, live:Seqable<Int>, num-locals:Int) -> Int
 
-;Return the number of bytes used for the tag word of each object. 
+;Return the number of bytes used for the tag word of each object.
 public defmulti object-header-size (r:EncodingResolver) -> Int
 
 ;Return the number of bytes used to store an object on the heap.
@@ -120,10 +135,10 @@ public defmulti marker? (r:EncodingResolver, n:Int) -> True|False
 public defmulti tagbits (r:EncodingResolver, typeid:Int) -> Int
 
 ;Return the address of the given extern address.
-public defmulti extern-address (r:EncodingResolver, id:Int) -> Long  
+public defmulti extern-address (r:EncodingResolver, id:Int) -> Long
 
 ;Return the address of the given extern defn address.
-public defmulti extern-defn-address (r:EncodingResolver, id:Int) -> Long  
+public defmulti extern-defn-address (r:EncodingResolver, id:Int) -> Long
 
 ;------------------------------------------------------------
 ;----------------------- Convenience ------------------------

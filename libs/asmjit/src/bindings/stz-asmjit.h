@@ -63,7 +63,8 @@ extern "C" {
   void assembler_div_reg(Assembler *a, const Gp *divisor);  
   void assembler_mod_reg(Assembler *a, const Gp *divisor);
   void assembler_cqo_reg(Assembler *a);
-  void assembler_cdq_reg(Assembler *a);  
+  void assembler_cdq_reg(Assembler *a);
+  void assembler_nop(Assembler *a);    
   void assembler_add_int(Assembler *a, const Gp *dst, int);
   void assembler_sub_int(Assembler *a, const Gp *dst, int);
   void assembler_sub_reg(Assembler *a, const Gp *dst, const Gp *src);

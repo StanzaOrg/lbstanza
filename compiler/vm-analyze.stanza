@@ -87,7 +87,7 @@ public defn analyze (func:VMFunc) -> VMFunc :
         loop(i + 1, i + 1)
       else :
         loop(i + 1, current-start)
-        
+
     if i < num-ins :
       val ins = ins(func)[i]
       match(ins) :
@@ -103,7 +103,7 @@ public defn analyze (func:VMFunc) -> VMFunc :
           ;Add successors
           for dest in ins do-dest :
             add(successors, current-start, Label(dest))
-            
+
           ;Start next block
           loop(i + 1, i + 1)
         (ins:VMIns&OperationIns) :
@@ -123,10 +123,10 @@ public defn analyze (func:VMFunc) -> VMFunc :
     defd[start] = to-list(def-set)
     clear(def-set)
     clear(use-set)
-    
+
   ;Start from first instruction
   loop(0, 0)
-  
+
   ;Backpatch label destinations
   for entry in successors map! :
     for dest in value(entry) map :
@@ -146,7 +146,7 @@ public defn analyze (func:VMFunc) -> VMFunc :
   propagate(set1, set2) where :
     val set1 = IntSet()
     add-all(set1, ordering)
-    val set2 = IntSet()    
+    val set2 = IntSet()
     defn* propagate (update:IntSet, dirty:IntSet) :
       for b in ordering do :
         if update[b] :
@@ -168,7 +168,7 @@ public defn analyze (func:VMFunc) -> VMFunc :
                 add(dirty, p)
       if not empty?(dirty) :
         propagate(dirty, update)
-  
+
   ;Print out result
   ;println("Analyzing function:")
   ;within indented() :
@@ -214,7 +214,7 @@ public defn analyze (func:VMFunc) -> VMFunc :
   val allocations = allocate(usages, num-usages)
   ;println("===== Variable Allocations =====")
   ;within indented() :
-  ;  do(println, allocations)      
+  ;  do(println, allocations)
 
   ;Compute which values are references
   val ref-set = IntSet()
@@ -229,12 +229,12 @@ public defn analyze (func:VMFunc) -> VMFunc :
     clear(use-set)
     for s in successors![b] do :
       add-all(use-set, used[s])
-    
+
     ;Utility functions
     defn add-use (v:Int) : add(use-set, v)
     defn remove-use (v:Int) : remove(use-set, v)
     defn used-locals () : to-tuple(seq(Local, filter({ref-set[_]}, use-set)))
-    
+
     ;Sweep through instructions backwards
     for i in reverse(b through last-i) do :
       val ins = ins(func)[i]
@@ -247,11 +247,12 @@ public defn analyze (func:VMFunc) -> VMFunc :
           add(ins-buffer, ins)
           do-args(add-use, ins)
         (ins:VMIns&OperationIns) :
-          add(ins-buffer, ins)
           do-results(remove-use, ins)
+          add(ins-buffer, ins)
           if leaves-frame?(ins) :
+            ;After code reversal RecordLiveIns precedes leaving frame instruction
             add(ins-buffer, RecordLiveIns(used-locals()))
-          do-args(add-use, ins)          
+          do-args(add-use, ins)
   reverse!(ins-buffer)
 
   ;println("===== Calculated Liveness =====")
@@ -262,7 +263,7 @@ public defn analyze (func:VMFunc) -> VMFunc :
   val defs* = for def in defs(func) map :
     VMDef(id(def), type(def), get?(allocations, id(def), 0))
   sub-defs(sub-ins(func, to-tuple(ins-buffer)), defs*)
-      
+
 defn add<?T> (t:IntTable<List<?T>>, i:Int, v:T) :
   update(t, cons{v, _}, i)
 
@@ -275,7 +276,7 @@ with: (printer => true)
 ;================= Allocation Algorithm =====================
 ;============================================================
 
-defn allocate (usages:Vector<Use>, num-usages:IntTable<Int>) :  
+defn allocate (usages:Vector<Use>, num-usages:IntTable<Int>) :
   ;Declare tables
   val freelist = FreeIndexList()
   val slot-table = IntTable<Int>() ;slot-table[variable] = slot-index
@@ -311,7 +312,7 @@ deftype DestinationIns :
   Branch1Ins <: DestinationIns
   Branch2Ins <: DestinationIns
   ReturnIns <: DestinationIns
-  TCallIns <: DestinationIns  
+  TCallIns <: DestinationIns
   TCallClosureIns <: DestinationIns
   MatchIns <: DestinationIns
   DispatchIns <: DestinationIns
@@ -338,7 +339,7 @@ deftype OperationIns :
   SafepointIns <: OperationIns
 
 ;Assumes that the results are loaded from registers in sequential order,
-;and that we are sweeping through instructions backwards. 
+;and that we are sweeping through instructions backwards.
 ;Therefore sweeps through results in opposite order.
 ;Example: (x, y) = __
 ;         __ = (x)
@@ -347,14 +348,14 @@ deftype OperationIns :
 ;         Ly = __
 ;         __ = Lx
 ;Therefore it is important that Lx is still considered live
-;when local for Ly is assigned. 
+;when local for Ly is assigned.
 
 defn do-results (func:Int -> ?, i:OperationIns) :
   defn f? (x:Local|VMType|False) :
     match(x:Local) : func(index(x))
   defn f? (xs:Seqable<Local|VMType>) :
-    do(f?, xs)    
-    
+    do(f?, xs)
+
   match(i) :
     (i:CallIns) : f?(in-reverse(xs(i)))
     (i:CallClosureIns) : f?(in-reverse(xs(i)))
@@ -378,8 +379,8 @@ defn do-args (func:Int -> ?, i:OperationIns|DestinationIns) :
   defn f? (y:VMImm|False) :
     match(y:Local) : func(index(y))
   defn f? (ys:Tuple<VMImm>) :
-    do(f?, ys)  
-    
+    do(f?, ys)
+
   match(i) :
     (i:CallIns) : (f?(f(i)), f?(ys(i)))
     (i:CallClosureIns) : (f?(f(i)), f?(ys(i)))
@@ -424,7 +425,7 @@ defn do-dest (f:Int -> ?, i:DestinationIns) :
 
 defn leaves-frame? (i:OperationIns) :
   match(i) :
-    (i:CallIns|CallClosureIns|CallCIns|YieldIns|AllocIns) : true
+    (i:CallIns|CallClosureIns|CallCIns|YieldIns|AllocIns|SafepointIns) : true
     (i:Op1Ins) : leaves-frame?(op(i))
     (i) : false
 
@@ -467,7 +468,7 @@ defn FreeIndexList () :
     swap(x, items[len])
     len = len + 1
 
-  defn make-item () :    
+  defn make-item () :
     val x = length(items)
     add(items, x)
     add(indices, x)
@@ -478,7 +479,7 @@ defn FreeIndexList () :
     val item = items[len]
     take-item(item)
     item
-    
+
   new FreeIndexList :
     defmethod next (this) : next-free()
     defmethod free (this, x:Int) : free-item(x)

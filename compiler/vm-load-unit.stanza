@@ -2,6 +2,7 @@ defpackage stz/vm-load-unit :
   import core
   import collections
   import stz/vm-ir
+  import stz/packed-debug-table
   import stz/printing-utils
 
 ;<doc>=======================================================
@@ -50,7 +51,7 @@ All newly defined extern defn callbacks are listed here.
 
 Within each function:
   ExternId will refer to the index of the address of the extern.
-  ExternDefnId will refer to the index of the callback. 
+  ExternDefnId will refer to the index of the callback.
 
 ;============================================================
 ;=======================================================<doc>
@@ -62,6 +63,9 @@ public defstruct LoadUnit :
   classes: Tuple<LoadedClass>
   funcs: Tuple<VMDefn>
   callbacks: Tuple<Callback>
+  debug-table: DebugTable
+  safepoints: Tuple<VMFileSafepoints>
+  max-safepoint-id: Int
 
 public defstruct LoadedClass :
   package:Symbol

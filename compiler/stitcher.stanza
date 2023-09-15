@@ -339,16 +339,7 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
     ;Each entry, gid => tag, means that the type with id 'gid'
     ;should be represented using tag 'tag'.
     val core-tag-table = IntTable<Int>()
-    for entry in [CORE-FALSE-ID => FALSE-TYPE
-                  CORE-TRUE-ID => TRUE-TYPE
-                  CORE-BYTE-ID => BYTE-TYPE
-                  CORE-CHAR-ID => CHAR-TYPE
-                  CORE-INT-ID => INT-TYPE
-                  CORE-FLOAT-ID => FLOAT-TYPE
-                  CORE-STACK-ID => STACK-TYPE
-                  CORE-FN-ID => FN-TYPE
-                  CORE-TYPE-ID => TYPE-TYPE
-                  CORE-LIVENESS-TRACKER-ID => LIVENESS-TRACKER-TYPE] do :
+    for entry in FIXED-TYPE-IDS do :
       val gid = id-indices[key(entry)]
       core-tag-table[gid] = value(entry)
 

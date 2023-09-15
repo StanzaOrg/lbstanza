@@ -40,7 +40,7 @@ defpackage stz/vm-table :
 public lostanza deftype VMTable :
   ;Branches
   branch-table:ref<BranchTable>
-  
+
   ;Globals
   global-table:ref<Vector<LoadedGlobal|False>>      ;For globals
   var global-offsets:ref<StableLongArray>           ;For global offsets
@@ -64,7 +64,7 @@ public lostanza deftype VMTable :
   var function-addresses:ref<StableLongArray>
 
   ;Trace Entries
-  trace-table:ref<HashTable<Long,StackTraceInfo>>           
+  trace-table:ref<HashTable<Long,StackTraceInfo>>
 
 ;============================================================
 ;======================= Initialization =====================
@@ -76,7 +76,7 @@ public lostanza defn VMTable (class-table:ref<ClassTable>,
   return new VMTable{
     ;Branches
     branch-table,
-    
+
     ;Globals
     Vector<LoadedGlobal|False>(),
     StableLongArray(new Int{32}, new Long{-1L}),
@@ -98,7 +98,7 @@ public lostanza defn VMTable (class-table:ref<ClassTable>,
 
     ;Functions
     StableLongArray(new Int{1024}, new Long{-1}),
-    
+
     ;Trace Table
     HashTable<Long,StackTraceInfo>()}
 
@@ -129,16 +129,16 @@ public defn ClassTable () :
   defn instanceof? (child:Int, t:TypeSet) :
     for p in t test-instanceof? :
       parent?(class-tree, child, type(p))
-    
+
   new ClassTable :
     defmethod add (this, cs:Collection<LoadedClass>) :
       ;Add the classes to the class dynamic tree.
       defn node-state (c:VMClass) -> NodeState :
         match(c) :
           (c:VMAbstractClass) : NodeState(id(c), parents(c), children(c), false)
-          (c) : NodeState(id(c), parents(c), [], true)      
+          (c) : NodeState(id(c), parents(c), [], true)
       add(class-tree, seq(node-state{class(_)}, cs))
-      
+
       ;Add the classes to the packed class table.
       defn record? (c:VMClass) -> Maybe<ClassTableRecord> :
         match(c) :
@@ -152,10 +152,10 @@ public defn ClassTable () :
             None()
       val records = to-tuple(seq?(record?{class(_)}, cs))
       packed-table = pack(records, packed-table)
-      
+
       ;Add the classes to the class table.
       for c in cs do :
-        class-table[id(class(c))] = c        
+        class-table[id(class(c))] = c
     defmethod add (this, l:TreeListener) :
       add(class-tree, l)
     defmethod get (this, c:Int) :
@@ -361,7 +361,7 @@ lostanza defn non-negative? (xs:ref<Array<Int>>, i:ref<Int>) -> long :
     else : return 0L
   else :
     return 0L
-  
+
 ;============================================================
 ;===================== Function Loading =====================
 ;============================================================
@@ -370,18 +370,18 @@ public lostanza defn load-function (vmt:ref<VMTable>,
                                     func:ref<VMDefn>,
                                     externfn?:ref<True|False>,
                                     resolver:ref<EncodingResolver>,
-                                    backend:ref<Backend>) -> ref<False> :
+                                    backend:ref<Backend>) -> ref<LoadedFunction> :
   ;Encode the function and load it into the code table.
-  val load-result = load-function(vmt.code-table, id(func), /func(func), externfn?, resolver, backend)
+  val loaded-function = load-function(vmt.code-table, id(func), /func(func), externfn?, resolver, backend)
 
   ;Store the function address into the function-addresses table.
   val id = id(func)
-  vmt.function-addresses = put(vmt.function-addresses, id, address(load-result), new Long{-1})
+  vmt.function-addresses = put(vmt.function-addresses, id, address(loaded-function), new Long{-1})
 
   ;Store the fileinfos into fileinfo table.
-  load-trace-entries(vmt, trace-entries(load-result))
+  load-trace-entries(vmt, trace-entries(loaded-function))
 
-  return false
+  return loaded-function
 
 ;============================================================
 ;========================= Utility ==========================

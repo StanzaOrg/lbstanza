@@ -24,15 +24,61 @@ public val STACK-TYPE = 6
 public val FN-TYPE = 7
 public val TYPE-TYPE = 8
 public val LIVENESS-TRACKER-TYPE = 9
-public val NUM-BUILTIN-CONCRETE-TYPES = 10
-public val UNIQUE-TYPE = 10
-public val NUM-BUILTIN-TYPES = 11
+public val DOUBLE-TYPE = 10
+public val STRING-TYPE = 11
+public val STRING-SYMBOL-TYPE = 12
+public val BOX-TYPE = 13
+public val TUPLE-TYPE = 14
+public val BYTE-ARRAY-TYPE = 15
+public val CHAR-ARRAY-TYPE = 16
+public val INT-ARRAY-TYPE = 17
+public val LONG-ARRAY-TYPE = 18
+public val FLOAT-ARRAY-TYPE = 19
+public val DOUBLE-ARRAY-TYPE = 20
+public val FULL-LIST-TYPE = 21
+public val NIL-LIST-TYPE = 22
+public val NUM-BUILTIN-CONCRETE-TYPES = 23
+public val UNIQUE-TYPE = 23
+public val NUM-BUILTIN-TYPES = 24
+
+public val FIXED-TYPE-IDS = [
+  CORE-FALSE-ID => FALSE-TYPE
+  CORE-TRUE-ID => TRUE-TYPE
+  CORE-BYTE-ID => BYTE-TYPE
+  CORE-CHAR-ID => CHAR-TYPE
+  CORE-INT-ID => INT-TYPE
+  CORE-FLOAT-ID => FLOAT-TYPE
+  CORE-DOUBLE-ID => DOUBLE-TYPE
+  CORE-STACK-ID => STACK-TYPE
+  CORE-FN-ID => FN-TYPE
+  CORE-TYPE-ID => TYPE-TYPE
+  CORE-LIVENESS-TRACKER-ID => LIVENESS-TRACKER-TYPE
+  CORE-STRING-ID => STRING-TYPE
+  CORE-STRING-SYMBOL-ID => STRING-SYMBOL-TYPE
+  CORE-BOX-ID => BOX-TYPE
+  CORE-TUPLE-ID => TUPLE-TYPE
+  CORE-FULL-LIST-ID => FULL-LIST-TYPE
+  CORE-NIL-LIST-ID => NIL-LIST-TYPE
+  CORE-BYTE-ARRAY-ID => BYTE-ARRAY-TYPE
+  CORE-CHAR-ARRAY-ID => CHAR-ARRAY-TYPE
+  CORE-INT-ARRAY-ID => INT-ARRAY-TYPE
+  CORE-LONG-ARRAY-ID => LONG-ARRAY-TYPE
+  CORE-FLOAT-ARRAY-ID => FLOAT-ARRAY-TYPE
+  CORE-DOUBLE-ARRAY-ID => DOUBLE-ARRAY-TYPE
+]
 
 public val EXTEND-HEAP-FN = 0
 public val EXTEND-STACK-FN = 1
 public val INIT-CONSTS-FN = 2
 public val EXECUTE-TOPLEVEL-COMMAND-FN = 3
 public val NUM-BUILTIN-FNS = 4
+
+public val BUILTIN-FUNCTION-IDS = [
+  CORE-EXTEND-HEAP-ID => EXTEND-HEAP-FN
+  CORE-EXTEND-STACK-ID => EXTEND-STACK-FN
+  CORE-INIT-CONSTS-ID => INIT-CONSTS-FN
+  CORE-EXECUTE-TOPLEVEL-COMMAND-ID => EXECUTE-TOPLEVEL-COMMAND-FN
+]
 
 ;============================================================
 ;================== Design of Instructions ==================
@@ -141,12 +187,12 @@ public defstruct VMDefn :
 
 ;Indicates that the function 'fid' is called externally.
 ;- lbl: If given, the static label of this function. When statically-compiled,
-;  this label is exposed for use by external code. 
+;  this label is exposed for use by external code.
 ;- fid: The 'id' of the function of the body. Function is guaranteed
 ;  to be a VMFunc object.
 ;- a1: The argument types of the function. Guaranteed to be
 ;  consistent with the 'fid' definition.
-;- a2: The return type of the function. 
+;- a2: The return type of the function.
 public defstruct VMExternDefn :
   lbl: Symbol|False
   fid: Int with: (updater => sub-fid)
@@ -357,7 +403,7 @@ public defstruct DerefOp <: VMOp
 public defstruct VMDebugNameTable :
   entries: Tuple<VMDebugName>
 
-;Represents a human-readable name for the given
+ ;Represents a human-readable name for the given
 ;identifier.
 ;- global?: If true, then 'id' refers to a package global. Otherwise,
 ;  it refers to a function-local definition.
@@ -394,10 +440,20 @@ public defstruct VMFileSafepoints :
   entries:Tuple<VMSafepointInfo>
 
 public defstruct VMSafepointInfo :
-  id:Int
+  id:Int with: (updater => sub-id)
   line:Int
   column:Int
   group:Int
+
+;------------------------------------------------------------
+;---------------------- Locals Table ------------------------
+;------------------------------------------------------------
+
+public defstruct NamedLocalVar :
+  stack-offset:Int
+  name:String
+with:
+  printer => true
 
 ;============================================================
 ;==================== Convenience ===========================
@@ -802,7 +858,7 @@ defmethod print (o:OutputStream, t:VMDebugNameTable) :
 defmethod print (o:OutputStream, e:VMDebugName) :
   val global-str = "global " when global?(e)
               else "local "
-  print(o, "debugname %_L%_ (name = %~)" % [id(e), global-str, name(e)])
+  print(o, "debugname %_L%_ (name = %~)" % [global-str, id(e), name(e)])
 
 defmethod print (o:OutputStream, x:VMDebugInfoTable) :
   if empty?(entries(x)) :

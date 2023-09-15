@@ -143,6 +143,9 @@ void assembler_cqo_reg(Assembler *a){
 void assembler_cdq_reg(Assembler *a){
   a->cdq();
 }
+void assembler_nop(Assembler *a){
+  a->nop();
+}
 void assembler_add_int(Assembler *a, const Gp *dst, int src) {
   a->add(*dst, src);
 }

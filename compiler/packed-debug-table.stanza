@@ -1,6 +1,9 @@
 defpackage stz/packed-debug-table :
   import core
   import collections
+  import stz/stable-arrays
+  import stz/vm
+  import stz/vm-table
 
 ;<doc>=======================================================
 ;====================== Documentation =======================
@@ -98,3 +101,86 @@ public defn pack (p:StaticPacker, t:DebugTable) -> False :
 
   ;Launch!
   emit-overall-table(t)
+
+;============================================================
+;================= Dynamic Packing Algorithm ================
+;============================================================
+
+
+;The memory layout of the entire debug table.
+;public lostanza deftype DebugTableLayout :
+;  num-packages:long
+;  packages:ptr<PackageDebugInfoLayout> ...
+
+;The memory layout of the definitions within a specific package.
+;public lostanza deftype PackageDebugInfoLayout :
+;  num-entries:long
+;  package:ptr<byte>
+;  entries:DebugEntryLayout ...
+
+;The memory layout for the entry of one variable.
+;public lostanza deftype DebugEntryLayout :
+;  name:ptr<byte>
+;  offset:long
+
+public defn pack (t:DebugTable, vm:VirtualMachine) -> False :
+  val packages = packages(t)
+  val emitter = make-binary-emitter() where :
+    defn make-binary-emitter () :
+      var table-section-size:Int = 8 ;num-packages:long
+      var package-section-size:Int = 0
+      var string-section-size:Int = 0
+      for pkg in packages do :
+        table-section-size = table-section-size + 8 ;packages:ptr<PackageDebugInfoLayout>
+        val num-entries = length(entries(pkg))
+        val pkg-size = 16 + (num-entries * 16) ;num-entries:long + package:ptr<byte> + sizeof(DebugEntryLayout) * num-entries
+        package-section-size = package-section-size + pkg-size
+        string-section-size = string-section-size + size(name(pkg))
+        for e in entries(pkg) do :
+          string-section-size = string-section-size + size(name(e))
+      /make-binary-emitter(table-section-size, package-section-size, string-section-size, vm)
+  val global-offsets = global-offsets(vm)
+  table-section-emit(emitter, num-packages) where :
+    val num-packages = to-long(length(packages))
+  for pkg in packages do :
+    table-section-emit(emitter, package-section-pos(emitter))
+    package-section-emit(emitter, num-entries) where :
+      val num-entries = to-long(length(entries(pkg)))
+    package-section-emit(emitter, string-section-emit(emitter, name(pkg)))
+    for e in entries(pkg) do :
+      package-section-emit(emitter, string-section-emit(emitter, name(e)))
+      package-section-emit(emitter, global-offsets[offset(e)])
+lostanza defn make-binary-emitter (t-size:ref<Int>, p-size:ref<Int>, s-size:ref<Int>, vm:ref<VirtualMachine>) -> ref<DebugTableEmitter> :
+  val table-section-size = t-size.value
+  val package-section-size = p-size.value
+  val string-section-size = s-size.value
+  val table-section-start = call-c clib/malloc(table-section-size + package-section-size + string-section-size)
+  val package-section-start = table-section-start + table-section-size
+  val string-section-start = package-section-start + package-section-size
+  vm.vmstate.debug-table = table-section-start
+  return new DebugTableEmitter{table-section-start, package-section-start, string-section-start}
+lostanza deftype DebugTableEmitter :
+  var table-section-pos:ptr<?>
+  var package-section-pos:ptr<?>
+  var string-section-pos:ptr<?>
+lostanza defn package-section-pos (e:ref<DebugTableEmitter>) -> ref<Long> :
+  return new Long{e.package-section-pos as long}
+lostanza defn table-section-emit (e:ref<DebugTableEmitter>, x:ref<Long>) -> ref<False> :
+  e.table-section-pos = emit(e.table-section-pos, x.value)
+  return false
+lostanza defn package-section-emit (e:ref<DebugTableEmitter>, x:ref<Long>) -> ref<False> :
+  e.package-section-pos = emit(e.package-section-pos, x.value)
+  return false
+lostanza defn string-section-emit (e:ref<DebugTableEmitter>, s:ref<String>) -> ref<Long> :
+  val size = size(s).value
+  val p:ptr<?> = e.string-section-pos
+  e.string-section-pos = p + size
+  call-c clib/memcpy(p, addr!(s.chars), size)
+  return new Long{p as long}
+lostanza defn emit (p:ptr<long>, v:long) -> ptr<long> :
+  p[0] = v
+  return addr(p[1])
+defn size (s:String) :
+  length(s) + 1
+lostanza defn global-offsets (vm:ref<VirtualMachine>) -> ref<StableLongArray> :
+  return vm.vmtable.global-offsets
