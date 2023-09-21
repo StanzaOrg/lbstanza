@@ -1880,8 +1880,8 @@ defsyntax core :
    defrule range-op = (to) : false
    defrule range-op = (through) : true
 
-   val range-template = CoreExp $ `(core/Range(~start, ~end, ~step, ~inc))
-   val simple-range-template = CoreExp $ `(core/SimpleRange(~start, ~end))
+   val range-template = CoreExp $ `(Range(~start, ~end, ~step, ~inc))
+   val simple-range-template = CoreExp $ `(Range(~start, ~end))
    defrule exp4 = (?start:#exp4 ?inc:#range-op ?end:#exp! by ?step:#exp!) :
      fill(range-template, [
        `start => start
