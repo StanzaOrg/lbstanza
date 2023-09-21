@@ -110,19 +110,19 @@ public defn ValueStackParser (values:Vector, info:ParsingInfo) -> ValueStackPars
     defmethod get-last-evaluated-values (this, overlay?:True|False, action-index:Int) -> Array :
       val arity = action-bind-arity(info, overlay?, action-index)
       val args = Array<?>(arity)
-      val indices = to-seq(reverse(0 to length(values)))
+      val indices = to-peek-seq(reverse(0 to length(values)))
       for i in reverse(0 to arity) do :
         args[i] = parse-value(values, indices, info)
       args
 
     ;Return the last value on the value stack.
     defmethod parse-last-value (this) -> ? :
-      val indices = to-seq(reverse(0 to length(values)))
+      val indices = to-peek-seq(reverse(0 to length(values)))
       parse-value(values, indices, info)
   
     ;Return the only value on the value stack.
     defmethod parse-only-value (this) -> ? :
-      val indices = to-seq(reverse(0 to length(values)))
+      val indices = to-peek-seq(reverse(0 to length(values)))
       val result = parse-value(values, indices, info)
       if not empty?(indices) :
         fatal("Unexpected remaining items on the value stack.")
@@ -134,7 +134,7 @@ public defn ValueStackParser (values:Vector, info:ParsingInfo) -> ValueStackPars
 
 ;Parse the value.
 ;The given indices counter is used to count down the indices.
-defn parse-value (values:Vector, index-counter:Seq<Int>, parse-info:ParsingInfo) -> ? :
+defn parse-value (values:Vector, index-counter:PeekSeq<Int>, parse-info:ParsingInfo) -> ? :
 
   ;Parse the next value(s) ending at peek(index-counter).
   defn parse-next-value (return:? -> ?) -> False :

@@ -66,7 +66,7 @@ public defn read-lines (text:String) -> List<Token> :
 
 ;Private utility for creating a parser.
 defn input-stream-parser (s:ParseStream) :
-  val tokens = tokenize(s)
+  val tokens = PeekSeq $ tokenize(s)
   val tokens-without-indents = convert-indentations-to-structural-tokens(tokens)
   Parser(tokens-without-indents)  
 
@@ -719,7 +719,7 @@ with:
 
 defstruct StackBottom <: StackCtxt
 
-defn convert-indentations-to-structural-tokens (tokens:Seq<Token>) -> Seq<Token> :
+defn convert-indentations-to-structural-tokens (tokens:PeekSeq<Token>) -> Seq<Token> :
   generate<Token> :
     ;Initialize stack
     val stack = Vector<Token>()
@@ -898,7 +898,8 @@ defmulti parse-optimistic (p:Parser) -> List<Token>
 defmulti parse-list (p:Parser) -> List<Token>
 defmulti parse-1 (p:Parser) -> False|Token
 
-defn Parser (s:Seq<Token>) -> Parser :
+defn Parser (s*:Seq<Token>) -> Parser :
+  val s = to-peek-seq $ s*
   ;Create shorthands
   defn shorthand (t:Token, v:List<Token>) :
     val item = item(t) as OpenToken
