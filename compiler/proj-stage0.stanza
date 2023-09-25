@@ -81,6 +81,7 @@ public defstruct BuildStmtS0 <: ProjStmt :
   ccflags: Maybe<ProjValue>
   flags: Maybe<ProjValue>
   optimize: True|False
+  debug: True|False
 with: (printer => true)
 
 ;Example:
