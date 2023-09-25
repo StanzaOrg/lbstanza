@@ -202,7 +202,7 @@ defsyntax stanza-projfile :
   defrule build-option! = (ccflags #:! ?v:#projvalue!) : `ccflags => v
   defrule build-option! = (flags #:! ?v:#projvalue!) : `flags => v
   defrule build-option! = (optimize) : `optimize => true
-  defrule build-option! = (optimize) : `debug => true
+  defrule build-option! = (debug) : `debug => true
 
   ;----------------------------------------------------------
   ;--------------------- Error Productions ------------------
