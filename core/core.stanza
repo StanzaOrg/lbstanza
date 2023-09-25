@@ -8363,11 +8363,19 @@ public defn map<?R> (f: Int -> ?R, r:Range) -> List<R> :
 ;================== Optimized Ranges ========================
 ;============================================================
 
+;An efficient implementation for the most commonly-used
+;type of Range: a starting integer, an exclusive ending integer,
+;and a step of +1. 
 public deftype SimpleRange <: Range
+
+;A SimpleRange always has a step of +1, and has
+;an exclusive end.
 defmethod step (r:SimpleRange) : 1
 defmethod inclusive? (r:SimpleRange) : false
 
-public defn SimpleRange (start:Int, end:Int) -> SimpleRange :
+;Constructor for a SimpleRange. The length is computed
+;as long as the length fits within a 32-bit integer.
+public defn Range (start:Int, end:Int) -> SimpleRange :
   val len = safe-minus(end, start)
   match(len:Int) :
     new SimpleRange&Lengthable :
@@ -8379,9 +8387,12 @@ public defn SimpleRange (start:Int, end:Int) -> SimpleRange :
       defmethod start (this) : start
       defmethod end (this) : end
 
-public defn SimpleRange (start:Int, end:False) -> Range :
+;If the end is unknown, then we default the general constructor
+;for a Range.
+public defn Range (start:Int, end:False) -> Range :
   Range(start, end, 1, false)
 
+;An efficient implementation for a SimpleRange.
 defmethod do (f: Int -> ?, r:SimpleRange) :
   val end = end(r) as Int
   let loop (i:Int = start(r)) :
@@ -8818,37 +8829,148 @@ public defn first<?T,?S,?R> (f: (T,S) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<?
 public defn first!<?T,?R> (f: T -> Maybe<?R>, xs:Seqable<?T>) : value!(first(f, xs))
 public defn first!<?T,?S,?R> (f: (T,S) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<?S>) : value!(first(f, xs, ys))
 
+;============================================================
+;===================== Seq? Helper ==========================
+;============================================================
+
+;Helper function that creates a sequence from a generating
+;function. The generating function returns Sentinel when it
+;is exhausted. 
+;- f: The callback that is called repeatedly to retrieve
+;  each item in the sequence. When the sequence is empty, f must
+;  return and continue returning Sentinel.
+;- free: The callback that is used to free the Seq.
+defn Seq?<T> (f: () -> T|Sentinel, free: () -> False) -> Seq<T> :
+
+  ;Bucket for holding the most recently generated value
+  ;from 'f'.
+  var item: Sentinel|T = sentinel
+
+  ;Call 'f' to fill the 'item' bucket. Returns true if
+  ;the sequence is empty.
+  defn fill () -> True|False :
+    if item is Sentinel  :
+      item = f()
+    item is Sentinel
+
+  ;Retrieve the current value in the bucket without emptying
+  ;it. Fatal if the sequence is empty.
+  defn peek () -> T :
+    if item is Sentinel :
+      fatal("Empty Sequence")
+    item as T
+
+  ;Retrieve and empty the bucket.
+  defn empty () -> T :
+    val x = peek()
+    item = sentinel
+    x
+
+  ;Create the Seq object.
+  new Seq<T> :
+    defmethod next (this) :
+      fill()
+      empty()
+    defmethod peek (this) :
+      fill()
+      peek()
+    defmethod empty? (this) :
+      fill()
+    defmethod free (this) :
+      free()
+
+;============================================================
+;================ seq? operating function ===================
+;============================================================
+
+;Construct a sequence from calling 'f' on each item in 'xs'.
+;If 'f' returns One then the item is included in the returned sequence,
+;otherwise the result is excluded.
 public defn seq?<?T,?R> (f: T -> Maybe<?R>, xs:Seqable<?T>) -> Seq<R> :
-   generate<R> :
-      for x in xs do :
-         match(f(x)) :
-            (r:One<R>) : yield(value(r))
-            (r:None) : false
+   val xseq = to-seq(xs)
+   Seq?<R>(fill, free-seqs) where :
+      defn free-seqs () :
+         free(xseq)
+      defn* fill () :
+         if empty?(xseq) :
+            sentinel
+         else :
+            match(f(next(xseq))) :
+               (r: One<R>) : value(r)
+               (r: None) : fill()
 
+;Two argument version of seq?.
 public defn seq?<?T,?S,?R> (f: (T,S) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<?S>) -> Seq<R> :
-   generate<R> :
-      for (x in xs, y in ys) do :
-         match(f(x, y)) :
-            (r:One<R>) : yield(value(r))
-            (r:None) : false
+   val xseq = to-seq(xs)
+   val yseq = to-seq(ys)
+   Seq?<R>(fill, free-seqs) where :
+      defn free-seqs () :
+         free(xseq)
+         free(yseq)
+      defn* fill () :
+         if empty?(xseq) or empty?(yseq) :
+            sentinel
+         else :
+            match(f(next(xseq), next(yseq))) :
+               (r: One<R>) : value(r)
+               (r: None) : fill()
 
+;Three argument version of seq?.
 public defn seq?<?T,?S,?U,?R> (f: (T,S,U) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<?S>, zs:Seqable<?U>) -> Seq<R> :
-   generate<R> :
-      for (x in xs, y in ys, z in zs) do :
-         match(f(x, y, z)) :
-            (r:One<R>) : yield(value(r))
-            (r:None) : false
+   val xseq = to-seq(xs)
+   val yseq = to-seq(ys)
+   val zseq = to-seq(zs)
+   Seq?<R>(fill, free-seqs) where :
+      defn free-seqs () :
+         free(xseq)
+         free(yseq)
+         free(zseq)
+      defn* fill () :
+         if empty?(xseq) or empty?(yseq) or empty?(zseq):
+            sentinel
+         else :
+            match(f(next(xseq), next(yseq), next(zseq))) :
+               (r: One<R>) : value(r)
+               (r: None) : fill()
 
+;============================================================
+;================= filter operating function ================
+;============================================================
+
+;Construct a sequence from 'xs' by including only elements
+;for which 'f(x)' returns true.
 public defn filter<?T> (f: T -> True|False, xs:Seqable<?T>) -> Seq<T> :
-   generate<T> :
-      for x in xs do :
-         yield(x) when f(x)
+   val xseq = to-seq(xs)
+   Seq?<T>(fill, free-seqs) where :
+      defn free-seqs () :
+         free(xseq)
+      defn* fill () :
+         if empty?(xseq) :
+            sentinel
+         else :
+            val x = next(xseq)
+            if f(x) : x
+            else : fill()
 
+;Two argument version of filter.
 public defn filter<?T,?S> (f: (T,S) -> True|False, xs:Seqable<?T>, ys:Seqable<?S>) -> Seq<T> :
-   generate<T> :
-      for (x in xs, y in ys) do :
-         yield(x) when f(x, y)
+   val xseq = to-seq(xs)
+   val yseq = to-seq(ys)
+   Seq?<T>(fill, free-seqs) where :
+      defn free-seqs () :
+         free(xseq)
+         free(yseq)
+      defn* fill () :
+         if empty?(xseq) or empty?(yseq) :
+            sentinel
+         else :
+            val x = next(xseq)
+            val y = next(yseq)
+            if f(x,y) : x
+            else : fill()
 
+;Construct a sequence from 'xs' by including only elements for which
+;the corresponding elements in 'seq' is true.
 public defn filter<?T> (xs:Seqable<?T>, sel:Seqable<True|False>) -> Seq<T> :
    for (x in xs, s in sel) filter : s
 

@@ -159,7 +159,8 @@ defn build-package-defs (pkg:Pkg, stamp:PackageStamp, nm:NameMap) -> PackageDefi
                      stamp,
                      PkgDefinition,
                      [],
-                     definitions)
+                     definitions,
+                     documentation?(packageio))
 
 ;------------------------------------------------------------
 ;---------- PackageDefinitions for IPackage -----------------
@@ -187,13 +188,17 @@ protected-when(TESTING) defn build-package-defs (ipackage:IPackage,
         val annotation? = annotation?(indexed)
         val documentation? = documentation?(indexed)
 
+  val doc? = match(documentation?(ipackage)):
+    (x:IDoc) : value(string(x) as ILiteral) as String
+    (_) : false
 
   ;Bundle results in PackageDefinitions structure.
   PackageDefinitions(name(ipackage),
                      stamp,
                      SrcDefinition,
                      map(to-package-import, imports(ipackage)),
-                     definitions)
+                     definitions,
+                     doc?)
 
 ; Depth first walk of the IL-IR to flatten into a sequence of `Indexed`, or
 ; IExp nodes that have a meaningful name and FileInfo
