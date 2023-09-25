@@ -161,7 +161,8 @@ defmethod map-fields (s:BuildStmtS0, mapper:Mapper) :
     map-field(mapper, ccfiles(s), MULTIPLE-PATHS)
     map-field(mapper, ccflags(s), MULTIPLE-FLAGS)
     map-field(mapper, flags(s), MULTIPLE-SYMBOLS)
-    optimize(s))
+    optimize(s)
+    debug(s))
 defmethod convert (s:BuildStmtS0, extractor:Extractor) :
   BuildStmt(
     name(s)
@@ -175,7 +176,8 @@ defmethod convert (s:BuildStmtS0, extractor:Extractor) :
     extract-tuple(extractor, ccfiles(s), MULTIPLE-PATHS)
     extract-tuple(extractor, ccflags(s), MULTIPLE-FLAGS)
     extract-tuple(extractor, flags(s), MULTIPLE-SYMBOLS)
-    optimize(s))
+    optimize(s)
+    debug(s))
 
 defmethod map-fields (s:SyntaxPackagesDefinedInStmtS0, mapper:Mapper) :
   SyntaxPackagesDefinedInStmtS0(
