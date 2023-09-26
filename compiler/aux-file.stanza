@@ -125,7 +125,9 @@ public defn AuxFile () :
 ;==================== Utilities =============================
 ;============================================================
 
-public defn delete-aux-file () :
+;Delete the AuxFile if it exists. Throws an exception
+;if the deletion fails for some other reason.
+public defn delete-aux-file () -> False :
   val name = system-filepath(StanzaAuxFile)
   delete-file(name) when file-exists?(name)
 

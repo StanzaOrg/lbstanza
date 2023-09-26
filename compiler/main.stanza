@@ -225,7 +225,10 @@ val COMMON-STANZA-FLAGS = [
   Flag("pkg", ZeroOrOneFlag, OptionalFlag,
     "Requests the compiler to output the .pkg files. The name of the folder to store the output .pkg files can be optionally provided.")
   Flag("pkg-cache", OneFlag, OptionalFlag,
-    "Directory for caching compiled .pkg files")
+    "Directory for caching compiled .pkg files.")
+  Flag("disable-cache", ZeroFlag, OptionalFlag,
+    "If given, then packages will always be loaded from their source files instead of their .pkg files if \
+     their source files are available.")
   Flag("optimize", ZeroFlag, OptionalFlag,
     "Requests the compiler to compile in optimized mode.")
   Flag("debug", ZeroFlag, OptionalFlag,
@@ -331,6 +334,7 @@ defn compile-command () :
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
         get?(cmd-args, "pkg-cache", false)
+        flag?(cmd-args, "disable-cache")
         flag?(cmd-args, "optimize")
         flag?(cmd-args, "debug")
         get?(cmd-args, "ccfiles", [])
@@ -347,7 +351,7 @@ defn compile-command () :
   ;Command
   Command("compile",
           AtLeastOneArg, "the .stanza/.proj input files or Stanza package names.",
-          common-stanza-flags(["o" "s" "pkg" "pkg-cache" "optimize" "debug" "ccfiles" "ccflags" "flags"
+          common-stanza-flags(["o" "s" "pkg" "pkg-cache" "disable-cache" "optimize" "debug" "ccfiles" "ccflags" "flags"
                                "verbose" "supported-vm-packages" "platform" "external-dependencies" "macros" "link" "timing-log"]),
           compile-msg, false, verify-args, intercept-no-match-exceptions(compile-action))
 
@@ -380,6 +384,7 @@ defn build-command () :
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
         get?(cmd-args, "pkg-cache", false)
+        flag?(cmd-args, "disable-cache")
         flag?(cmd-args, "optimize")
         flag?(cmd-args, "debug")
         []
@@ -396,7 +401,7 @@ defn build-command () :
   ;Command definition
   Command("build",
           ZeroOrOneArg, "the name of the build target. If not supplied, the default build target is 'main'.",
-          common-stanza-flags(["s" "o" "external-dependencies" "pkg" "pkg-cache" "flags" "optimize" "debug" "verbose" "ccflags" "macros" "link" "timing-log"]),
+          common-stanza-flags(["s" "o" "external-dependencies" "pkg" "pkg-cache" "disable-cache" "flags" "optimize" "debug" "verbose" "ccflags" "macros" "link" "timing-log"]),
           build-msg, false, verify-args, intercept-no-match-exceptions(build))
 
 ;============================================================
@@ -444,6 +449,7 @@ defn extend-command () :
         AsmFile?(get?(cmd-args, "s", false))
         get?(cmd-args, "o", false)
         get?(cmd-args, "external-dependencies", false)
+        false
         false
         false
         flag?(cmd-args, "optimize")
@@ -515,6 +521,7 @@ defn compile-test-command () :
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
         get?(cmd-args, "pkg-cache", false)
+        flag?(cmd-args, "disable-cache")
         flag?(cmd-args, "optimize")
         flag?(cmd-args, "debug")
         get?(cmd-args, "ccfiles", [])
@@ -529,7 +536,7 @@ defn compile-test-command () :
   ;Command definition
   Command("compile-test",
           AtLeastOneArg, "the .stanza/.proj input files or Stanza package names containing tests.",
-          common-stanza-flags(["platform" "s" "o" "external-dependencies" "pkg" "pkg-cache" "ccfiles" "ccflags" "flags" "optimize" "debug" "verbose"
+          common-stanza-flags(["platform" "s" "o" "external-dependencies" "pkg" "pkg-cache" "disable-cache" "ccfiles" "ccflags" "flags" "optimize" "debug" "verbose"
                                "macros" "link" "timing-log"])
           compile-test-msg, false, verify-args, intercept-no-match-exceptions(compile-test))
 
@@ -580,6 +587,7 @@ defn compile-macros-command () :
         get?(cmd-args, "external-dependencies", false)
         pkg-dir
         get?(cmd-args, "pkg-cache", false)
+        flag?(cmd-args, "disable-cache")
         flag?(cmd-args, "optimize")
         false
         get?(cmd-args, "ccfiles", [])
@@ -594,7 +602,7 @@ defn compile-macros-command () :
   ;Command definition
   Command("compile-macros",
           AtLeastOneArg, "the .stanza/.proj input files or Stanza package names containing macros.",
-          common-stanza-flags(["platform" "s" "o" "external-dependencies" "pkg" "pkg-cache" "ccfiles" "ccflags" "flags" "optimize" "verbose"
+          common-stanza-flags(["platform" "s" "o" "external-dependencies" "pkg" "pkg-cache" "disable-cache" "ccfiles" "ccflags" "flags" "optimize" "verbose"
                                "macros" "timing-log"])
           compile-macros-msg, false, verify-args, intercept-no-match-exceptions(compile-macro))
 
@@ -705,6 +713,7 @@ defn repl-command () :
       "The terminal style (simple/edit) to use for the REPL. If not provided, defaults to 'edit' if available \
        on the current platform.")
     common-stanza-flag("pkg-cache")
+    common-stanza-flag("disable-cache")
     common-stanza-flag("macros")
     common-stanza-flag("timing-log")
     Flag("-", AllRemainingFlag, OptionalFlag,
@@ -756,7 +765,8 @@ defn repl-command () :
         repl(args(cmd-args),
              terminal-style,
              get?(cmd-args, "macros", [])
-             get?(cmd-args, "pkg-cache", false))
+             get?(cmd-args, "pkg-cache", false)
+             flag?(cmd-args, "disable-cache"))
 
     ;Confirm exit
     if flag?(cmd-args, "confirm-before-exit") :
@@ -792,6 +802,7 @@ defn run-command () :
     Flag("flags", ZeroOrMoreFlag, OptionalFlag,
       "The set of compile-time flags to be set before beginning execution.")
     common-stanza-flag("pkg-cache")
+    common-stanza-flag("disable-cache")
     common-stanza-flag("verbose")
     common-stanza-flag("macros")
     common-stanza-flag("timing-log")
@@ -830,7 +841,8 @@ defn run-command () :
         ;Run in REPL
         run-in-repl(args(cmd-args),
                     get?(cmd-args, "macros", []),
-                    get?(cmd-args, "pkg-cache", false))
+                    get?(cmd-args, "pkg-cache", false)
+                    flag?(cmd-args, "disable-cache"))
 
   ;Command definition
   Command(
@@ -862,6 +874,7 @@ defn run-test-command () :
     Flag("log", OneFlag, OptionalFlag,
       "The directory to output the test results to.")
     common-stanza-flag("pkg-cache")
+    common-stanza-flag("disable-cache")
     common-stanza-flag("macros")
     common-stanza-flag("timing-log")]
 
@@ -913,7 +926,8 @@ defn run-test-command () :
       ;Run in REPL
       run-in-repl(new-args,
                   get?(cmd-args, "macros", []),
-                  get?(cmd-args, "pkg-cache", false))
+                  get?(cmd-args, "pkg-cache", false),
+                  flag?(cmd-args, "disable-cache"))
 
   ;Command definition
   Command("run-test",
@@ -933,10 +947,7 @@ defn analyze-dependencies-command () :
     Flag("graphviz", OneFlag, OptionalFlag,
       "If given, outputs the dependencies using the GraphViz format to the given file.")
     Flag("build-target", ZeroFlag, OptionalFlag,
-      "If given, then the argument is interpreted to be the name of a build target instead of a Stanza package.")
-    Flag("ignore-cache", ZeroFlag, OptionalFlag,
-      "If given, then packages will always be loaded from their source files instead of their .pkg files if \
-       their source files are available.")
+      "If given, then the argument is interpreted to be the name of a build target instead of a Stanza package.")    
     Flag("pkg", ZeroOrOneFlag, OptionalFlag,
       "If provided, search the given folder for .pkg files.")]
 
@@ -956,10 +967,9 @@ defn analyze-dependencies-command () :
   between packages."
   defn analyze-dependencies-action (cmd-args:CommandArgs) :
     defn main () :
-      val ignore-cache? = flag?(cmd-args, "ignore-cache")
       val output = get?(cmd-args, "o", false)
       val graphviz = get?(cmd-args, "graphviz", false)
-      analyze-dependencies(build-settings(), ignore-cache?, output, graphviz)
+      analyze-dependencies(build-settings(), output, graphviz)
 
     defn build-settings () :
       defn symbol? (name:String) :
@@ -980,6 +990,7 @@ defn analyze-dependencies-command () :
         false
         pkg-dir
         false
+        flag?(cmd-args, "disable-cache")
         flag?(cmd-args, "optimize")
         false
         []
@@ -995,7 +1006,7 @@ defn analyze-dependencies-command () :
   Command("analyze-dependencies",
           AtLeastOneArg, "the .stanza/.proj inputs or Stanza package names to analyze.",
           to-tuple $ cat(new-flags, common-stanza-flags(["platform" "flags" "supported-vm-packages" "optimize"
-                                                         "macros" "timing-log"]))
+                                                         "macros" "timing-log" "disable-cache"]))
           analyze-msg, false, verify-args, intercept-no-match-exceptions(analyze-dependencies-action))
 
 ;============================================================
@@ -1052,6 +1063,7 @@ defn auto-doc-command () :
         false
         false
         pkg-dir
+        false
         false
         flag?(cmd-args, "optimize")
         false

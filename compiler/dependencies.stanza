@@ -15,11 +15,10 @@ defpackage stz/dependencies :
   import stz/compiler-build-settings
   
 public defn analyze-dependencies (settings:BuildSettings,
-                                  ignore-cache?:True|False,
                                   output:String|False,
                                   graphviz:String|False) :
   defn driver () :
-    val dep-result = dependencies(settings, ignore-cache?)
+    val dep-result = dependencies(settings)
     val dependencies = scan-dependencies(packages(dep-result))
     val source-files = SourceFiles $
       for stamp in pkgstamps(dep-result) seq :

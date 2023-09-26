@@ -19,3 +19,4 @@ build
 *.exe
 stanza.aux
 stanza
+repl-history.txt

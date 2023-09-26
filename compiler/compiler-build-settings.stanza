@@ -8,6 +8,8 @@ defpackage stz/compiler-build-settings :
 
 ;Represents the full set of input options for starting
 ;a Stanza compilation job.
+;- disable-cache?: If true, then the compilation should
+;  avoid loading packages from .pkg files as much as possible.
 public defstruct BuildSettings :
   inputs: BuildInputs with: (updater => sub-inputs)
   vm-packages: Tuple<String|Symbol> with: (updater => sub-vm-packages)
@@ -17,6 +19,7 @@ public defstruct BuildSettings :
   external-dependencies: String|False
   pkg-dir: String|False
   pkg-cache-dir: String|False with: (updater => sub-pkg-cache-dir)
+  disable-cache?: True|False
   optimize?: True|False
   debug?: True|False
   ccfiles: Tuple<String>
@@ -33,7 +36,7 @@ public deftype BuildInputs
 
 ;Case: User explicitly chooses which files/packages to compile.
 ;- names: Either the stanza input file, or the stanza package name.
-;- original-target: If these build packages are computed by looking
+;- original-target: If these build packages were computed by looking
 ;  up the build target in a .proj file, then this holds the original
 ;  name of the build target.
 public defstruct BuildPackages <: BuildInputs :
