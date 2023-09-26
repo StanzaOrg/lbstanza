@@ -6974,7 +6974,7 @@ public defn indented<?T> (f: () -> ?T) -> T :
 ;===================== Generators ===========================
 ;============================================================
 
-public defn Generator<T> (thunk : (T -> False, (T -> Void) & (() -> Void)) -> ?) -> Seq<T> :
+public defn Generator<T> (thunk : (T -> False, (T -> Void) & (() -> Void)) -> ?) -> PeekSeq<T> :
    ;State
    var item = sentinel
 
@@ -7006,7 +7006,7 @@ public defn Generator<T> (thunk : (T -> False, (T -> Void) & (() -> Void)) -> ?)
       item = sentinel
       x
 
-   new Seq<T> :
+   new PeekSeq<T> :
       defmethod next (this) :
          fill()
          empty()
@@ -8525,14 +8525,20 @@ defmethod print (o:OutputStream, i:FileInfo) :
    print(o, column(i))
 
 ;============================================================
-;======================= Sequences ==========================
+;================== Seqable and Sequences ===================
 ;============================================================
 
+;Overall Seqable Type: everything that has a to-seq
+;is a Seqable. A collection is a "permanent" seqable: we
+;are able to call to-seq repeatedly on it.
 public deftype Seqable<T> :
   Collection<T> <: Seqable<T>
 
-public deftype Seq<T> <: Seqable<T>
+;The fundamental multi that must be implemented by
+;all Seqable subtypes.
+public defmulti to-seq<?T> (s:Seqable<?T>) -> Seq<T>
 
+;Listing of core collection types.
 public deftype Collection<T> :
   Range <: Collection<Int>
   String <: Collection<Char>
@@ -8540,26 +8546,124 @@ public deftype Collection<T> :
   Tuple<T> <: Collection<T>
   IndexedCollection<T> <: Collection<T>
 
-public defmulti to-seq<?T> (s:Seqable<?T>) -> Seq<T>
+;------------------------------------------------------------
+;----------------------- Seq API ----------------------------
+;------------------------------------------------------------
+
+;A Seq is a subtype of Seqable, but not of Collection
+;because iterating through it also destroys it.
+public deftype Seq<T> <: Seqable<T>
+
+;Calling to-seq on a Seq just returns the Seq unchanged.
 defmethod to-seq<?T> (s:Seq<?T>) : s
 
+;Retrieve the next item in the sequence. Sequence
+;must not be empty.
 public defmulti next<?T> (s:Seq<?T>) -> T
-public defmulti peek<?T> (s:Seq<?T>) -> T
-public defmulti empty? (s:Seq) -> True|False
-public defmulti free (s:Seq) -> False
-defmethod free (s:Seq) : false
 
+;Test whether the sequence is empty. 
+public defmulti empty? (s:Seq) -> True|False
+
+;Release any resources required by the seq. Default
+;implementation does not do anything. Most commonly
+;used for releasing coroutines of generator seqs.
+public defmulti free (s:Seq) -> False :
+  false
+
+;------------------------------------------------------------
+;----------------------- PeekSeq API ------------------------
+;------------------------------------------------------------
+
+;A PeekSeq is a Seq that supports the additional function 'peek'.
+public deftype PeekSeq<T> <: Seq<T>
+
+;Retrieve the next item in the sequence without mutating the
+;sequence. Sequence must not be empty.
+public defmulti peek<?T> (s:PeekSeq<?T>) -> T
+
+;------------------------------------------------------------
+;--------------- Default PeekSeq Implementation -------------
+;------------------------------------------------------------
+
+;Create a PeekSeq by wrapping up an existing Seq.
+;The Seq fills a 1-item buffer which is used to support 'peek'
+;without advancing the underlying Seq.
+
+public defn PeekSeq<?T> (xs-seq:Seq<?T>) -> PeekSeq<T> :
+
+  ;1-item buffer. Buffer is empty when item is sentinel.
+  var item:Sentinel|T = sentinel
+
+  ;If the buffer is empty, fill it by pulling the next
+  ;item from the underlying Seq. The underlying Seq must
+  ;not be empty. This function guarantees that the buffer
+  ;is full.
+  defn fill () : (item = next(xs-seq)) when item is Sentinel
+  
+  new PeekSeq<T> :
+  
+    defmethod next (this) :
+      ;Retrieve the next item in the buffer, and then
+      ;empty the buffer.
+      val x = peek(this)
+      item = sentinel
+      x
+      
+    defmethod peek (this) :
+      ;Ensure that the buffer is full. If the underlying
+      ;Seq is empty, this call will properly fail.
+      fill()
+      ;If the fill() succeeds, then we're guaranteed that
+      ;the buffer is full.
+      item as T
+      
+    defmethod empty? (this) :
+      ;The PeekSeq is empty if both the buffer is empty
+      ;and the underlying sequence is empty.
+      empty?(xs-seq) and item is Sentinel
+
+;Convert the given Seqable to a PeekSeq if it is not
+;one already.
+public defn to-peek-seq<?T> (xs:Seqable<?T>) -> PeekSeq<T> :
+  match(to-seq(xs)) :
+    (s:PeekSeq<T>) : s
+    (s:Seq<T>) : PeekSeq(s)
+
+;------------------------------------------------------------
+;-------------------- do-seq Helper -------------------------
+;------------------------------------------------------------
+
+;Calls 'f' with the result of 'to-seq(s)'.
+;If a new seq is created from 's', then this seq is explicitly
+;freed before returning the result.
 defn* do-seq<?T,?R> (f: Seq<T> -> ?R, s:Seqable<?T>) -> R :
   match(s) :
-   (s:Seq<T>) :
-     f(s)
-   (s) :
-     val s-seq = to-seq(s)
-     with-finally(
-       fn* () : f(s-seq)
-       fn* () : free(s-seq))
+    (s:Seq<T>) :
+      f(s)
+    (s) :
+      val s-seq = to-seq(s)
+      with-finally(
+        fn* () : f(s-seq)
+        fn* () : free(s-seq))
 
-;===== Conversion to Sequence =====
+;Calls 'f' with the result of 'to-seq(s)'.
+;If a new seq is created from 's', then this seq is explicitly
+;freed before returning the result.
+defn* do-peek-seq<?T,?R> (f: PeekSeq<T> -> ?R, s:Seqable<?T>) -> R :
+  match(s) :
+    (s:PeekSeq<T>) :
+      f(s)
+    (s:Seq<T>) :
+      f(PeekSeq(s))
+    (s) :
+      val s-seq = to-peek-seq(s)
+      with-finally(
+        fn* () : f(s-seq)
+        fn* () : free(s-seq))
+
+;------------------------------------------------------------
+;------------- Converting Core Types to Seq -----------------
+;------------------------------------------------------------
 
 defmethod to-seq<?T> (x:Tuple<?T>) :
    seq({x[_]}, 0 to length(x))
@@ -8569,7 +8673,7 @@ defmethod to-seq (s:String) :
 
 defmethod to-seq<?T> (x:List<?T>) :
    var l = x
-   new Seq<T> :
+   new PeekSeq<T> :
       defmethod empty? (this) :
          empty?(l)
       defmethod next (this) :
@@ -8588,7 +8692,7 @@ defmethod to-seq (r:Range) :
     (r:Range & Lengthable) :
       var i = start(r)
       var n = length(r)
-      new Seq<Int> & Lengthable :
+      new PeekSeq<Int> & Lengthable :
         defmethod next (this) :
           val i* = peek(this)
           i = i + step(r)
@@ -8603,7 +8707,7 @@ defmethod to-seq (r:Range) :
           n
     (r:Range) :
       var i = start(r)
-      new Seq<Int> :
+      new PeekSeq<Int> :
         defmethod next (this) :
           val i* = i
           i = i + step(r)
@@ -8613,7 +8717,9 @@ defmethod to-seq (r:Range) :
         defmethod empty? (this) :
           false
 
-;===== Conversion from Sequence =====
+;------------------------------------------------------------
+;------------- Converting Seq to Core Types -----------------
+;------------------------------------------------------------
 
 public defn to-tuple<?T> (xs:Seqable<?T>) -> Tuple<T> :
    match(xs) :
@@ -8730,7 +8836,6 @@ defmethod do<?T> (f:T -> ?, xs:List<?T>) -> False :
 defn wrap-length<?T> (xs:Seq<?T>, length:() -> Int) :
   new Seq<T> & Lengthable :
     defmethod next (this) : next(xs)
-    defmethod peek (this) : peek(xs)
     defmethod empty? (this) : empty?(xs)
     defmethod length (this) : length()
 
@@ -8738,38 +8843,64 @@ public defn to-collection<?T> (f:() -> Seq<?T>) -> Collection<T> :
   new Collection<T> :
     defmethod to-seq (this) : f()
 
-public defn seq<?T,?S> (f:T -> ?S, xs:Seqable<?T>) -> Seq<S> :
-  val xs-seq = to-seq(xs)
-  val rs = repeat-while $ fn () :
-    if empty?(xs-seq) : None()
-    else : One(f(next(xs-seq)))
-  match(xs-seq) :
-    (xs:Seq&Lengthable) :
-      wrap-length(rs, {cached(rs) + length(xs)})
-    (xs) : rs
+;------------------------------------------------------------
+;--------- Lazily Mapping a Function Over Sequences ---------
+;------------------------------------------------------------
+
+public defn seq<?T,?R> (f:T -> ?R, xs:Seqable<?T>) -> Seq<R> :
+  match(to-seq(xs)) :
+    (xs-seq:Seq<T>&Lengthable) :
+      new Seq<R>&Lengthable :
+        defmethod next (this) :
+          f(next(xs-seq))
+        defmethod empty? (this) :
+          empty?(xs-seq)
+        defmethod length (this) :
+          length(xs-seq)
+    (xs-seq:Seq<T>) :
+      new Seq<R> :
+        defmethod next (this) :
+          f(next(xs-seq))
+        defmethod empty? (this) :
+          empty?(xs-seq)
 
 public defn seq<?T,?S,?R> (f:(T,S) -> ?R, xs:Seqable<?T>, ys:Seqable<?S>) -> Seq<R> :
-  val xs-seq = to-seq(xs)
-  val ys-seq = to-seq(ys)
-  val rs = repeat-while $ fn () :
-    if empty?(xs-seq) or empty?(ys-seq) : None()
-    else : One(f(next(xs-seq), next(ys-seq)))
-  match(xs-seq, ys-seq) :
-    (xs:Seq&Lengthable, ys:Seq&Lengthable) :
-      wrap-length(rs, {cached(rs) + min(length(xs), length(ys))})
-    (xs, ys) : rs
+  match(to-seq(xs), to-seq(ys)) :
+    (xs-seq:Seq<T>&Lengthable, ys-seq:Seq<S>&Lengthable) :
+      new Seq<R>&Lengthable :
+        defmethod next (this) :
+          f(next(xs-seq), next(ys-seq))
+        defmethod empty? (this) :
+          empty?(xs-seq) or empty?(ys-seq)
+        defmethod length (this) :
+          min(length(xs-seq), length(ys-seq))
+    (xs-seq:Seq<T>, ys-seq:Seq<S>) :
+      new Seq<R> :
+        defmethod next (this) :
+          f(next(xs-seq), next(ys-seq))
+        defmethod empty? (this) :
+          empty?(xs-seq) or empty?(ys-seq)
 
 public defn seq<?T,?S,?U,?R> (f:(T,S,U) -> ?R, xs:Seqable<?T>, ys:Seqable<?S>, zs:Seqable<?U>) -> Seq<R> :
-  val xs-seq = to-seq(xs)
-  val ys-seq = to-seq(ys)
-  val zs-seq = to-seq(zs)
-  val rs = repeat-while $ fn () :
-    if empty?(xs-seq) or empty?(ys-seq) or empty?(zs-seq) : None()
-    else : One(f(next(xs-seq), next(ys-seq), next(zs-seq)))
-  match(xs-seq, ys-seq, zs-seq) :
-    (xs:Seq&Lengthable, ys:Seq&Lengthable, zs:Seq&Lengthable) :
-      wrap-length(rs, {cached(rs) + min(length(xs), min(length(ys), length(zs)))})
-    (xs, ys, zs) : rs
+  match(to-seq(xs), to-seq(ys), to-seq(zs)) :
+    (xs-seq:Seq<T>&Lengthable, ys-seq:Seq<S>&Lengthable, zs-seq:Seq<U>&Lengthable) :
+      new Seq<R>&Lengthable :
+        defmethod next (this) :
+          f(next(xs-seq), next(ys-seq), next(zs-seq))
+        defmethod empty? (this) :
+          empty?(xs-seq) or empty?(ys-seq) or empty?(zs-seq)
+        defmethod length (this) :
+          min(length(xs-seq), min(length(ys-seq), length(zs-seq)))
+    (xs-seq:Seq<T>, ys-seq:Seq<S>, zs-seq:Seq<U>) :
+      new Seq<R> :
+        defmethod next (this) :
+          f(next(xs-seq), next(ys-seq), next(zs-seq))
+        defmethod empty? (this) :
+          empty?(xs-seq) or empty?(ys-seq) or empty?(zs-seq)
+
+;------------------------------------------------------------
+;------------------------------------------------------------
+;------------------------------------------------------------
 
 public defmulti in-reverse<?T> (xs:Seqable<?T>) -> Seq<T>
 defmethod in-reverse<?T> (xs:Seqable<?T>) :
@@ -9021,18 +9152,19 @@ public defn split!<?T> (xs:Seqable<?T>, ss:Seqable<True|False>) -> [Collection<T
          else : false-xs
    [true-xs, false-xs]
 
-public defn split<?T> (f:T -> True|False, xs-items:Seqable<?T>) -> [Seq<T>, Seq<T>] :
+public defn split<?T> (f:T -> True|False, xs-items:Seqable<?T>) -> [PeekSeq<T>, PeekSeq<T>] :
   val xs = to-seq(xs-items)
   val a-items = Queue<T>()
   val b-items = Queue<T>()
 
   ;Pull next item onto queues
-  defn pull () :
+  defn pull () -> False :
     val x = next(xs)
     if f(x) : add(a-items, x)
     else : add(b-items, x)
 
-  ;Try to fill a queue, returns true if filled
+  ;Fill the given queue if it is empty.
+  ;Returns true if queue is non-empty.
   defn* fill (items:Queue<T>) -> True|False :
     if empty?(items) :
       if not empty?(xs) :
@@ -9042,8 +9174,8 @@ public defn split<?T> (f:T -> True|False, xs-items:Seqable<?T>) -> [Seq<T>, Seq<
       true
 
   ;Create seq from queue
-  defn queue-seq (items:Queue<T>) :
-    new Seq<T> :
+  defn queue-seq (items:Queue<T>) -> PeekSeq<T> :
+    new PeekSeq<T> :
       defmethod next (this) :
         if fill(items) : pop(items)
         else : fatal("No more items")
@@ -9069,9 +9201,6 @@ public defn fork<?T> (xs-items:Seqable<?T>) -> [Seq<T>, Seq<T>] :
           x
         else :
           pop(items)
-      defmethod peek (this) :
-        if empty?(items) : peek(xs)
-        else : peek(items)
       defmethod empty? (this) :
         empty?(items) and empty?(xs)
 
@@ -9095,100 +9224,108 @@ public defn fork<?T> (xs-items:Seqable<?T>, n:Int) -> Tuple<Seq<T>> :
       defmethod next (this) :
         if empty?(items) : pull(i)
         else : pop(items)
-      defmethod peek (this) :
-        if empty?(items) : peek(xs)
-        else : peek(items)
       defmethod empty? (this) :
         empty?(items) and empty?(xs)
 
-public defn take-while<?T> (f: T -> True|False, xs:Seqable<?T>) :
-   generate<T> :
-      for xs-seq in xs do-seq :
-         defn* loop () :
-            if not empty?(xs-seq) :
-               val x = peek(xs-seq)
-               if f(x) :
-                  next(xs-seq)
-                  yield(x)
-                  loop()
-         loop()
+;Return a new sequence that contains items from 'xs' as long as they
+;pass 'f'. 'xs' must be peekable to prevent 'take-while' from consuming
+;an extra item.
+public defn take-while<?T> (f: T -> True|False, xs:Collection<?T>|PeekSeq<?T>) -> PeekSeq<T> :
+  generate<T> :
+    for xs-seq in xs do-peek-seq :
+      let loop () :
+        if not empty?(xs-seq) :
+          val x = peek(xs-seq)
+          if f(x) :
+            next(xs-seq)
+            yield(x)
+            loop()
 
-public defn take-until<?T> (f: T -> True|False, xs:Seqable<?T>) :
-   generate<T> :
-      for xs-seq in xs do-seq :
-         defn* loop () :
-            if not empty?(xs-seq) :
-               val x = next(xs-seq)
-               yield(x)
-               loop() when not f(x)
-         loop()
+public defn take-until<?T> (f: T -> True|False, xs:Seqable<?T>) -> PeekSeq<T> :
+  generate<T> :
+    for xs-seq in xs do-seq :
+      let loop () :
+        if not empty?(xs-seq) :
+          val x = next(xs-seq)
+          yield(x)
+          loop() when not f(x)
 
 public defn take-n<?T> (n:Int, xs:Seqable<?T>) :
-   ensure-non-negative("length", n)
-   var len = n
-   val xs-seq = to-seq(xs)
-   new Seq<T> & Lengthable :
-      defmethod next (this) :
-         val v = peek(this)
-         next(xs-seq)
-         len = len - 1
-         v
-      defmethod peek (this) :
-         fatal("Empty Sequence") when len == 0
-         peek(xs-seq)
-      defmethod empty? (this) :
-         len == 0
-      defmethod length (this) :
-         len
-      defmethod free (this) :
-         free(xs-seq)
+  ensure-non-negative("length", n)
+  var len = n
+  match(to-seq(xs)) :
+    (xs-seq:PeekSeq<T>) :
+      new PeekSeq<T>&Lengthable :
+        defmethod next (this) :
+          fatal("Empty Sequence") when len == 0
+          val v = next(xs-seq)
+          len = len - 1
+          v
+        defmethod peek (this) :
+          fatal("Empty Sequence") when len == 0
+          peek(xs-seq)
+        defmethod empty? (this) :
+          len == 0
+        defmethod length (this) :
+          len
+        defmethod free (this) :
+          free(xs-seq)
+    (xs-seq:Seq<T>) :
+      new Seq<T>&Lengthable :
+        defmethod next (this) :
+          fatal("Empty Sequence") when len == 0
+          val v = next(xs-seq)
+          len = len - 1
+          v
+        defmethod empty? (this) :
+          len == 0
+        defmethod length (this) :
+          len
+        defmethod free (this) :
+          free(xs-seq)
 
 public defn take-up-to-n<?T> (n:Int, xs:Seqable<?T>) :
    ensure-non-negative("length", n)
    var len = n
    val xs-seq = to-seq(xs)
    new Seq<T> :
-      defmethod next (this) :
-         val v = peek(this)
-         next(xs-seq)
-         len = len - 1
-         v
-      defmethod peek (this) :
-         fatal("Empty Sequence") when empty?(this)
-         peek(xs-seq)
-      defmethod empty? (this) :
-         (len == 0) or empty?(xs-seq)
-      defmethod free (this) :
-         free(xs-seq)
+     defmethod next (this) :
+       len = len - 1
+       next(xs-seq)
+     defmethod empty? (this) :
+       (len == 0) or empty?(xs-seq)
+     defmethod free (this) :
+       free(xs-seq)
 
 public defn cat<?T> (a:Seqable<?T>, b:Seqable<?T>) -> Seq<T> :
    cat-all([a, b])
 
 public defn cat-all<?T> (input-xss:Seqable<Seqable<?T>>) -> Seq<T> :
+  ;First retrieve overall sequence of sequences.
   val xss = to-seq(input-xss)
-  var xs:Seq<T>|False|Sentinel = sentinel
-  defn* load-next-seq () :
-    if empty?(xss) :
-      xs = false
+
+  ;Hold the currently active sequence. Initialized
+  ;to false in the beginning.
+  var xs:Seq<T>|False = false
+  
+  ;Advance 'xs' to first non empty? seq. Returns true if any is available.
+  ;Guarantees that 'xs' is a non empty seq in this case.
+  defn* ready? () -> True|False :
+    if xs is False or empty?(xs as Seq<T>) :
+      if empty?(xss) :
+        false
+      else :
+        xs = to-seq(next(xss))
+        ready?()
     else :
-      xs = to-seq(next(xss))
-      fill()
-  defn* fill () -> Seq<T>|False :
-    match(xs) :
-      (xs:False) : false
-      (xs:Seq<T>) : load-next-seq() when empty?(xs) else xs
-      (xs:Sentinel) : load-next-seq()
-  defn fill! () :
-    match(fill()) :
-      (xs:Seq<T>) : xs
-      (xs:False) : fatal("Empty Sequence")
+      true
+      
   new Seq :
     defmethod next (this) :
-      next(fill!())
-    defmethod peek (this) :
-      peek(fill!())
+      ready?()
+      next(xs as Seq<T>)
     defmethod empty? (this) :
-      fill() is False
+      not ready?()
     defmethod free (this) :
       match(xs:Seq<T>) : free(xs)
       free(xss)
@@ -9205,27 +9342,24 @@ public defn seq-cat<?T,?S,?U,?R> (f:(T,S,U) -> Seqable<?R>, xs:Seqable<?T>, ys:S
 
 public defn all?<?T> (pred?: T -> True|False, xs:Seqable<?T>) -> True|False :
    for xs-seq in xs do-seq :
-      defn* loop () :
+      let loop () :
          if empty?(xs-seq) : true
          else : pred?(next(xs-seq)) and loop()
-      loop()
 
 public defn all?<?T,?S> (pred?: (T,S) -> True|False, xs:Seqable<?T>, ys:Seqable<?S>) -> True|False :
    for xs-seq in xs do-seq :
       for ys-seq in ys do-seq :
-         defn* loop () :
+         let loop () :
             if empty?(xs-seq) or empty?(ys-seq) : true
             else : pred?(next(xs-seq), next(ys-seq)) and loop()
-         loop()
 
 public defn all?<?T,?S,?U> (pred?: (T,S,U) -> True|False, xs:Seqable<?T>, ys:Seqable<?S>, zs:Seqable<?U>) -> True|False :
    for xs-seq in xs do-seq :
       for ys-seq in ys do-seq :
          for zs-seq in zs do-seq :
-            defn* loop () :
+            let loop () :
                if empty?(xs-seq) or empty?(ys-seq) or empty?(zs-seq) : true
                else : pred?(next(xs-seq), next(ys-seq), next(zs-seq)) and loop()
-            loop()
 
 public defn none?<?T> (pred?: T -> True|False, xs:Seqable<?T>) -> True|False :
    defn notp (x) : not pred?(x)
@@ -9265,49 +9399,44 @@ public defn count<?T> (pred?: T -> True|False, xs:Seqable<?T>) -> Int :
    accum
 
 public defn join<?T,?S> (xs0:Seqable<?T>, y:?S) -> Seq<T|S> :
-  val xs = to-seq(xs0)
-  var join? = false
-  val rs = new Seq<T|S> :
-    defmethod next (this) :
-      fatal("Empty Sequence") when empty?(xs)
-      val result = y when join? else next(xs)
-      join? = not join?
-      result
-    defmethod peek (this) :
-      fatal("Empty Sequence") when empty?(xs)
-      y when join? else peek(xs)
-    defmethod empty? (this) :
-      empty?(xs)
-  match(xs) :
-    (xs:Seq<T> & Lengthable) :
-      defn rs-length () :
-        if join? : length(xs) * 2
-        else : length(xs) * 2 - 1
-      wrap-length(rs, rs-length)
-    (xs) : rs
+  for xs in xs0 do-seq :
+    var join? = false
+    val rs = new Seq<T|S> :
+      defmethod next (this) :
+        fatal("Empty Sequence") when empty?(xs)
+        val result = y when join? else next(xs)
+        join? = not join?
+        result
+      defmethod empty? (this) :
+        empty?(xs)
+    match(xs) :
+      (xs:Seq<T>&Lengthable) :
+        defn rs-length () :
+          if join? : length(xs) * 2
+          else : length(xs) * 2 - 1
+        wrap-length(rs, rs-length)
+      (xs) :
+        rs
 
 public defn interleave<?T,?S> (xs0:Seqable<?T>, ys0:Seqable<?S>) -> Seq<T|S> :
-  val xs = to-seq(xs0)
-  val ys = to-seq(ys0)
-  var yield-x? = true
-  val rs = new Seq<T|S> :
-    defmethod next (this) :
-      fatal("Empty Sequence") when empty?(this)
-      val result = next(xs) when yield-x? else next(ys)
-      yield-x? = not yield-x?
-      result
-    defmethod peek (this) :
-      fatal("Empty Sequence") when empty?(this)
-      peek(xs) when yield-x? else peek(ys)
-    defmethod empty? (this) :
-      empty?(xs) when yield-x? else empty?(ys)
-  match(xs, ys) :
-    (xs:Seq<T> & Lengthable, ys:Seq<S> & Lengthable) :
-      defn rs-length () :
-        if yield-x? : 2 * min(length(xs), length(ys))
-        else : 1 + 2 * min(length(xs), length(ys) - 1)
-      wrap-length(rs, rs-length)
-    (xs, ys) : rs
+  for xs in xs0 do-seq :
+    for ys in ys0 do-seq :
+      var yield-x? = true
+      val rs = new Seq<T|S> :
+        defmethod next (this) :
+          fatal("Empty Sequence") when empty?(this)
+          val result = next(xs) when yield-x? else next(ys)
+          yield-x? = not yield-x?
+          result
+        defmethod empty? (this) :
+          empty?(xs) when yield-x? else empty?(ys)
+      match(xs, ys) :
+        (xs:Seq<T>&Lengthable, ys:Seq<S>&Lengthable) :
+          defn rs-length () :
+            if yield-x? : 2 * min(length(xs), length(ys))
+            else : 1 + 2 * min(length(xs), length(ys) - 1)
+          wrap-length(rs, rs-length)
+        (xs, ys) : rs
 
 public defn reduce<?T,?S,?U> (f: (T|U, S) -> ?U, x0: ?T, xs:Seqable<?S>) -> T|U :
    var accum = x0
@@ -9321,10 +9450,9 @@ public defn reduce<?T,?S> (f: (T|S, T) -> ?S, xs:Seqable<?T>) -> T|S :
 
 public defn reduce-right<?T,?S,?U> (f: (S, T|U) -> ?U, xs:Seqable<?S>, xn:?T) -> T|U :
    for xs-seq in xs do-seq :
-      defn loop () :
+      let loop () :
          if empty?(xs-seq) : xn
          else : f(next(xs-seq), loop())
-      loop()
 
 public defn reduce-right<?T,?S> (f: (T, T|S) -> ?S, xs:Seqable<?T>) -> T|S :
    for xs-seq in xs do-seq :
@@ -9333,36 +9461,33 @@ public defn reduce-right<?T,?S> (f: (T, T|S) -> ?S, xs:Seqable<?T>) -> T|S :
          else : f(x, loop(next(xs-seq)))
       loop(next(xs-seq))
 
-public defn repeat<?T> (x:?T) -> Seq<T> :
-   new Seq<T> :
-      defmethod next (this) : x
-      defmethod peek (this) : x
-      defmethod empty? (this) : false
+public defn repeat<?T> (x:?T) -> PeekSeq<T> :
+  new PeekSeq<T> :
+    defmethod next (this) : x
+    defmethod peek (this) : x
+    defmethod empty? (this) : false
 
-public defn repeat<?T> (x:?T, n:Int) -> Seq<T>&Lengthable :
-   ensure-non-negative("length", n)
-   var len = n
-   new Seq<T> & Lengthable :
-      defmethod next (this) :
-         fatal("Empty Sequence") when len == 0
-         len = len - 1
-         x
-      defmethod peek (this) :
-         fatal("Empty Sequence") when len == 0
-         x
-      defmethod empty? (this) :
-         len == 0
-      defmethod length (this) :
-         len
+public defn repeat<?T> (x:?T, n:Int) -> PeekSeq<T>&Lengthable :
+  ensure-non-negative("length", n)
+  var len = n
+  new PeekSeq<T> & Lengthable :
+    defmethod next (this) :
+      fatal("Empty Sequence") when len == 0
+      len = len - 1
+      x
+    defmethod peek (this) :
+      fatal("Empty Sequence") when len == 0
+      x
+    defmethod empty? (this) :
+      len == 0
+    defmethod length (this) :
+      len
 
-deftype RepeatWhileSeq<T> <: Seq<T>
-defmulti cached (s:RepeatWhileSeq) -> Int
-
-public defn repeat-while<?T> (f: () -> Maybe<?T>) -> RepeatWhileSeq<T> :
+public defn repeat-while<?T> (f: () -> Maybe<?T>) -> PeekSeq<T> :
   var item = sentinel
   defn fill () : (item = f()) when item is Sentinel
 
-  new RepeatWhileSeq<T> :
+  new PeekSeq<T> :
     defmethod next (this) :
       val x = peek(this)
       item = sentinel
@@ -9373,25 +9498,11 @@ public defn repeat-while<?T> (f: () -> Maybe<?T>) -> RepeatWhileSeq<T> :
     defmethod empty? (this) :
       fill()
       item is None
-    defmethod cached (this) :
-      1 when item is One else 0
 
 public defn repeatedly<?T> (f:() -> ?T) -> Seq<T> :
-   var item = sentinel
-   defn fill () : (item = f()) when item is Sentinel
-
-   defn empty () :
-      val x = item as T
-      item = sentinel
-      x
-
    new Seq<T> :
       defmethod next (this) :
-         fill()
-         empty()
-      defmethod peek (this) :
-         fill()
-         item as T
+         f()
       defmethod empty? (this) :
          false
 
@@ -9410,8 +9521,6 @@ public defn zip-all<?T> (xs:Seqable<Seqable<?T>>) :
    val ret-seq = new Seq<Tuple<T>> :
       defmethod next (this) :
          map(next, seqs)
-      defmethod peek (this) :
-         map(peek, seqs)
       defmethod empty? (this) :
          any?(empty?, seqs)
    if all?({_ is Lengthable&Seq}, seqs) :
