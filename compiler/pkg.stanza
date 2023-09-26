@@ -51,7 +51,7 @@ public defn save-package (dir:String, p:Pkg) -> String :
 ;Save the given Pkg to the pkg cache with the given caching parameters.
 public defn save-package-to-cache (params:CacheParams, p:Pkg) -> String :
   ;Calculate the filename mode from the given Pkg structure.
-  val mode = CacheFilename(p is FastPkg, flags(params), repl?(params), debug?(params))
+  val mode = CacheFilename(p is FastPkg, flags(params), repl?(params), debug?(params), source-file(params))
   ;Compute the filename.
   val filename = pkg-filename(name(p), mode)
   save-package(p, dir(params), filename)
@@ -153,13 +153,15 @@ public defn find-pkg (name:Symbol,
     match(cache-params:CacheParams) :
     
       ;First check under the given cache mode.
-      val mode = CacheFilename(optimized?, flags(cache-params), repl?(cache-params), debug?(cache-params))
+      val mode = CacheFilename(optimized?, flags(cache-params), repl?(cache-params),
+                               debug?(cache-params), source-file(cache-params))
       check-dir(dir(cache-params), mode, PkgCache)
 
       ;Then specifically if it is for the REPL, additionally check the
       ;non-repl version since it can also be used.
       if repl?(cache-params) :
-        val non-repl-mode = CacheFilename(optimized?, flags(cache-params), false, debug?(cache-params))
+        val non-repl-mode = CacheFilename(optimized?, flags(cache-params), false,
+                                          debug?(cache-params), source-file(cache-params))
         check-dir(dir(cache-params), non-repl-mode, PkgCache)
       
     ;Then check the normal folders.
@@ -175,11 +177,17 @@ public defn find-pkg (name:Symbol,
 ;the parameters for it.
 ;- flags: The active compilation flags.
 ;- dir: The directory of the pkg cache.
+;- repl?: True if we are running the REPL, and can use cached .pkgs
+;  compiled for REPL only.
+;- debug?: True if we are running/compiling in debug mode.
+;- source-file: The original source file that the .pkg was supposed to
+;  originate from.
 public defstruct CacheParams:
   flags:Tuple<Symbol>
   dir:String
   repl?:True|False
   debug?:True|False
+  source-file:String
 
 ;============================================================
 ;===================== Pkg FileNames ========================
@@ -204,12 +212,17 @@ with:
 
 ;Hashed filenaming for use with the cache.
 ;- flags: The active compilation flags.
-;- repl?: True if this is a .pkg for use only in the REPL. 
+;- repl?: True if this is a .pkg for use only in the REPL.
+;- debug?: True if this is a .pkg compiled with debugging support.
+;- source-file: The absolute path to the source file that the .pkg came from.
+;  Used to disambiguate .pkg files from the same-named Stanza package
+;  from different source files.
 public defstruct CacheFilename <: FilenameMode :
   optimized?:True|False with: (as-method => true)
   flags:Tuple<Symbol>
   repl?:True|False
   debug?:True|False
+  source-file:String
 with:
   printer => true
   constructor => #CacheFilename
@@ -218,8 +231,9 @@ with:
 public defn CacheFilename (optimized?:True|False,
                            flags:Tuple<Symbol>,
                            repl?:True|False,
-                           debug?:True|False) -> CacheFilename :
-  #CacheFilename(optimized?, qsort(to-string, flags), repl?, debug?)
+                           debug?:True|False
+                           source-file:String) -> CacheFilename :
+  #CacheFilename(optimized?, qsort(to-string, flags), repl?, debug?, source-file)
 
 ;Return the on-disk name of the .pkg file.
 public defn pkg-filename (name:Symbol,
@@ -247,6 +261,7 @@ defn hash-string (mode:CacheFilename) -> String :
     print(buffer, "[REPL]")
   if debug?(mode) :
     print(buffer, "[DEBUG]")
+  print(buffer, source-file(mode))
   buffer $> to-bytearray
          $> sha256-hash
          $> to-hex

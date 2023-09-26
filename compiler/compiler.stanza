@@ -106,6 +106,7 @@ defn compute-build-settings (projenv:StandardProjEnv,
         build-ext-deps,
         build-pkg-dir,
         pkg-cache-dir*,
+        disable-cache?(settings)
         build-optimization,
         build-debug,
         build-ccfiles,
@@ -171,7 +172,7 @@ defn ensure-asmfile (settings:BuildSettings,
 ;============================================================
 ;================ Compute Dependencies ======================
 ;============================================================
-public defn dependencies (settings:BuildSettings, ignore-cache?:True|False) -> DependencyResult :
+public defn dependencies (settings:BuildSettings) -> DependencyResult :
   defn main () :
     read-config-file()
     val build-platform = compute-build-platform()
@@ -186,9 +187,8 @@ public defn dependencies (settings:BuildSettings, ignore-cache?:True|False) -> D
       (f:False) : OUTPUT-PLATFORM
 
   defn compute-dependencies (proj:ProjFile, settings:BuildSettings) :
-    val params = ProjParams(compiler-flags(), optimize?(settings), debug?(settings), false)
-    val auxfile = AuxFile() when not ignore-cache?
-    val proj-manager = ProjManager(proj, params, auxfile)
+    val params = ProjParams(compiler-flags(), optimize?(settings), debug?(settings), false, disable-cache?(settings))
+    val proj-manager = ProjManager(proj, params, AuxFile())
     val macroexpander = StanzaMacroexpander(false, proj-manager, macro-plugins(settings))
     dependencies $ new FrontEndInputs :
       defmethod inputs (this) : build-inputs!(settings)
@@ -242,7 +242,8 @@ public defn compile (settings:BuildSettings, system:System, verbose?:True|False)
       println("Build target %~ is already up-to-date." % [build-target?(settings*)])
     else :
       setup-system-flags(settings*)
-      val proj-manager = ProjManager(proj, ProjParams(compiler-flags(), optimize?(settings*), debug?(settings*), false), auxfile)
+      val proj-params = ProjParams(compiler-flags(), optimize?(settings*), debug?(settings*), false, disable-cache?(settings))
+      val proj-manager = ProjManager(proj, proj-params, auxfile)
       val comp-result = compile(proj-manager, auxfile, build-inputs!(settings*), vm-packages(settings*), asm?(settings*), pkg-dir(settings*),
                                 backend(platform(settings*) as Symbol), optimize?(settings*), debug?(settings*), verbose?,
                                 macro-plugins(settings*), inputs(settings) is BuildTarget)

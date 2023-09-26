@@ -280,7 +280,8 @@ defmulti use-syntax (repl:REPL, inputs:Tuple<Symbol>, add-to-existing?:True|Fals
 defmulti shutdown (repl:REPL) -> False
 
 public defn REPL (macro-plugins:Tuple<String>,
-                  pkg-cache-dir:String|False) :
+                  pkg-cache-dir:String|False,
+                  disable-cache?:True|False) :
   ;============================================================
   ;===================== REPL State ===========================
   ;============================================================
@@ -308,7 +309,7 @@ public defn REPL (macro-plugins:Tuple<String>,
   defn proj-manager () :
     within log-time(REPL-PROJ-MANAGER) :
       val proj = read-proj-files(proj-files, OUTPUT-PLATFORM, `dynamic, StandardProjEnv())
-      val params = ProjParams(compiler-flags, false, false, true)
+      val params = ProjParams(compiler-flags, false, false, true, disable-cache?)
       ProjManager(proj, params, auxfile)
 
   add-all(proj-files, default-proj-files())
@@ -1006,8 +1007,9 @@ defn run-script (repl:REPL, s:String) :
 public defn repl (args:Tuple<String>,
                   style:TerminalStyle,
                   macro-plugins:Tuple<String>,
-                  pkg-cache-dir:String|False) :
-  val repl = REPL(macro-plugins, pkg-cache-dir)
+                  pkg-cache-dir:String|False,
+                  disable-cache?:True|False) :
+  val repl = REPL(macro-plugins, pkg-cache-dir, disable-cache?)
 
   ;Create a LoadExp expression out of the command line
   ;arguments. And execute them in the REPL.
@@ -1052,11 +1054,11 @@ public defn repl (args:Tuple<String>,
 ;Default pkg-cache-dir is false.
 
 public defn repl (style:TerminalStyle) :
-  repl([], style, [], false)
+  repl([], style, [], false, false)
 public defn repl (args:Tuple<String>) :
-  repl(args, default-terminal-style(), [], false)
+  repl(args, default-terminal-style(), [], false, false)
 public defn repl () :
-  repl([], default-terminal-style(), [], false)
+  repl([], default-terminal-style(), [], false, false)
 
 ;============================================================
 ;==================== Run Immediately =======================
@@ -1066,9 +1068,10 @@ public defn repl () :
 ;machine. Implements the 'stanza run' command.
 public defn run-in-repl (args:Tuple<String>,
                          macro-plugins:Tuple<String>,
-                         pkg-cache-dir:String|False) :
+                         pkg-cache-dir:String|False,
+                         disable-cache?:True|False) :
   val repl = within log-time(REPL-CREATION) :
-    REPL(macro-plugins, pkg-cache-dir)
+    REPL(macro-plugins, pkg-cache-dir, disable-cache?)
   try:
     within log-time(REPL-EXP-EVALUATION) :
       eval-exp(repl, make-load-exp(args, false))
