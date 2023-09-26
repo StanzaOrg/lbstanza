@@ -61,6 +61,9 @@ doc: "A single function argument."
 public defstruct FnArgAnnotation <: Equalable :
   name?:Symbol|False
   type?:Symbol|False
+  keyword?:True|False
+  variadic?:True|False
+  optional?:True|False
 
 doc: "An imported package and its prefixes."
 public defstruct PackageImport : 
@@ -97,7 +100,10 @@ defmethod equal? (l:DefnAnnotation, r:DefnAnnotation) :
 
 defmethod equal? (l:FnArgAnnotation, r:FnArgAnnotation) : 
   name?(l) == name?(r) and 
-  type?(l) == type?(r)
+  type?(l) == type?(r) and
+  keyword?(l) == keyword?(r) and
+  variadic?(l) == variadic?(r) and
+  optional?(l) == optional?(r)
 
 ;===============================================================================
 ;============================== Printers =======================================
@@ -133,11 +139,23 @@ defmethod print (o:OutputStream, a:FnArgAnnotation) :
     (n:False,  t:Symbol) : print(o, "_:%_" % [t])
     (n:Symbol, t:Symbol) : print(o, "%_:%_" % [n, t])
     (n:False,  t:False)  : print(o, "?")
-  
+  if optional?(a):
+    print(o, " = ?")
+  if variadic?(a):
+    print(o, " ...")
+
 defmethod print (o:OutputStream, f:DefnAnnotation) : 
   if not empty?(targs(f)) : 
     print(o, "<%,>" % [targs(f)])
-  print(o, "(%,)" % [args(f)])
+  ; Split on keyword/non-keyword
+  val grps = map(to-tuple, split(keyword?, args(f)))
+  val kwArgs = grps[0]
+  val posArgs = grps[1]
+  print(o, "(%," % [posArgs])
+  if length(kwArgs) > 0:
+    print(o, " -- %,)" % [kwArgs])
+  else:
+    print(o, ")")
   val return-type? = return-type?(f)
   match(return-type?:Symbol) : 
     print(o, " -> %_" % [return-type?])
