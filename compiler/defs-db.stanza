@@ -310,7 +310,7 @@ defn variadic? (arg:FArg<DType>) -> True|False :
   else: false
 
 ;Return true if 'arg' represents an optional argument.
-defn optional? (arg:FArg<DType>) -> True|False :
+defn optional-arg? (arg:FArg<DType>) -> True|False :
   match(arg):
     (arg:KeywordArg<DType>): optional?(arg)
     (arg:PositionalArg<DType>): optional?(arg)
@@ -360,7 +360,7 @@ defn annotate? (export:Export, nm:NameMap) -> False|DefinitionAnnotation :
               to-symbol("_%_" % [n]), stringify?(arg-type, nm),
               keyword?(arg-type),
               variadic?(arg-type),
-              optional?(arg-type))
+              optional-arg?(arg-type))
     (r:?) :
       false
 
