@@ -90,6 +90,9 @@ defserializer DefsDbSerializer () :
   deftype fn-arg-annotation (FnArgAnnotation) : 
     name?:opt(symbol)
     type?:opt(symbol)
+    keyword?:bool
+    variadic?:bool
+    optional?:bool
   
   defunion annotation (DefinitionAnnotation) : 
     DefnAnnotation : 

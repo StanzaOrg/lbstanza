@@ -277,6 +277,46 @@ protected-when(TESTING) defn index-expressions (exps:List<IExp>, nm:NameMap) -> 
     loop(exps, Private, false)
 
 ;------------------------------------------------------------
+;------------------- Helpers for IL-IR ----------------------
+;------------------------------------------------------------
+
+;Return true if 'arg' represents a keyword argument.
+defn keyword? (arg:IExp) -> True|False :
+  match(arg:IKeyword|IOptionalKeyword): true
+  else: false
+
+;Return true if 'arg' represents an optional argument.
+defn optional? (arg:IExp) -> True|False :
+  match(arg:IOptional|IOptionalKeyword): true
+  else: false
+
+;Return true if 'arg' represents a variadic argument.
+defn variadic? (arg:IExp) -> True|False :
+  match(arg:IRest): true
+  else: false
+
+;------------------------------------------------------------
+;----------------- Helpers for DL-IR ------------------------
+;------------------------------------------------------------
+
+;Return true if 'arg' represents a keyword argument.
+defn keyword? (arg:FArg<DType>) -> True|False :
+  match(arg:KeywordArg<DType>): true
+  else: false
+
+;Return true if 'arg' represents a variadic argument.
+defn variadic? (arg:FArg<DType>) -> True|False :
+  match(arg:VarArg<DType>): true
+  else: false
+
+;Return true if 'arg' represents an optional argument.
+defn optional? (arg:FArg<DType>) -> True|False :
+  match(arg):
+    (arg:KeywordArg<DType>): optional?(arg)
+    (arg:PositionalArg<DType>): optional?(arg)
+    (_): false
+
+;------------------------------------------------------------
 ;------------- Computing Definition Annotations -------------
 ;------------------------------------------------------------
 
@@ -291,9 +331,13 @@ defn annotate? (iexp:IExp, nm:NameMap) -> False|DefinitionAnnotation :
             stringify?(arg, nm) as Symbol
         val args = to-tuple $
           for (arg in args(idefn), type in a1(idefn)) seq :
-            val arg-name = stringify?(arg, nm)
             val type-name = stringify?(type, nm)
-            FnArgAnnotation(arg-name, type-name)
+            val arg-name = stringify?(arg, nm)
+            FnArgAnnotation(
+              arg-name, type-name,
+              keyword?(arg),
+              variadic?(arg),
+              optional?(arg))
     (iexp) :
       false
 
@@ -311,8 +355,12 @@ defn annotate? (export:Export, nm:NameMap) -> False|DefinitionAnnotation :
             else :
               to-symbol("?TV%_" % [n])
         val args = to-tuple $
-          for (arg-type in a1(id(rec) as FnId), n in 0 to false) seq :
-            FnArgAnnotation(to-symbol("_%_" % [n]), stringify?(arg-type, nm))
+          for (arg-type in a1(fnid), n in 0 to false) seq :
+            FnArgAnnotation(
+              to-symbol("_%_" % [n]), stringify?(arg-type, nm),
+              keyword?(arg-type),
+              variadic?(arg-type),
+              optional?(arg-type))
     (r:?) :
       false
 
