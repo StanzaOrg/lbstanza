@@ -61,7 +61,7 @@ public defn callc-records (a1:Tuple<ArgType>, a2:ArgType, backend:Backend) -> Ca
   ;Track registers
   val reg-counter = to-seq(0 to length(callc-regs(backend)))
   val freg-counter = to-seq(0 to length(callc-fregs(backend)))
-  val mem-counter = to-seq(0 to false)
+  val mem-counter = to-peek-seq(0 to false)
   defn next-reg () :
     val index = next(reg-counter)
     val id = callc-regs(backend)[index]

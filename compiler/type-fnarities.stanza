@@ -44,12 +44,12 @@ public defn vararg-name? (a:FnArities) -> Symbol|False :
 ;Compute the arities of a function given the
 ;number of targs and the argument specifiers.
 public defn arities (tarity:Int, args:Tuple<FArg>) -> FnArities :
-  val num-required = to-seq(0 to false)
-  val num-optional = to-seq(0 to false)
+  val num-required = to-peek-seq(0 to false)
+  val num-optional = to-peek-seq(0 to false)
   val positional = Vector<PositionalArg<Int>>()
   val keywords = HashTable<Symbol,KeywordArg<Int>>()
   var vararg:VarArg<Int>|RestArg<Int>|False = false
-  val num-required-keywords = to-seq(0 to false)
+  val num-required-keywords = to-peek-seq(0 to false)
 
   for (arg in args, index in 0 to false) do :
     match(arg) :
@@ -120,7 +120,7 @@ public defn satisfies-arity? (arities:FnArities,
     if num-required-keywords(arities) == 0 and empty?(keywords) :
       true
     else :
-      val num-required-provided = to-seq(0 to false)
+      val num-required-provided = to-peek-seq(0 to false)
       val good-keywords? = for name in keywords all? :
         if key?(/keywords(arities), name) :
           val optional? = optional?(/keywords(arities)[name])
