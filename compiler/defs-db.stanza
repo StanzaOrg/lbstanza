@@ -95,7 +95,7 @@ protected-when(TESTING) defn analyze-input (input:DefsDbInput) -> DependencyResu
     false,                                  ;external dependencies
     false,                                  ;pkg-dir
     false,                                  ;pkg-cache-dir
-    false,                                  ;disable-cache?
+    true,                                   ;disable-cache?
     optimize?(input),                       ;optimize?
     false,                                  ;debug?
     [],                                     ;ccfiles
@@ -105,7 +105,7 @@ protected-when(TESTING) defn analyze-input (input:DefsDbInput) -> DependencyResu
     false)                                  ;link-type
 
   ;Compute dependencies (compiles to IL-IR)
-  dependencies(build-settings, true)
+  dependencies(build-settings)
 
 ;============================================================
 ;============= Building the Database ========================

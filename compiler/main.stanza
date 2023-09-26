@@ -967,10 +967,9 @@ defn analyze-dependencies-command () :
   between packages."
   defn analyze-dependencies-action (cmd-args:CommandArgs) :
     defn main () :
-      val disable-cache? = flag?(cmd-args, "disable-cache")
       val output = get?(cmd-args, "o", false)
       val graphviz = get?(cmd-args, "graphviz", false)
-      analyze-dependencies(build-settings(), disable-cache?, output, graphviz)
+      analyze-dependencies(build-settings(), output, graphviz)
 
     defn build-settings () :
       defn symbol? (name:String) :
@@ -991,7 +990,7 @@ defn analyze-dependencies-command () :
         false
         pkg-dir
         false
-        false
+        flag?(cmd-args, "disable-cache")
         flag?(cmd-args, "optimize")
         false
         []
