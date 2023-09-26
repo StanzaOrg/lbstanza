@@ -386,7 +386,7 @@ defn eat-escaped-chars (s:ParseStream, buf:StringBuffer) -> String|False :
 ;============================================================
 
 ;Tokenize tokens within a ParseStream into a sequence of tokens.
-defn tokenize (s:ParseStream) -> Seq<Token> :
+defn tokenize (s:ParseStream) -> PeekSeq<Token> :
   match(s) :
     (s:StringInputStream) : tokenize-string-input-stream(s)
     (s) : tokenize-general(s)
@@ -396,7 +396,7 @@ defn tokenize (s:ParseStream) -> Seq<Token> :
 #for (tokenize-specialize in [tokenize-string-input-stream, tokenize-general]
       SpecializedParseStream in [StringInputStream, ParseStream]) :
       
-  defn tokenize-specialize (s:SpecializedParseStream) -> Seq<Token> :
+  defn tokenize-specialize (s:SpecializedParseStream) -> PeekSeq<Token> :
     ;Generate tokens
     generate<Token> :
       ;Eat until next non-ignored character.
@@ -719,7 +719,7 @@ with:
 
 defstruct StackBottom <: StackCtxt
 
-defn convert-indentations-to-structural-tokens (tokens:Seq<Token>) -> Seq<Token> :
+defn convert-indentations-to-structural-tokens (tokens:PeekSeq<Token>) -> PeekSeq<Token> :
   generate<Token> :
     ;Initialize stack
     val stack = Vector<Token>()
@@ -898,7 +898,7 @@ defmulti parse-optimistic (p:Parser) -> List<Token>
 defmulti parse-list (p:Parser) -> List<Token>
 defmulti parse-1 (p:Parser) -> False|Token
 
-defn Parser (s:Seq<Token>) -> Parser :
+defn Parser (s:PeekSeq<Token>) -> Parser :
   ;Create shorthands
   defn shorthand (t:Token, v:List<Token>) :
     val item = item(t) as OpenToken
