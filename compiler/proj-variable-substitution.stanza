@@ -98,10 +98,10 @@ defn sub-vars (f:Symbol -> ProjValue|False,
                stmt:ProjStmt,
                proj-file-id:Int,
                errors:Vector<ProjFileError>) -> ProjStmt :
-  ;Sanity check.             
+  ;Sanity check.
   if stmt is IncludedStmtsS0 :
     fatal("Illegal input.")
-  ;Perform substitution within item.              
+  ;Perform substitution within item.
   defn subvalue (v:ProjItem) -> ProjItem :
     sub-vars(f, v as ProjValue, proj-file-id, errors) as ProjValue
   map(subvalue, stmt) as ProjStmt
@@ -165,13 +165,13 @@ defn sub-vars (f:Symbol -> ProjValue|False,
       ;Lookup the replacement value for the given variable.
       (v:VarValue) :
         lookup-var(info(v), name(v))
-        
+
       ;Replace the curlies in the strings within AtomValue.
       (v:AtomValue) :
         match(value(v)) :
           (value:String) : sub-vars-in-string(info(v), value)
           (value:Symbol) : v
-            
+
       ;Call sub-curly recursively.
       (v) :
         val result = map(sub-vars{_ as ProjValue}, v)
@@ -179,7 +179,7 @@ defn sub-vars (f:Symbol -> ProjValue|False,
 
   ;Launch!
   sub-vars(v)
-      
+
 
 ;============================================================
 ;================= Curly Substitution Utility ===============
@@ -205,36 +205,39 @@ defn sub-curly (f:String -> ProjValue,
 
     ;Iterate through the curlies
     let loop (start:Int = 0) :
-      ;Determine curly bounds
-      val [i, j]:[Int|False, Int|False] = let :
-        val i = index-of-char(s, start to false, '{')
-        match(i:Int) :
-          [i, index-of-char(s, (i + 1) to false, '}')]
-        else : [i, false]
-        
-      ;Case: A curly was found.
-      match(i:Int, j:Int) :
-        ;Add string up to curly
-        if start < i :
-          add(buffer, AtomValue(info, s[start to i]))
+
+      match(curly-bounds(s, start)) :
+        ;Case: A curly was found.
+        (c:PairedCurlies) :
+          ;Add string up to curly
+          if start < /start(c) :
+            add(buffer, AtomValue(info, s[start to /start(c)]))
+
+          ;Add replacement
+          val variable = s[(/start(c) + 1) through (end(c) - 1)]
+          val replacement = f(variable)
+          match(check-valid-substitution(replacement)) :
+            (illegal-type:String) :
+              add(errors, IllegalSubstitution(info, variable, illegal-type))
+            (f:False) :
+              add(buffer, replacement)
+
+          ;Continue past } char
+          loop(end(c) + 1)
+
+        ;Case: An escaped brace was found.
+        (b:EscapedBrace) :
+          ;Add string up to first { char.
+          add(buffer, AtomValue(info, s[start through index(b)]))
           
-        ;Add replacement
-        val variable = s[(i + 1) through (j - 1)]
-        val replacement = f(variable)
-        match(check-valid-substitution(replacement)) :
-          (illegal-type:String) :
-            add(errors, IllegalSubstitution(info, variable, illegal-type))
-          (f:False) : 
-            add(buffer, replacement)
-        
-        ;Continue past } char
-        loop(j + 1)
-        
-      ;Case: No curlies remaining.
-      else :
-        ;End of string, add the rest
-        if start < length(s) :
-          add(buffer, AtomValue(info, s[start to false]))
+          ;Continue past second { char.
+          loop(index(b) + 2)
+
+        ;Case: No curlies remaining.
+        (f:False) :
+          ;End of string, add the rest
+          if start < length(s) :
+            add(buffer, AtomValue(info, s[start to false]))
 
     ;Return spliced string
     SplicedString(info, to-tuple(buffer))
@@ -250,4 +253,45 @@ defn check-valid-substitution (v:ProjValue) -> String|False :
     (v:ProjTableS0) : "table"
     (v:CondPlatform) : find-by<String>(seq(check-valid-substitution{value(_)}, values(v)))
     (v:CondLink) : find-by<String>(seq(check-valid-substitution{value(_)}, values(v)))
-      
+
+;============================================================
+;================ Look for Curly Bounds =====================
+;============================================================
+
+;Represents a {...} pairing.
+defstruct PairedCurlies :
+  start:Int
+  end:Int
+
+;Represents an escaped brace: {{.
+defstruct EscapedBrace :
+  index:Int
+
+;Helper: Determine the indices of the matched '{' and '}' characters
+;in the string starting from index 'start'. For escape purposes:
+;the character following the '{' cannot be another '{', thus
+;{{my var}} does not count as matched braces.
+defn* curly-bounds (s:String, start:Int) -> PairedCurlies|EscapedBrace|False :
+  val i = index-of-char(s, start to false, '{')
+  ;Case: Found an opening '{' in string.
+  match(i:Int) :
+    val j = index-of-char(s, (i + 1) to false, '}')
+    ;Case: Found an ending '}' in string.
+    match(j:Int) :
+      ;Case: '{' immediately followed by another '{'.
+      if get?(s, i + 1) == '{' :
+        EscapedBrace(i)
+      ;Case: Found '{' and '}' pairing.
+      else :
+        PairedCurlies(i, j)
+    ;Case: No ending '}' remaining.
+    else :
+      false
+  ;Case: No opening '{' remaining.
+  else :
+    false
+
+;Helper: Return the character at the i'th position in 's', or
+;false if it is past the bounds of the string.
+defn get? (s:String, i:Int) -> Char|False :
+  s[i] when i < length(s)
