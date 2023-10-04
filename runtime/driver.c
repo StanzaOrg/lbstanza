@@ -10,6 +10,7 @@
   #include<sys/wait.h>
   #include<sys/mman.h>
 #endif
+#include<spawn.h>
 #include<stdint.h>
 #include<stdbool.h>
 #include<unistd.h>
@@ -869,72 +870,93 @@ static void launcher_main (FILE* lin, FILE* lout){
       if(pipe(exec_error) < 0) exit_with_error();
 
       //Fork a new child
-      stz_long pid = (stz_long)fork();
-      if(pid < 0) exit_with_error();
+      //stz_long pid = (stz_long)fork();
+      // Setup
+      posix_spawnattr_t attr;
+      posix_spawn_file_actions_t actions;
+      posix_spawnattr_init(&attr);
+      posix_spawn_file_actions_init(&actions);
+      // File actions
+      //TODO: handle errors here
+      int inpipe = posix_spawn_file_actions_addopen(&actions, 0, earg->in_pipe, O_RDONLY, 0);
+      int outpipe = posix_spawn_file_actions_addopen(&actions, 1, earg->out_pipe, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+      int errpipe = posix_spawn_file_actions_addopen(&actions, 2, earg->err_pipe, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+      if (earg->working_dir) {
+        int wdir = posix_spawn_file_actions_addchdir_np(&actions, earg->working_dir);
+      }
+      // Spawn child
+      pid_t child_pid; 
+      stz_long pid = (stz_long)posix_spawn(&child_pid, "/path/to/your/executable", &actions, &attr, earg, environ);
+      //if(pid < 0) exit_with_error();
 
-      if(pid > 0){
+      if(pid == 0){
         //Read from error-code pipe
-        int exec_code;
-        close(exec_error[WRITE]);
-        int exec_r = read(exec_error[READ], &exec_code, sizeof(int));
-        close(exec_error[READ]);
-
-        if(exec_r == 0){
-          //Exec evaluated successfully
-          //Return new process id
-          write_long(lout, pid);
-          fflush(lout);
-        }
-        else if(exec_r == sizeof(int)){
-          //Exec evaluated unsuccessfully
-          //Return error code as negative long
-          write_long(lout, (stz_long)-exec_code);
-          fflush(lout);
-        }
-        else{
-          fprintf(stderr, "Unreachable code.");
-          exit(-1);
-        }
+        //int exec_code;
+        //close(exec_error[WRITE]);
+        //int exec_r = read(exec_error[READ], &exec_code, sizeof(int));
+        //close(exec_error[READ]);
+        int exec_r;
+        waitpid(pid, &exec_r, 0);
+        //if(exec_r == 0){
+        //  //Exec evaluated successfully
+        //  //Return new process id
+        //  write_long(lout, pid);
+        //  fflush(lout);
+        //}
+        //else if(exec_r == sizeof(int)){
+        //  //Exec evaluated unsuccessfully
+        //  //Return error code as negative long
+        //  write_long(lout, (stz_long)-exec_code);
+        //  fflush(lout);
+        //}
+        //else{
+        //  fprintf(stderr, "Unreachable code.");
+        //  exit(-1);
+        //}
       }else{
+        exit_with_error();
         //Close exec pipe read, and close write end on successful exec
         close(exec_error[READ]);
         fcntl(exec_error[WRITE], F_SETFD, FD_CLOEXEC);
 
         //Open named pipes
-        if(earg->in_pipe != NULL){
-          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->in_pipe), O_RDONLY);
-          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
-          dup2(fd, 0);
-        }
-        if(earg->out_pipe != NULL){
-          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->out_pipe), O_WRONLY);
-          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
-          dup2(fd, 1);
-        }
-        if(earg->err_pipe != NULL){
-          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->err_pipe), O_WRONLY);
-          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
-          dup2(fd, 2);
-        }
+        //if(earg->in_pipe != NULL){
+        //  int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->in_pipe), O_RDONLY);
+        //  if(fd < 0) write_error_and_exit(exec_error[WRITE]);
+        //  dup2(fd, 0);
+        //}
+        //if(earg->out_pipe != NULL){
+        //  int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->out_pipe), O_WRONLY);
+        //  if(fd < 0) write_error_and_exit(exec_error[WRITE]);
+        //  dup2(fd, 1);
+        //}
+        //if(earg->err_pipe != NULL){
+        //  int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->err_pipe), O_WRONLY);
+        //  if(fd < 0) write_error_and_exit(exec_error[WRITE]);
+        //  dup2(fd, 2);
+        //}
 
         //Set the working directory of the child process if explicitly
         //requested.
-        if (earg->working_dir) {
-          if (chdir(C_CSTR(earg->working_dir)) == -1) {
-            write_error_and_exit(exec_error[WRITE]);
-          }
-        }
+        //if (earg->working_dir) {
+        //  if (chdir(C_CSTR(earg->working_dir)) == -1) {
+        //    write_error_and_exit(exec_error[WRITE]);
+        //  }
+        //}
 
         //Launch child process.
         //If an environment is supplied then call execvpe, otherwise call execvp.
-        if(earg->env_vars == NULL)
-          execvp(C_CSTR(earg->file), (char**)earg->argvs);
-        else
-          execvpe(C_CSTR(earg->file), (char**)earg->argvs, (char**)earg->env_vars);
+        //if(earg->env_vars == NULL)
+        //  execvp(C_CSTR(earg->file), (char**)earg->argvs);
+        //else
+        //  execvpe(C_CSTR(earg->file), (char**)earg->argvs, (char**)earg->env_vars);
 
         //Unsuccessful exec, write error number
         write_error_and_exit(exec_error[WRITE]);
       }
+      // TODO: clean up spawn resources
+      posix_spawn_file_actions_destroy(&actions);
+      posix_spawnattr_destroy(&attr);
     }
     //Interpret state retrieval command
     else if(comm == STATE_COMMAND || comm == WAIT_COMMAND){
@@ -971,17 +993,17 @@ void initialize_launcher_process (){
     stz_long pid = (stz_long)fork();
     if(pid < 0) exit_with_error();
 
-    if(pid > 0){
-      //Parent
-      launcher_pid = pid;
-      close(lin[READ]);
-      close(lout[WRITE]);
-      launcher_in = fdopen(lin[WRITE], "w");
-      if(launcher_in == NULL) exit_with_error();
-      launcher_out = fdopen(lout[READ], "r");
-      if(launcher_out == NULL) exit_with_error();
-    }
-    else{
+    //if(pid > 0){
+    //  //Parent
+    //  launcher_pid = pid;
+    //  close(lin[READ]);
+    //  close(lout[WRITE]);
+    //  launcher_in = fdopen(lin[WRITE], "w");
+    //  if(launcher_in == NULL) exit_with_error();
+    //  launcher_out = fdopen(lout[READ], "r");
+    //  if(launcher_out == NULL) exit_with_error();
+   // }
+   // else{
       //Child
       close(lin[WRITE]);
       close(lout[READ]);
@@ -990,7 +1012,7 @@ void initialize_launcher_process (){
       FILE* fout = fdopen(lout[WRITE], "w");
       if(fout == NULL) exit_with_error();
       launcher_main(fin, fout);
-    }
+   // }
   }
 }
 
