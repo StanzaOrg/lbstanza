@@ -1020,6 +1020,11 @@ defn fill-multi (multis:TMix, soln:SolverState) -> TMix :
   ;ERROR: Multiple multis.
   else if new-sel is SVar or length(pruned-refs) > 1 :
     add-type-error(AmbMulti(result))
+  ;ERROR: Could not capture type variables.
+  else :
+    val func = funcs(pruned-inst as InstFns)[0]
+    if not all?(resolved?, capvars(func)) :
+      add-type-error(BadCapture(result, n(func)))        
 
   result  
 
