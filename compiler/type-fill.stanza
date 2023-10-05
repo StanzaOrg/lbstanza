@@ -378,7 +378,7 @@ defn fill-exp (e:TExp, soln:SolverState, scope:List<Int>) -> TExp :
       val result = TUpCast(info(e), type(e), ctxt(e), new-exp, targ(e))
 
       ;ERROR: BadUpCast
-      if not-subtype?(type!(exp(e)), targ(e)) :
+      if not-subtype?(type!(new-exp), targ(e)) :
         add-type-error(BadUpCast(result))
 
       result
@@ -785,7 +785,7 @@ defn fill-ls-exp (e:LSExp, soln:SolverState, scope:List<Int>) -> LSExp :
         val result = LSCast(info(e), type(e), ctxt(e), new-exp, targ(e))
 
         ;ERROR: Bad cast.
-        if castable?(type!(exp(e)), targ(e), current-hier()) is False :
+        if castable?(type!(new-exp), targ(e), current-hier()) is False :
           add-type-error(BadCast(result))
 
         result
@@ -1020,6 +1020,11 @@ defn fill-multi (multis:TMix, soln:SolverState) -> TMix :
   ;ERROR: Multiple multis.
   else if new-sel is SVar or length(pruned-refs) > 1 :
     add-type-error(AmbMulti(result))
+  ;ERROR: Could not capture type variables.
+  else :
+    val func = funcs(pruned-inst as InstFns)[0]
+    if not all?(resolved?, capvars(func)) :
+      add-type-error(BadCapture(result, n(func)))        
 
   result  
 
