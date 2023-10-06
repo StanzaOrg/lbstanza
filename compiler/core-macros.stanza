@@ -2369,6 +2369,16 @@ defsyntax core :
 
    defrule id != (~ #if-defined | ~ #if-not-defined)
 
+   ;                       #env-var
+   ;                       ========
+   defrule exp4 = (~ #env-var(?name:#id$)) :
+     get-env(to-string(unwrap-token(name)))
+
+   fail-if exp4 = (~ #env-var) :
+      CSE(closest-info(), "Incorrect syntax for #env-var. Example: '#env-var(PATH)'")
+
+   defrule id != (~ #env-var )
+
    ;                      Quasiquote
    ;                      ==========
    defrule exp4 = (qquote(?sexp ...)) :
