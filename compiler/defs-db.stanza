@@ -323,7 +323,7 @@ defn optional-arg? (arg:FArg<DType>) -> True|False :
 ;Create an annotation for a top-level expression.
 defn annotate? (iexp:IExp, nm:NameMap) -> False|DefinitionAnnotation :
   match(iexp) :
-    (idefn:IDefn|IDefmethod|ILSDefn|ILSDefmethod) :
+    (idefn:IDefn|IDefmethod|IDefmulti|ILSDefn|ILSDefmethod) :
       DefnAnnotation(targs, args, return-type?) where :
         val return-type? = stringify?(a2(idefn), nm)
         val targs = to-tuple $

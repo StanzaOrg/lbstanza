@@ -151,7 +151,7 @@ defmethod print (o:OutputStream, f:DefnAnnotation) :
   val grps = map(to-tuple, split(keyword?, args(f)))
   val kwArgs = grps[0]
   val posArgs = grps[1]
-  print(o, "(%," % [posArgs])
+  print(o, " (%," % [posArgs])
   if length(kwArgs) > 0:
     print(o, " -- %,)" % [kwArgs])
   else:
