@@ -51,6 +51,10 @@ doc: "A DefinitionAnnotation is some definition-specific \
       function signatures."
 public deftype DefinitionAnnotation <: Equalable
 
+doc: "Annotations for `var` and `val` definitions"
+public defstruct DefVarAnnotation <: DefinitionAnnotation :
+  mutable?: True|False
+
 doc: "Annotations given to defn objects."
 public defstruct DefnAnnotation <: DefinitionAnnotation :
   targs:Tuple<Symbol>,
