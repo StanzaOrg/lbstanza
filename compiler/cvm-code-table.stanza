@@ -32,17 +32,17 @@ lostanza defmethod instructions (t:ref<CVMCodeTable>) -> ref<Long> :
 
 lostanza defmethod load-function (table:ref<CVMCodeTable>,
                                   fid:ref<Int>,
-                                  func:ref<VMFunction>,
+                                  vm-func:ref<VMFunction>,
                                   externfn?:ref<True|False>,
                                   resolver:ref<EncodingResolver>,
                                   backend:ref<Backend>) -> ref<LoadedFunction> :
   ;Encode the function using the CVM encoder.
-  val encoded-function = encode(func, resolver, backend)
+  val encoded-function = encode(vm-func, resolver, backend)
 
   ;Load the bytecode into the bytecode vector.
-  val num-bytes = length(buffer(encoded-function))
+  val num-bytes = length(byte-buffer!(encoded-function))
   val offset = alloc(table.bytecode, num-bytes.value)
-  call-c clib/memcpy(table.bytecode.mem + offset, data(buffer(encoded-function)), num-bytes.value)
+  call-c clib/memcpy(table.bytecode.mem + offset, data(byte-buffer!(encoded-function)), num-bytes.value)
 
   ;Add the offset to the trace entries so that we know their absolute position.
   val relocated-trace-entries = add-offset(trace-entries(encoded-function), new Long{offset})

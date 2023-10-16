@@ -13,7 +13,12 @@ defpackage stz/branch-table :
   import stz/set-utils
   import stz/conversion-utils
   import stz/timing-log-api
-
+  import stz/asmjit
+  import stz/jit-encoder
+  import stz/code-table
+  import clib
+  import stz/backend
+  
 ;============================================================
 ;=================== Public Interface =======================
 ;============================================================
@@ -21,7 +26,9 @@ public deftype BranchTable
 public defmulti add (t:BranchTable, f:BranchFormat) -> Int
 public defmulti get (t:BranchTable, f:Int) -> BranchFormat
 public defmulti load-package-methods (t:BranchTable, package:Symbol, ms:Seqable<VMMethod>) -> False
-public defmulti update (t:BranchTable) -> False
+public defmulti update (t:BranchTable, resolver:EncodingResolver) -> False
+public defmulti dispatchers (t:BranchTable) -> FuncBuffer
+public defmulti runtime (t:BranchTable) -> False|JitRuntime
 
 ;============================================================
 ;======================== Timers ============================
@@ -95,18 +102,26 @@ defmethod equal? (a:MultiFormat, b:MultiFormat) :
 ;================= Table Implementation =====================
 ;============================================================
 
-public defn BranchTable (ct:ClassTable) :
+deftype BranchEntries
+defmulti remove (entries:BranchEntries, i:Int) -> False
+defmulti compute (entries:BranchEntries, ct:ClassTable, , resolver:EncodingResolver, backend:Backend, i:Int, f:BranchFormat) -> False
+defmulti key? (entries:BranchEntries, i:Int) -> True|False
+
+public defn BranchTable (ct:ClassTable, jit?:True|False, backend:Backend) :
   ;==================================================
   ;=============== State of Table ===================
   ;==================================================
   ;Store formats in ctable
+  val rt = jit-runtime-new()
+  val func-entries = FuncBranchEntries(FuncBuffer(rt, 8), rt)
+  val trie-entries = TrieBranchEntries(PtrBuffer(8))
+  val entries = func-entries when jit? else trie-entries
   val formats = Vector<BranchFormat>()
   val format-table = HashTable<BranchFormat,Int>()
   val methods = Vector<LoadedMethod|False>()
 
   ;All compiled tables corresponding to each format
-  val trie-table = PtrBuffer(8)
-  val stale-trie-tables = Vector<Int>()
+  val stale-entries = Vector<Int>()
 
   ;Format dependencies
   val format-class-dependencies = DynBiTable()
@@ -115,35 +130,35 @@ public defn BranchTable (ct:ClassTable) :
   val method-multi-table = DynBiTable() ;Mapping from method to multis
 
   ;==================================================
-  ;============= Trie Table Invalidation ============
+  ;================ Entry Invalidation ==============
   ;==================================================
   ;Record a table as invalidated, so that it is updated next cycle.
-  defn invalidate-table (i:Int) :
-    remove(trie-table, i)
-    add(stale-trie-tables, i)
+  defn invalidate-entry (i:Int) :
+    remove(entries, i)
+    add(stale-entries, i)
 
-  defn invalidate-tables-of-multi (multi:Int) :
-    do(invalidate-table, multi-formats[multi])
+  defn invalidate-entries-of-multi (multi:Int) :
+    do(invalidate-entry, multi-formats[multi])
 
-  defn update-trie-table () :
-    while not empty?(stale-trie-tables) :
-      val i = pop(stale-trie-tables)
-      compute-trie-table(i) when not key?(trie-table, i)
-    ensure-no-stale-tables!()
+  defn update-entry (resolver:EncodingResolver) :
+    while not empty?(stale-entries) :
+      val i = pop(stale-entries)
+      compute-entry(i, resolver) when not key?(entries, i)
+    ensure-no-stale-entries!()
 
-  defn ensure-no-stale-tables! () :
+  defn ensure-no-stale-entries! () :
     #if-not-defined(OPTIMIZE) :
       for i in 0 to length(formats) do :
-        if not key?(trie-table, i) :
-          fatal("Trie table %_ is stale." % [i])
+        if not key?(entries, i) :
+          fatal("Branch Table %_ is stale." % [i])
     false
 
   ;==================================================
-  ;========== Computing the Trie Table ==============
+  ;============= Computing the Entry ================
   ;==================================================
-  defn compute-trie-table (i:Int) :
+  defn compute-entry (i:Int, resolver:EncodingResolver) :
     val f* = resolve-format(formats[i])
-    compute-trie-table-entry(trie-table, ct, i, f*)
+    compute(entries, ct, resolver, backend, i, f*)
 
   defn resolve-format (f:BranchFormat) :
     match(f:MultiFormat) : ResolvedMultiFormat(num-header-args(f), methods-of-multi(multi(f)))
@@ -159,7 +174,7 @@ public defn BranchTable (ct:ClassTable) :
     format-table[bf] = i
     match(bf:MultiFormat) :
       add(multi-formats, multi(bf), i)
-    invalidate-table(i)
+    invalidate-entry(i)
     i
 
   ;==================================================
@@ -169,12 +184,12 @@ public defn BranchTable (ct:ClassTable) :
     add(methods, LoadedMethod(multi(m), types(m), fid(m), package-name, instance?(m)))
     val id = length(methods) - 1
     method-class-dependencies[id] = class-dependencies(m)
-    invalidate-tables-of-multi(multi(m))
+    invalidate-entries-of-multi(multi(m))
     method-multi-table[id] = [multi(m)]
 
   defn remove-method (i:Int) :
     val m = methods[i] as LoadedMethod
-    invalidate-tables-of-multi(multi(m))
+    invalidate-entries-of-multi(multi(m))
     method-class-dependencies[i] = []
     methods[i] = false
     method-multi-table[i] = []
@@ -211,8 +226,8 @@ public defn BranchTable (ct:ClassTable) :
     ;class tree changes.
     new TreeListener :
       defmethod node-changed (this, c:Int) :
-        do(invalidate-table, formats-dependent-on-class(c))
-        do(invalidate-tables-of-multi, multis-dependent-on-class(c))
+        do(invalidate-entry, formats-dependent-on-class(c))
+        do(invalidate-entries-of-multi, multis-dependent-on-class(c))
   add(ct, class-change-listener())
 
   ;==================================================
@@ -225,31 +240,17 @@ public defn BranchTable (ct:ClassTable) :
       match(get?(format-table, f)) :
         (i:Int) : i
         (_:False) : add-format(f)
-    defmethod update (this) :
-      update-trie-table()
-    defmethod trie-table (this) :
-      trie-table
+    defmethod update (this, resolver:EncodingResolver) :
+      update-entry(resolver)
     defmethod load-package-methods (this, package:Symbol, ms:Seqable<VMMethod>) :
       load-package-methods(package, ms)
-
-;==================================================
-;============ Retrieve Trie Table Data ============
-;==================================================
-defmulti trie-table (bt:BranchTable) -> PtrBuffer
-public lostanza defn trie-table-data (bt:ref<BranchTable>) -> ptr<ptr<int>> :
-  return trie-table(bt).data
-
-;==================================================
-;============ Compute a Trie Table Entry ==========
-;==================================================
-lostanza defn compute-trie-table-entry (trie-table:ref<PtrBuffer>,
-                                        class-table:ref<ClassTable>,
-                                        i:ref<Int>,
-                                        f:ref<BranchFormat>) -> ref<False> :
-  val p = to-trie-table(class-table, f)
-  set(trie-table, i.value, p)
-  return false
-
+    defmethod trie-table (this) :
+      trie-table(trie-entries)
+    defmethod dispatchers (this) :
+      dispatchers(func-entries)
+    defmethod runtime (this) :
+      rt
+    
 ;============================================================
 ;==================== Utilities =============================
 ;============================================================
@@ -291,6 +292,158 @@ defn multi-dependencies (f:BranchFormat) :
     (f:MultiFormat) : [multi(f)]
     (f:DispatchFormat|MatchFormat) : []
 
+
+;**************************************************
+;************** TRIE TABLE BACKEND ****************
+;**************************************************
+
+;==================================================
+;============ Retrieve Trie Table Data ============
+;==================================================
+defmulti trie-table (bt:BranchTable) -> PtrBuffer
+public lostanza defn trie-table-data (bt:ref<BranchTable>) -> ptr<ptr<int>> :
+  return trie-table(bt).data
+public lostanza defn dispatchers-data (bt:ref<BranchTable>) -> ptr<long> :
+  return dispatchers(bt).data as ptr<long>
+
+;==================================================
+;============ Compute a Trie Table Entry ==========
+;==================================================
+lostanza defn compute-trie-table-entry (trie-table:ref<PtrBuffer>,
+                                        class-table:ref<ClassTable>,
+                                        i:ref<Int>,
+                                        f:ref<BranchFormat>) -> ref<False> :
+  val p = to-trie-table(class-table, f)
+  set(trie-table, i.value, p)
+  return false
+
+;Conversion of a Vector<int> into a ptr<int>
+lostanza defn to-int-ptr (xs:ref<Vector<Int>>) -> ptr<int> :
+  val n = length(xs).value
+  val p:ptr<int> = call-c clib/malloc(n * sizeof(int))
+  for (var i:int = 0, i < n, i = i + 1) :
+    p[i] = get(xs, new Int{i}).value
+  return p
+
+;Conversion of a BranchFormat into a ptr<int>
+lostanza defn to-trie-table (ct:ref<ClassTable>, f:ref<BranchFormat>) -> ptr<int> :
+  val ints = encode-branch-format(ct, f)
+  return to-int-ptr(ints)
+
+;==================================================
+;================ Compute Dispatcher ==============
+;==================================================
+lostanza defn compute-func-entry (rt:ref<JitRuntime>,
+                                        resolver:ref<EncodingResolver>,
+                                        backend:ref<Backend>,
+                                        dispatchers:ref<FuncBuffer>,
+                                        class-table:ref<ClassTable>,
+                                        i:ref<Int>,
+                                        f:ref<BranchFormat>) -> ref<False> :
+  val d = to-func(rt, resolver, backend, class-table, f, i)
+  set(dispatchers, i.value, d.value)
+  return false
+
+;Conversion of a BranchFormat into dispatcher Code
+lostanza defn to-func (rt:ref<JitRuntime>, resolver:ref<EncodingResolver>, backend:ref<Backend>, ct:ref<ClassTable>, f:ref<BranchFormat>, idx:ref<Int>) -> ref<Func> :
+  val code = jit-branch-format(rt, resolver, backend, ct, f, idx)
+  return code
+
+;<doc>=======================================================
+;================ Encoding of Branch Formats ================
+;============================================================
+
+# Conversion of a Typeset into an Arg #
+
+Input:
+  ct:ClassTable
+  t:TypeSet
+Output:
+  arg:Arg
+
+# Conversion of a BranchFormat into an encoded Vector<Int> #
+
+Input:
+  ct:ClassTable
+  f:BranchFormat
+Output:
+  table:Vector<Int>
+
+# Conversion of a Vector<int> into a ptr<int> #
+
+Input:
+  xs:Vector<Int>
+Output:
+  ys:ptr<int>
+
+# Conversion of a BranchFormat into a ptr<int> #
+
+Input:
+  ct:ref<ClassTable>
+  f:ref<BranchFormat>
+Output:
+  table:ptr<int>
+
+;============================================================
+;=======================================================<doc>
+
+;Encoding a sequence of TypeSets into a dispatch branch
+defn make-branch-table (ct:ClassTable, branches:Seqable<Seqable<TypeSet>>) :
+  within log-time(MAKE-BRANCH-TABLE) :
+    DagBranchTable(
+      to-branches(branches, set-representation{ct, _}),
+      abstract-classes(ct))
+
+;Convert a BranchFormat to a tuple of IBranch
+defn encode-branch-format (ct:ClassTable, f:BranchFormat) -> Vector<Int> :
+  match(f) :
+    (f:MatchFormat) :
+      val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
+        val branch-table = make-branch-table(ct, branches(f))
+        compute-dispatch-dag(branch-table, false)
+      defn soln-id (s:Soln) :
+        match(s) :
+          (s:NoSoln) : 0
+          (s:UniqueSoln) : index(s) + 1
+      encode-dag(dag, 0, soln-id)
+    (f:DispatchFormat) :
+      val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
+        val branch-table = make-branch-table(ct, branches(f))
+        compute-dispatch-dag(branch-table, true)      
+      defn soln-id (s:Soln) :
+        match(s) :
+          (s:NoSoln) : 0
+          (s:AmbSoln) : 1
+          (s:UniqueSoln) : index(s) + 2
+      encode-dag(dag, 0, soln-id)
+    (f:ResolvedMultiFormat) :
+      val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
+        val branch-table = make-branch-table(ct, seq(types,methods(f)))
+        compute-dispatch-dag(branch-table, true)
+      defn soln-id (s:Soln) :
+        match(s) :
+          (s:NoSoln) : 0
+          (s:AmbSoln) : 1
+          (s:UniqueSoln) : fid(methods(f)[index(s)]) + 2
+      encode-dag(dag, num-header-args(f), soln-id)
+
+;============================================================
+;============== TrieBranchEntries Datastructure =============
+;============================================================
+
+defstruct TrieBranchEntries <: BranchEntries :
+  trie-table : PtrBuffer
+
+defmethod remove (entries:TrieBranchEntries, i:Int) :
+  remove(trie-table(entries), i)
+  false
+
+defmethod compute (entries:TrieBranchEntries, ct:ClassTable, resolver:EncodingResolver, backend:Backend, i:Int, f:BranchFormat) :
+  compute-trie-table-entry(trie-table(entries), ct, i, f)
+
+defmethod key? (entries:TrieBranchEntries, i:Int) :
+  key?(trie-table(entries), i)
+  
 ;<doc>=======================================================
 ;================== PtrBuffer Datastructure =================
 ;============================================================
@@ -390,93 +543,158 @@ lostanza defn remove (b:ref<PtrBuffer>, i:ref<Int>) -> ref<True|False> :
   else :
     return false
 
-;<doc>=======================================================
-;================ Encoding of Branch Formats ================
+;**************************************************
+;************ DISPATCH TABLE BACKEND **************
+;**************************************************
+
+;============================================================
+;============ DispatchBranchEntries Datastructure ===========
 ;============================================================
 
-# Conversion of a Typeset into an Arg #
+defstruct FuncBranchEntries <: BranchEntries :
+  dispatchers : FuncBuffer
+  rt : JitRuntime
+
+defmethod remove (entries:FuncBranchEntries, i:Int) :
+  remove(dispatchers(entries), i)
+  false
+
+defmethod compute (entries:FuncBranchEntries, ct:ClassTable, resolver:EncodingResolver, backend:Backend, i:Int, f:BranchFormat) :
+  compute-func-entry(rt(entries), resolver, backend, dispatchers(entries), ct, i, f)
+
+defmethod key? (entries:FuncBranchEntries, i:Int) :
+  key?(dispatchers(entries), i)
+  
+;<doc>=======================================================
+;================= FuncBuffer Datastructure =================
+;============================================================
+
+# Creation of FuncBuffer #
 
 Input:
-  ct:ClassTable
-  t:TypeSet
+  n:ref<Int>
 Output:
-  arg:Arg
+  buffer:ref<FuncBuffer>
 
-# Conversion of a BranchFormat into an encoded Vector<Int> #
+# Store new pointer into FuncBuffer #
 
 Input:
-  ct:ClassTable
-  f:BranchFormat
-Output:
-  table:Vector<Int>
+  b:ref<FuncBuffer>
+  i:int
+  p:ptr<?>
 
-# Conversion of a Vector<int> into a ptr<int> #
+# Retrieve the data pointer of ref<FuncBuffer> #
 
-Input:
-  xs:Vector<Int>
-Output:
-  ys:ptr<int>
+  p.data
 
-# Conversion of a BranchFormat into a ptr<int> #
+# Check whether key i exists in FuncBuffer #
 
 Input:
-  ct:ref<ClassTable>
-  f:ref<BranchFormat>
+  b:ref<FuncBuffer>
+  i:ref<Int>
 Output:
-  table:ptr<int>
+  exists?:ref<True|False>
+
+# Remove an entry i from FuncBuffer #
+
+Input:
+  b:ref<FuncBuffer>
+  i:ref<Int>
+Output:
+  removed?:ref<True|False>
 
 ;============================================================
 ;=======================================================<doc>
 
-;Encoding a sequence of TypeSets into a dispatch branch
-defn make-branch-table (ct:ClassTable, branches:Seqable<Seqable<TypeSet>>) :
-  within log-time(MAKE-BRANCH-TABLE) :
-    DagBranchTable(
-      to-branches(branches, set-representation{ct, _}),
-      abstract-classes(ct))
+public lostanza deftype FuncBuffer :
+  rt : ref<JitRuntime>
+  var length: int
+  var data: ptr<ptr<?>>
 
-;Convert a BranchFormat to a tuple of IBranch
-defn encode-branch-format (ct:ClassTable, f:BranchFormat) -> Vector<Int> :
+lostanza defn FuncBuffer (rt:ref<JitRuntime>, n:ref<Int>) -> ref<FuncBuffer> :
+  val len = n.value
+  val data:ptr<ptr<?>> = call-c clib/malloc(len * sizeof(ptr<?>))
+  for (var i:int = 0, i < len, i = i + 1) :
+    data[i] = null
+  return new FuncBuffer{rt, len, data}
+
+lostanza defn ensure-capacity (p:ref<FuncBuffer>, c:int) -> int :
+  val l0 = p.length
+  if l0 < c :
+    ;Compute new length
+    var l:int = l0
+    while l < c : l = l * 2
+    ;Allocate new data, and copy old stuff over
+    val data:ptr<ptr<?>> = call-c clib/malloc(l * sizeof(ptr<?>))
+    call-c clib/memcpy(data, p.data, l0 * sizeof(ptr<?>))
+    ;Void out left over slots
+    for (var i:int = l0, i < l, i = i + 1) :
+      data[i] = null
+    ;Free old data, and set new data and length
+    call-c clib/free(p.data)
+    p.data = data
+    p.length = l
+  return 0
+
+lostanza defn set (p:ref<FuncBuffer>, i:int, p*:ptr<?>) -> int :
+  ensure-capacity(p, i + 1)
+  ;Free old ptr
+  val p0 = p.data[i]
+  if p0 != null : release(p.rt, new Long{p0 as long})
+  ;Store new ptr
+  p.data[i] = p*    
+  return 0
+
+lostanza defn key? (b:ref<FuncBuffer>, i:ref<Int>) -> ref<True|False> :
+  if i.value < b.length :
+    val p = b.data[i.value]
+    if p == null : return false
+    else : return true
+  else :
+    return false
+
+lostanza defn remove (b:ref<FuncBuffer>, i:ref<Int>) -> ref<True|False> :
+  if i.value < b.length :
+    val p = b.data[i.value]
+    if p == null :
+      return false
+    else :
+      release(b.rt, new Long{p as long})
+      b.data[i.value] = null
+      return true
+  else :
+    return false
+
+;============================================================
+;============================================================
+
+;Convert a BranchFormat to dispatcher Code
+defn jit-branch-format (rt:JitRuntime, resolver:EncodingResolver, backend:Backend, ct:ClassTable, f:BranchFormat, idx:Int) -> Func :
   match(f) :
-    (f:MatchFormat) :
-      val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
-        val branch-table = make-branch-table(ct, branches(f))
-        compute-dispatch-dag(branch-table, false)
+    (f:MatchFormat) :    
+      val branch-table = make-branch-table(ct, branches(f))
+      val dag = compute-dispatch-dag(branch-table, false)
       defn soln-id (s:Soln) :
         match(s) :
           (s:NoSoln) : 0
           (s:UniqueSoln) : index(s) + 1
-      encode-dag(dag, 0, soln-id)
+      jit-dag(rt, resolver, backend, dag, 0, soln-id, idx)
     (f:DispatchFormat) :
-      val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
-        val branch-table = make-branch-table(ct, branches(f))
-        compute-dispatch-dag(branch-table, true)      
+      val branch-table = make-branch-table(ct, branches(f))
+      val dag = compute-dispatch-dag(branch-table, true)
       defn soln-id (s:Soln) :
         match(s) :
           (s:NoSoln) : 0
           (s:AmbSoln) : 1
           (s:UniqueSoln) : index(s) + 2
-      encode-dag(dag, 0, soln-id)
+      jit-dag(rt, resolver, backend, dag, 0, soln-id, idx)
     (f:ResolvedMultiFormat) :
-      val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
-        val branch-table = make-branch-table(ct, seq(types,methods(f)))
-        compute-dispatch-dag(branch-table, true)
+      val branch-table = make-branch-table(ct, seq(types,methods(f)))
+      val dag = compute-dispatch-dag(branch-table, true)
       defn soln-id (s:Soln) :
         match(s) :
           (s:NoSoln) : 0
           (s:AmbSoln) : 1
           (s:UniqueSoln) : fid(methods(f)[index(s)]) + 2
-      encode-dag(dag, num-header-args(f), soln-id)
+      jit-dag(rt, resolver, backend, dag, num-header-args(f), soln-id, idx)
 
-;Conversion of a Vector<int> into a ptr<int>
-lostanza defn to-int-ptr (xs:ref<Vector<Int>>) -> ptr<int> :
-  val n = length(xs).value
-  val p:ptr<int> = call-c clib/malloc(n * sizeof(int))
-  for (var i:int = 0, i < n, i = i + 1) :
-    p[i] = get(xs, new Int{i}).value
-  return p
-
-;Conversion of a BranchFormat into a ptr<int>
-lostanza defn to-trie-table (ct:ref<ClassTable>, f:ref<BranchFormat>) -> ptr<int> :
-  val ints = encode-branch-format(ct, f)
-  return to-int-ptr(ints)

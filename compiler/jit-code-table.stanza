@@ -8,6 +8,7 @@ defpackage stz/jit-code-table :
   import stz/asmjit
   import stz/jit-encoder
   import stz/vm-structures
+  import stz/branch-table
 
 ;============================================================
 ;================= Struct Definition ========================
@@ -29,8 +30,8 @@ public defstruct JITStubs :
 ;================== Constructor =============================
 ;============================================================
 
-public defn JITCodeTable (resolver:EncodingResolver, backend:Backend) -> JITCodeTable :
-  val runtime = jit-runtime-new()
+public defn JITCodeTable (resolver:EncodingResolver, backend:Backend, branch-table:BranchTable) -> JITCodeTable :
+  val runtime = runtime(branch-table) as JitRuntime
   val stubs = make-jit-stubs(runtime, resolver, backend)  
   #JITCodeTable(runtime, stubs)
 
