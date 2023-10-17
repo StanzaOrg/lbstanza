@@ -330,25 +330,6 @@ lostanza defn to-trie-table (ct:ref<ClassTable>, f:ref<BranchFormat>) -> ptr<int
   val ints = encode-branch-format(ct, f)
   return to-int-ptr(ints)
 
-;==================================================
-;================ Compute Dispatcher ==============
-;==================================================
-lostanza defn compute-func-entry (rt:ref<JitRuntime>,
-                                        resolver:ref<EncodingResolver>,
-                                        backend:ref<Backend>,
-                                        dispatchers:ref<FuncBuffer>,
-                                        class-table:ref<ClassTable>,
-                                        i:ref<Int>,
-                                        f:ref<BranchFormat>) -> ref<False> :
-  val d = to-func(rt, resolver, backend, class-table, f, i)
-  set(dispatchers, i.value, d.value)
-  return false
-
-;Conversion of a BranchFormat into dispatcher Code
-lostanza defn to-func (rt:ref<JitRuntime>, resolver:ref<EncodingResolver>, backend:ref<Backend>, ct:ref<ClassTable>, f:ref<BranchFormat>, idx:ref<Int>) -> ref<Func> :
-  val code = jit-branch-format(rt, resolver, backend, ct, f, idx)
-  return code
-
 ;<doc>=======================================================
 ;================ Encoding of Branch Formats ================
 ;============================================================
@@ -565,6 +546,25 @@ defmethod compute (entries:FuncBranchEntries, ct:ClassTable, resolver:EncodingRe
 defmethod key? (entries:FuncBranchEntries, i:Int) :
   key?(dispatchers(entries), i)
   
+;==================================================
+;================ Compute Dispatcher ==============
+;==================================================
+lostanza defn compute-func-entry (rt:ref<JitRuntime>,
+                                  resolver:ref<EncodingResolver>,
+                                  backend:ref<Backend>,
+                                  dispatchers:ref<FuncBuffer>,
+                                  class-table:ref<ClassTable>,
+                                  i:ref<Int>,
+                                  f:ref<BranchFormat>) -> ref<False> :
+  val d = to-func(rt, resolver, backend, class-table, f, i)
+  set(dispatchers, i.value, d.value)
+  return false
+
+;Conversion of a BranchFormat into dispatcher Code
+lostanza defn to-func (rt:ref<JitRuntime>, resolver:ref<EncodingResolver>, backend:ref<Backend>, ct:ref<ClassTable>, f:ref<BranchFormat>, idx:ref<Int>) -> ref<Func> :
+  val code = jit-branch-format(rt, resolver, backend, ct, f, idx)
+  return code
+
 ;<doc>=======================================================
 ;================= FuncBuffer Datastructure =================
 ;============================================================
