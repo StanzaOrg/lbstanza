@@ -855,6 +855,7 @@ static void launcher_main (FILE* lin, FILE* lout){
   while(1){
     //Read in command
     int comm = fgetc(lin);
+    printf("comm = %d", comm);
     if(feof(lin)) exit(0);
 
     //Interpret launch process command
@@ -877,16 +878,21 @@ static void launcher_main (FILE* lin, FILE* lout){
       posix_spawnattr_init(&attr);
       posix_spawn_file_actions_init(&actions);
       // File actions
-      //TODO: handle errors here
-      int inpipe = posix_spawn_file_actions_addopen(&actions, 0, earg->in_pipe, O_RDONLY, 0);
-      int outpipe = posix_spawn_file_actions_addopen(&actions, 1, earg->out_pipe, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-      int errpipe = posix_spawn_file_actions_addopen(&actions, 2, earg->err_pipe, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+      // TODO: fix all the warnings
+      int posix_ret;
+      if (posix_ret = posix_spawn_file_actions_addopen(&actions, 0, earg->in_pipe, O_RDONLY, 0))
+        exit_with_error();
+      if (posix_ret = posix_spawn_file_actions_addopen(&actions, 1, earg->out_pipe, O_WRONLY | O_CREAT | O_TRUNC, 0644))
+        exit_with_error();
+      if (posix_ret = posix_spawn_file_actions_addopen(&actions, 2, earg->err_pipe, O_WRONLY | O_CREAT | O_TRUNC, 0644))
+        exit_with_error();
       if (earg->working_dir) {
-        int wdir = posix_spawn_file_actions_addchdir_np(&actions, earg->working_dir);
+        if (posix_ret = posix_spawn_file_actions_addchdir_np(&actions, earg->working_dir))
+          exit_with_error();
       }
       // Spawn child
       pid_t child_pid; 
-      stz_long pid = (stz_long)posix_spawn(&child_pid, "/path/to/your/executable", &actions, &attr, earg, environ);
+      stz_long pid = (stz_long)posix_spawn(&child_pid, earg->file, &actions, &attr, earg->argvs, earg->env_vars);
       //if(pid < 0) exit_with_error();
 
       if(pid == 0){
@@ -914,10 +920,10 @@ static void launcher_main (FILE* lin, FILE* lout){
         //  exit(-1);
         //}
       }else{
-        exit_with_error();
-        //Close exec pipe read, and close write end on successful exec
         close(exec_error[READ]);
         fcntl(exec_error[WRITE], F_SETFD, FD_CLOEXEC);
+        exit_with_error();
+        //Close exec pipe read, and close write end on successful exec
 
         //Open named pipes
         //if(earg->in_pipe != NULL){
@@ -952,7 +958,7 @@ static void launcher_main (FILE* lin, FILE* lout){
         //  execvpe(C_CSTR(earg->file), (char**)earg->argvs, (char**)earg->env_vars);
 
         //Unsuccessful exec, write error number
-        write_error_and_exit(exec_error[WRITE]);
+        //write_error_and_exit(exec_error[WRITE]);
       }
       // TODO: clean up spawn resources
       posix_spawn_file_actions_destroy(&actions);
@@ -990,28 +996,29 @@ void initialize_launcher_process (){
     if(pipe(lout) < 0) exit_with_error();
 
     //Fork
-    stz_long pid = (stz_long)fork();
-    if(pid < 0) exit_with_error();
+    //stz_long pid = (stz_long)fork();
+    //if(pid < 0) exit_with_error();
 
     //if(pid > 0){
     //  //Parent
     //  launcher_pid = pid;
-    //  close(lin[READ]);
-    //  close(lout[WRITE]);
-    //  launcher_in = fdopen(lin[WRITE], "w");
-    //  if(launcher_in == NULL) exit_with_error();
-    //  launcher_out = fdopen(lout[READ], "r");
-    //  if(launcher_out == NULL) exit_with_error();
+    //close(lin[READ]);
+    //close(lout[WRITE]);
+    launcher_in = fdopen(lin[WRITE], "w");
+    if(launcher_in == NULL) exit_with_error();
+    launcher_out = fdopen(lout[READ], "r");
+    if(launcher_out == NULL) exit_with_error();
    // }
    // else{
       //Child
-      close(lin[WRITE]);
-      close(lout[READ]);
-      FILE* fin = fdopen(lin[READ], "r");
-      if(fin == NULL) exit_with_error();
-      FILE* fout = fdopen(lout[WRITE], "w");
-      if(fout == NULL) exit_with_error();
-      launcher_main(fin, fout);
+    //close(lin[WRITE]);
+    //close(lout[READ]);
+    FILE* fin = fdopen(lin[READ], "r");
+    if(fin == NULL) exit_with_error();
+    FILE* fout = fdopen(lout[WRITE], "w");
+    if(fout == NULL) exit_with_error();
+    printf("launching\n");
+    launcher_main(fin, fout);
    // }
   }
 }
@@ -1077,6 +1084,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   if(output == PROCESS_ERR) earg.out_pipe = STZ_STR("_err");
   if(error == PROCESS_OUT) earg.err_pipe = STZ_STR("_out");
   if(error == PROCESS_ERR) earg.err_pipe = STZ_STR("_err");
+  printf("Writing command\n");
   int r = fputc(LAUNCH_COMMAND, launcher_in);
   if(r == EOF) return -1;
   write_earg(launcher_in, &earg);
