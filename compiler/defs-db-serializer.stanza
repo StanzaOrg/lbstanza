@@ -99,6 +99,8 @@ defserializer DefsDbSerializer () :
       targs:tuple(symbol), 
       args:tuple(fn-arg-annotation)
       return-type?:opt(symbol)
+    DefVarAnnotation :
+      mutable?:bool
 
   defunion visibility (Visibility) :
     Private: enum
