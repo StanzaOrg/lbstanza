@@ -323,6 +323,8 @@ defn optional-arg? (arg:FArg<DType>) -> True|False :
 ;Create an annotation for a top-level expression.
 defn annotate? (iexp:IExp, nm:NameMap) -> False|DefinitionAnnotation :
   match(iexp) :
+    (idefvar:IDefVar) : DefVarAnnotation(true)
+    (idefval:IDef) : DefVarAnnotation(false)
     (idefn:IDefn|IDefmethod|IDefmulti|ILSDefn|ILSDefmethod) :
       DefnAnnotation(targs, args, return-type?) where :
         val return-type? = stringify?(a2(idefn), nm)
@@ -344,6 +346,8 @@ defn annotate? (iexp:IExp, nm:NameMap) -> False|DefinitionAnnotation :
 ;Create an annotation for a PackageIO Export expression.
 defn annotate? (export:Export, nm:NameMap) -> False|DefinitionAnnotation :
   match(rec(export)) :
+    (v:ValRec) : DefVarAnnotation(mutable?(v))
+    (v:ExternRec) : DefVarAnnotation(false)
     (rec:FnRec|MultiRec) :
       DefnAnnotation(targs, args, return-type?) where :
         val fnid = id(rec) as FnId
@@ -414,6 +418,7 @@ public defn kindof (r:Rec) -> SrcDefinitionKind :
 deftype Indexable :
   VarN         <: Indexable
   IDef         <: Indexable
+  IDefVar      <: Indexable
   IDefn        <: Indexable
   IDefmulti    <: Indexable
   IDefmethod   <: Indexable
