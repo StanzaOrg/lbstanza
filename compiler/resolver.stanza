@@ -743,9 +743,15 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
   defn load-dependencies (p:IPackage|PackageExports) :
     match(p) :
       (p:IPackage) :
-        do(load-package{package(_)}, imports(p))
+        for imp in imports(p) do :
+          val result = load-package(package(imp))
+          if result is False :
+            add(errors, NoPackage(package(imp), name(p), info(imp)))
       (p:PackageExports) :
-        do(load-package{package-name(_)}, imported-packages(p))
+        for imp in imported-packages(p) do :
+          val result = load-package(package-name(imp))
+          if result is False :
+            add(errors, NoPackage(package-name(imp), package(p), false))
 
   ;Initialize with source packages,
   ;and load all of their dependencies.
