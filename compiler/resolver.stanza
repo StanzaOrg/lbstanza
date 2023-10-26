@@ -842,7 +842,7 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
             import(symtable, filter(should-import?, toplevel(namemap(p))), import-ptable)
           if forward(mode):
             update-owner(symtable, filter(should-forward?, toplevel(namemap(p))), import-ptable)
-          ; Recursively extent symtable with all packages forwarded by p
+          ; Recursively extend symtable with all packages forwarded by p
           for fwd in filter(forward, imports(p)) do :
             ; Update import list and all ptables
             val import-list* = import-list-intersection(import-list, only(fwd), PrefixTable(prefix(fwd)))
@@ -945,6 +945,25 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   ;Level Table
   val table = MultilevelTable<Symbol, List<VEntry>>()
   val basetable = HashTable<Symbol, List<BaseEntry>>(List())
+  ; Update an entry in the basetable
+  ; Assumes the resulting entry should be forwarded
+  defn update-basetable (e:VEntry, f, xs:List<BaseEntry>) -> List<BaseEntry> :
+    if any?({ventry(_) == e}, xs) :
+      map(fn (x:BaseEntry) : if ventry(x) == e : BaseEntry(f(e), true) else : x, xs)
+    else : cons(BaseEntry(f(e), true), xs)
+  ; Update symbol table entry e with function f:
+  ; Search for matching entry e, apply f. If not found, add f(e)  
+  defn forward-entry (e:VEntry, f:(VEntry -> VEntry), prefix:String|False) :
+    val name* = add-prefix(prefix, name(e))
+    table[name*] =
+      if key?(table, name*) :
+        if not contains?(table[name*], e) :
+          cons(f(e), table[name*])
+        else : ; Update matching VEntry
+          map(fn (x) : if x == e : f(x) else : x, table[name*])
+      else : List(f(e))
+    if level(table) == 0 :
+      update(basetable, update-basetable{e, f, _}, name*)
   defn add-entry (e:VEntry, prefix:String|False -- forwarded?:True|False = false) :
     val name* = add-prefix(prefix, name(e))
     table[name*] =
@@ -969,9 +988,7 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   ; Ensures that qualified references will work.
   defn update-owner (es:Seqable<VEntry>, ptable:PrefixTable) :
     for e in es do :
-      add-entry(sub-package(e, package-name),
-                ptable[name(e)],
-                forwarded? = true)
+      forward-entry(e, {sub-package(_, package-name)}, ptable[name(e)])
 
   ;Initializing the symbol table
   match(base) :
