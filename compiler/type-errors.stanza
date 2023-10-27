@@ -3,6 +3,7 @@ defpackage stz/type-errors :
   import core
   import collections
   import stz/tl-ir
+  import stz/dl-ir
   import stz/types
   import stz/absolute-info
 
@@ -91,6 +92,22 @@ with:
 
 ;Represents the name of a Stanza package.
 public defstruct PackageName : (name:Symbol)
+
+;Format a duplicate exports deifnition.
+public defmessage DuplicateExports <: TypeError :
+  export1:Export
+  export2:Export
+with:
+  format: 
+    val name-str = match(id(rec(export2))) :
+      (id:ValId) : "variable '%_'" % [name(id)]
+      (id:TypeId) : "type '%_'" % [name(id)]
+      (id:FnId) : "function '%_'" % [name(id)]
+    val prev-str = match(info(export1)) :
+      (info:AbsoluteFileInfo) : " Previous definition at %_." % [info]
+      (f:False) : ""
+    "%_Duplicate definition of %_.%_" % [
+    info-str(info(export2)), name-str, prev-str]
 
 ;============================================================
 ;================== Type Checking Errors ====================

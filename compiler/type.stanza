@@ -70,7 +70,14 @@ public defn type-program (ipackages:Tuple<IPackage>,
     guard!(tprog-solved, SolvedTL)
 
     ;Return solved tprog with the PackageIO filled.
-    compute-packageios(tprog-solved)
+    val final-tprog = compute-packageios(tprog-solved)
+
+    ;Detect any duplicate errors before finishing.
+    match(duplicate-definitions(final-tprog)) :
+      (e:TypeErrors) : return(e)
+      (f:False) : false
+
+    final-tprog
 
 ;============================================================
 ;============= Gather Exports from Environment ==============
@@ -105,6 +112,25 @@ defn gather-exports (ipackages:Tuple<IPackage>, env:Env) -> Tuple<Export> :
 
   ;Return the accumulated exports.
   to-tuple(export-accum)
+
+;============================================================
+;============== Detect Duplicate Definitions ================
+;============================================================
+
+;Scan through the program now that PackageIO have been computed
+;and issue errors for any duplicate definitions.
+defn duplicate-definitions (prog:TProg) -> TypeErrors|False :
+  val defined = HashTable<RecId,Export>()
+  val errors = Vector<TypeError>()
+  for p in packages(prog) do :
+    for e in exports(packageio(p)) do :
+      if key?(defined, id(rec(e))):
+        val olde = defined[id(rec(e))]
+        add(errors, DuplicateExports(olde, e))
+      else :
+        defined[id(rec(e))] = e
+  if not empty?(errors) :
+    TypeErrors(to-tuple(errors))
 
 ;============================================================
 ;=============== Format Type Errors =========================
