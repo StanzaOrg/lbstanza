@@ -101,6 +101,9 @@ defserializer DefsDbSerializer () :
       return-type?:opt(symbol)
     DefVarAnnotation :
       mutable?:bool
+    DefTypeAnnotation :
+      targs:tuple(symbol)
+      parents:tuple(symbol)
 
   defunion visibility (Visibility) :
     Private: enum

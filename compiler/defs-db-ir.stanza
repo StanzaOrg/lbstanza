@@ -55,6 +55,31 @@ doc: "Annotations for `var` and `val` definitions"
 public defstruct DefVarAnnotation <: DefinitionAnnotation :
   mutable?: True|False
 
+doc: "Annotation for `deftype` definitions"
+public defstruct DefTypeAnnotation <: DefinitionAnnotation :
+  doc: \<DOC>
+  Type Arguments for a deftype
+
+  Example:
+    deftype Spoon<T,S>
+
+  Results in:
+    targs = [T, S]
+  <DOC>
+  targs:Tuple<Symbol>
+  doc: \<DOC>
+  Parent types this type is derived from.
+  Contains the symbols for each of the parent types that
+  this type is derived from.
+
+  Example:
+    deftype Warble <: Equalable & Hashable
+
+  Results in:
+    parents = [Equalable, Hashable]
+  <DOC>
+  parents:Tuple<Symbol>
+
 doc: "Annotations given to defn objects."
 public defstruct DefnAnnotation <: DefinitionAnnotation :
   targs:Tuple<Symbol>,
@@ -163,6 +188,15 @@ defmethod print (o:OutputStream, f:DefnAnnotation) :
   val return-type? = return-type?(f)
   match(return-type?:Symbol) : 
     print(o, " -> %_" % [return-type?])
+
+defmethod print (o:OutputStream, f:DefTypeAnnotation) :
+  val t = targs(f)
+  if not empty?(t):
+    print(o, "<%,>" % [t])
+  val p = parents(f)
+  if not empty?(p):
+    val combParents = string-join(p, " & ")
+    print(o, " <: %_" % [combParents])
 
 ; Note: does not use forwarding information or import list
 defmethod print (o:OutputStream, p:PackageImport) :
