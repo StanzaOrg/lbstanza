@@ -773,9 +773,10 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
       (xs:Tuple<Symbol>) : to-hashset<Symbol>(xs)
       (f:False) : false
   
-  ; Wrapper to initialize cycle detection set
-  defn extend-symtable (symtable, imp, ptable, mode, import-list) -> False :
-    extend-symtable(symtable, imp, ptable, mode, import-list, HashSet<Symbol>())
+  ; Wrapper to initialize cycle detection set: we should never re-import
+  ;   the top-level package via a forward
+  defn extend-symtable (symtable, imp, ptable, mode, import-list, target-pkg:Symbol) -> False :
+    extend-symtable(symtable, imp, ptable, mode, import-list, to-hashset<Symbol>([target-pkg]))
 
   ; For a given import and its prefix table:
   ; Add its public symbols to the table, recursively import any
@@ -788,13 +789,13 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
   ; - forwarding: True if in the original call to extend-symtable, 'imp' is a forwarding import.
   ;   (extend-symtable is recursive.)
   ; - import-list: The concrete list of symbols. False if we should import everything.
-  ; - already-forwarded: Used for cycle detection.
+  ; - exposed-packages : set of package names transitively contained within package `imp` via forwarding. Used for cycle detection.
   defn extend-symtable (symtable:SymbolTable, 
                         imp:IImport, 
                         import-ptable:PrefixTable,
                         mode:ImportMode
                         import-list:False|HashSet<Symbol>
-                        already-forwarded:HashSet<Symbol>) -> False :
+                        exposed-packages:HashSet<Symbol>) -> False :
 
     ; Compute the intersection of two import lists for propagating them down the dependency chain.
     ; import-list : the list of symbols to import
@@ -836,40 +837,44 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
     ; Main functionality:
     ;   Extend symtable with all definitions in IImport, as well as any forwarded imports
     val import-name = package(imp)        
-    if already-forwarded[import-name] : ; Check for cycles 
-      throw(ForwardingCycle(to-seq(already-forwarded)))
-    else :
-      add(already-forwarded, import-name) ; Record visit for cycle detection 
-      match(load-package(import-name)) :
-        ;Imported a source file: use visible members of NameMap, recursively import any forwards
-        (p:IPackage) :
-          ; Import public definitions according to the import prefix table.
-          if import(mode):
-            import(symtable, filter(should-import?, toplevel(namemap(p))), import-ptable)
-          if forward(mode):
-            update-owner(symtable, filter(should-forward?, toplevel(namemap(p))), import-ptable)
-          ; Recursively extend symtable with all packages forwarded by p
-          for fwd in filter(forward, imports(p)) do :
-            ; Update import list and all ptables
-            val import-list* = import-list-intersection(import-list, only(fwd), PrefixTable(prefix(fwd)))
-            val import-ptable* = compose(import-ptable, PrefixTable(prefix(fwd)))
-            extend-symtable(symtable, fwd, import-ptable*, mode, import-list*, already-forwarded)
-        ;Imported a .pkg file: copy all Exports, recursively extend from any forwarded packages
-        (p:PackageExports) :
-          ; Import public definitions and protected definitions (when necessary)
-          if import(mode):
-            import(symtable, filter(should-import?, (seq(VEntry, exports(p)))), import-ptable)
-          if forward(mode):
-            update-owner(symtable, filter(should-forward?, (seq(VEntry, exports(p)))), import-ptable)
-          for fwd in filter(forward, imported-packages(p)) do:
-            val import-list* = import-list-intersection(import-list, only(fwd), PrefixTable(prefix(fwd)))
-            val import-ptable* = compose(import-ptable, PrefixTable(prefix(fwd)))
-            extend-symtable(symtable, to-iimport(fwd), import-ptable*, mode, import-list*, already-forwarded)
-        ;Could not resolve the imported package.
-        (f:False) :
-          add(errors, NoPackage(import-name, package(symtable), info(imp)))
-      remove(already-forwarded, import-name) 
-      false
+    match(load-package(import-name)) :
+      ;Imported a source file: use visible members of NameMap, recursively import any forwards
+      (p:IPackage) :
+        ; Import public definitions according to the import prefix table.
+        if import(mode):
+          import(symtable, filter(should-import?, toplevel(namemap(p))), import-ptable)
+        if forward(mode):
+          update-owner(symtable, filter(should-forward?, toplevel(namemap(p))), import-ptable)
+        ; Recursively extend symtable with all packages forwarded by p
+        for fwd in filter(forward, imports(p)) do :
+          if exposed-packages[package(fwd)] : ; Check for cycles 
+            add(exposed-packages, package(fwd))
+            throw(ForwardingCycle(to-seq(exposed-packages)))
+          add(exposed-packages, package(fwd)) ; Record visit for cycle detection 
+          ; Update import list and all ptables
+          val import-list* = import-list-intersection(import-list, only(fwd), PrefixTable(prefix(fwd)))
+          val import-ptable* = compose(import-ptable, PrefixTable(prefix(fwd)))
+          extend-symtable(symtable, fwd, import-ptable*, mode, import-list*, exposed-packages)
+          remove(exposed-packages, package(fwd))
+      ;Imported a .pkg file: copy all Exports, recursively extend from any forwarded packages
+      (p:PackageExports) :
+        ; Import public definitions and protected definitions (when necessary)
+        if import(mode):
+          import(symtable, filter(should-import?, (seq(VEntry, exports(p)))), import-ptable)
+        if forward(mode):
+          update-owner(symtable, filter(should-forward?, (seq(VEntry, exports(p)))), import-ptable)
+        for fwd in filter(forward, imported-packages(p)) do:
+          if exposed-packages[package-name(fwd)] : ; Check for cycles 
+            add(exposed-packages, package-name(fwd))
+            throw(ForwardingCycle(to-seq(exposed-packages)))
+          add(exposed-packages, package-name(fwd)) ; Record visit for cycle detection 
+          val import-list* = import-list-intersection(import-list, only(fwd), PrefixTable(prefix(fwd)))
+          val import-ptable* = compose(import-ptable, PrefixTable(prefix(fwd)))
+          extend-symtable(symtable, to-iimport(fwd), import-ptable*, mode, import-list*, exposed-packages)
+          remove(exposed-packages, package-name(fwd))
+      ;Could not resolve the imported package.
+      (f:False) :
+        add(errors, NoPackage(import-name, package(symtable), info(imp)))
 
   ;Construct a symbol table from a source package.
   defn make-symtable (p:IPackage) -> SymbolTable :
@@ -879,7 +884,7 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
     for imp in imports(p) do :
       val only-set = to-import-set(only(imp))
       val mode = if forward(imp) : MImportAndForward() else : MImport()
-      extend-symtable(symtable, imp, PrefixTable(prefix(imp)), mode, only-set)
+      extend-symtable(symtable, imp, PrefixTable(prefix(imp)), mode, only-set, name(p))
 
     symtable
     
@@ -891,7 +896,7 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
       ; Extend symbol table with exports from all forwarded dependencies
       for fwd in filter(forward, imported-packages(p)) do :
         val import-list* = to-import-set(only(fwd))
-        extend-symtable(symtable, to-iimport(fwd), PrefixTable(prefix(fwd)), MForward(), import-list*)
+        extend-symtable(symtable, to-iimport(fwd), PrefixTable(prefix(fwd)), MForward(), import-list*, package(p))
 
       symtable
 
