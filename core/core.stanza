@@ -367,12 +367,12 @@ public lostanza defn collect-stack-trace () -> ref<StackTrace> :
 ;====================== Fatal Errors ========================
 ;============================================================
 
-var ERROR-HANDLER: String -> Void
+var ERROR-HANDLER: (String, ?) -> Void
 
 ;Initialize the ERROR-HANDLER with the default error handling
 ;callback.
 defn initialize-error-handler () :
-  ERROR-HANDLER = fn (error-msg) :
+  ERROR-HANDLER = fn (error-msg:String, tag:?) :
     print(CURRENT-ERROR-STREAM, "FATAL ERROR: ")
     println(CURRENT-ERROR-STREAM, error-msg)
     print-stack-trace()
@@ -392,11 +392,15 @@ protected lostanza defn fatal! (msg:ptr<byte>) -> ref<Void> :
   return false as ref<?>
 
 ;Standard fatal error.
-public defn fatal (msg) -> Void :
+public defn fatal (msg, tag:? = false) -> Void :
   flush(STANDARD-OUTPUT-STREAM as FileOutputStream)
-  ERROR-HANDLER(to-string(msg))
+  ERROR-HANDLER(to-string(msg), tag)
 
 ;Fatal error from LoStanza context.
+public lostanza defn fatal (msg:ptr<byte>, tag:ref<?>) -> ref<Void> :
+  return fatal(String(msg), tag)
+
+;Overload without tag
 public lostanza defn fatal (msg:ptr<byte>) -> ref<Void> :
   return fatal(String(msg))
 
@@ -407,10 +411,19 @@ public lostanza defn fatal (msg:ptr<byte>) -> ref<Void> :
 ;- msg is the error message passed to fatal.
 ;- The return value of handle-error is returned by execute-with-error-handler.
 public defn execute-with-error-handler<?T> (body:() -> ?T,
-                                            handle-error:String -> ?T) :
+                                            handle-error:(String, ?) -> ?T) -> T :
+  val old-handler = ERROR-HANDLER
   label<T> break :
-    let-var ERROR-HANDLER = break{handle-error(_)} :
+    defn new-error-handler (msg:String, tag:?) :
+      ERROR-HANDLER = old-handler
+      break(handle-error(msg, tag))
+    let-var ERROR-HANDLER = new-error-handler :
       body()
+
+;Overload which takes a handler which does not accept a tag as input
+public defn execute-with-error-handler<?T> (body:() -> ?T,
+                                            handle-error:String -> ?T) -> T :
+  execute-with-error-handler(body, fn (msg:String, tag:?) : handle-error(msg))
 
 ;Convenience function. Just prints the stack trace and then calls halt-function.
 ;public defn execute-with-halt-interceptor<?T> (body:() -> ?T, halt-function:() -> Void) -> T :
@@ -6205,23 +6218,28 @@ public defn Exception (msg) -> Exception :
       print(o, msg)
 
 ;Holds the currently-equipped exception handler.
-var CURRENT-EXCEPTION-HANDLER : Throwable -> Void =
-  fn (e:Throwable) :
+var CURRENT-EXCEPTION-HANDLER : (Throwable, ?) -> Void =
+  fn (e:Throwable, tag:?) :
     fatal(e)
 
 ;Throw the given exception to the currently-set handler.
-public defn throw (e:Throwable) :
-  CURRENT-EXCEPTION-HANDLER(e)
+public defn throw (e:Throwable, tag:? = false) :
+  CURRENT-EXCEPTION-HANDLER(e, tag)
 
 ;Run the given body with the equipped exception interceptor.
 public defn with-exception-interceptor<?T> (body: () -> ?T,
-                                            intercept: Throwable -> Void) -> T :
+                                            intercept: (Throwable, ?) -> Void) -> T :
   val handler = CURRENT-EXCEPTION-HANDLER
-  defn interceptor (e:Throwable) :
+  defn interceptor (e:Throwable, tag:?) :
     CURRENT-EXCEPTION-HANDLER = handler
-    intercept(e)
+    intercept(e, tag)
   let-var CURRENT-EXCEPTION-HANDLER = interceptor :
     body()
+
+;Overload which takes an interceptor which does not accept a tag as input
+public defn with-exception-interceptor<?T> (body: () -> ?T,
+                                            intercept: Throwable -> Void) -> T :
+  with-exception-interceptor(body, fn (e:Throwable, tag:?) : intercept(e))
 
 ;Run the given body with the equipped catchers.
 public defn with-exception-handler<?T> (body: () -> ?T,
@@ -6231,10 +6249,10 @@ public defn with-exception-handler<?T> (body: () -> ?T,
   val r = label<ExceptionResult|NormalResult> break :
     ;Holds the outer handler during the dynamic extent of this 'try' block.
     ;Will be set during wind-in.
-    var outer-handler:Throwable -> Void
+    var outer-handler:(Throwable, ?) -> Void
 
     ;Implementation of throw within the body.
-    defn throw-within-body (e:Throwable) :
+    defn throw-within-body (e:Throwable, tag:?) :
       ;First check whether the catcher is supposed to handle this
       ;exception.
       if catch?(e) :
@@ -6243,7 +6261,7 @@ public defn with-exception-handler<?T> (body: () -> ?T,
       else :
         ;Otherwise, pass the exception to the next handler
         ;to handle it.
-        outer-handler(e)
+        outer-handler(e, tag)
 
     ;Execute the body with the new throw equipped.
     dynamic-wind(
@@ -9398,45 +9416,45 @@ public defn count<?T> (pred?: T -> True|False, xs:Seqable<?T>) -> Int :
       if pred?(x) : accum = accum + 1
    accum
 
-public defn join<?T,?S> (xs0:Seqable<?T>, y:?S) -> Seq<T|S> :
-  for xs in xs0 do-seq :
-    var join? = false
-    val rs = new Seq<T|S> :
-      defmethod next (this) :
-        fatal("Empty Sequence") when empty?(xs)
-        val result = y when join? else next(xs)
-        join? = not join?
-        result
-      defmethod empty? (this) :
-        empty?(xs)
-    match(xs) :
-      (xs:Seq<T>&Lengthable) :
-        defn rs-length () :
-          if join? : length(xs) * 2
-          else : length(xs) * 2 - 1
-        wrap-length(rs, rs-length)
-      (xs) :
-        rs
+public defn join<?T,?S> (input-xs:Seqable<?T>, y:?S) -> Seq<T|S> :
+  val xs = to-seq(input-xs)
+  var join? = false
+  val rs = new Seq<T|S> :
+    defmethod next (this) :
+      fatal("Empty Sequence") when empty?(xs)
+      val result = y when join? else next(xs)
+      join? = not join?
+      result
+    defmethod empty? (this) :
+      empty?(xs)
+  match(xs) :
+    (xs:Seq<T>&Lengthable) :
+      defn rs-length () :
+        if join? : length(xs) * 2
+        else : length(xs) * 2 - 1
+      wrap-length(rs, rs-length)
+    (xs) :
+      rs
 
 public defn interleave<?T,?S> (xs0:Seqable<?T>, ys0:Seqable<?S>) -> Seq<T|S> :
-  for xs in xs0 do-seq :
-    for ys in ys0 do-seq :
-      var yield-x? = true
-      val rs = new Seq<T|S> :
-        defmethod next (this) :
-          fatal("Empty Sequence") when empty?(this)
-          val result = next(xs) when yield-x? else next(ys)
-          yield-x? = not yield-x?
-          result
-        defmethod empty? (this) :
-          empty?(xs) when yield-x? else empty?(ys)
-      match(xs, ys) :
-        (xs:Seq<T>&Lengthable, ys:Seq<S>&Lengthable) :
-          defn rs-length () :
-            if yield-x? : 2 * min(length(xs), length(ys))
-            else : 1 + 2 * min(length(xs), length(ys) - 1)
-          wrap-length(rs, rs-length)
-        (xs, ys) : rs
+  val xs = to-seq(xs0)
+  val ys = to-seq(ys0)
+  var yield-x? = true
+  val rs = new Seq<T|S> :
+    defmethod next (this) :
+      fatal("Empty Sequence") when empty?(this)
+      val result = next(xs) when yield-x? else next(ys)
+      yield-x? = not yield-x?
+      result
+    defmethod empty? (this) :
+      empty?(xs) when yield-x? else empty?(ys)
+  match(xs, ys) :
+    (xs:Seq<T>&Lengthable, ys:Seq<S>&Lengthable) :
+      defn rs-length () :
+        if yield-x? : 2 * min(length(xs), length(ys))
+        else : 1 + 2 * min(length(xs), length(ys) - 1)
+      wrap-length(rs, rs-length)
+    (xs, ys) : rs
 
 public defn reduce<?T,?S,?U> (f: (T|U, S) -> ?U, x0: ?T, xs:Seqable<?S>) -> T|U :
    var accum = x0
