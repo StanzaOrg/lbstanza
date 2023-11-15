@@ -10341,18 +10341,14 @@ public defn call-system-and-get-output (file:String,
                                         working-dir:String|False,
                                         env-vars:Tuple<KeyValue<String,String>>|False) -> String :
   val buffer = StringBuffer()
-  println("Making process %_" % [file])
   val proc = Process(file, args, STANDARD-IN, PROCESS-OUT, PROCESS-OUT, working-dir, env-vars)
-  println("Made process %_" % [file])
   val proc-out = output-stream(proc)
   let loop () :
     val c = get-char(proc-out)
     match(c:Char) :
       add(buffer,c)
       loop()
-  println("Waiting for %_" % [file])
   wait(proc)
-  println("%_ done" % [file])
   to-string(buffer)
 
 public defn call-system-and-get-output (file:String, args:Seqable<String>) -> String :

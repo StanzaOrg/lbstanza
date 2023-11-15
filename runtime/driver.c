@@ -851,35 +851,113 @@ static int delete_process_pipe (FILE* fd, char* pipe_name, char* suffix) {
 stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error, stz_int pipeid) {
   char pipe_name[80];
   make_pipe_name(pipe_name, (int)pipeid);
-  if (delete_process_pipe(input,  pipe_name, "_in") < 0)
-    return -1;
-  if (delete_process_pipe(output, pipe_name, "_out") < 0)
-    return -1;
-  if (delete_process_pipe(error,  pipe_name, "_err") < 0)
-    return -1;
+  //if (delete_process_pipe(input,  pipe_name, "_in") < 0)
+  //  return -1;
+  //if (delete_process_pipe(output, pipe_name, "_out") < 0)
+  //  return -1;
+  //if (delete_process_pipe(error,  pipe_name, "_err") < 0)
+  //  return -1;
   return 0;
 }
 
-//#ifdef PLATFORM_OS_X
-//stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-//                       stz_int output, stz_int error, stz_int pipeid,
-//                       stz_byte* working_dir, stz_byte** env_vars, Process* process) {
-//  //Compute pipe sources: pipe_sources[i]
-//  int pipe_sources[NUM_STREAM_SPECS];
-//  for(int i=0; i<NUM_STREAM_SPECS; i++)
-//    pipe_sources[i] = -1;
-//  pipe_sources[input] = 0;
-//  pipe_sources[output] = 1;
-//  pipe_sources[error] = 2;
-//
-//  //Compute array of pipes
-//  int pipes[NUM_STREAM_SPECS][2];
-//  for(int i=0; i<NUM_STREAM_SPECS; i++)
-//    pipe(pipes[i]);
-//
-//
-//}
-//#endif
+#ifdef PLATFORM_OS_X
+stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
+                       stz_int output, stz_int error, stz_int pipeid,
+                       stz_byte* working_dir, stz_byte** env_vars, Process* process) {
+  //Compute pipe sources:
+  int pipe_sources[NUM_STREAM_SPECS];
+  for(int i=0; i<NUM_STREAM_SPECS; i++)
+    pipe_sources[i] = -1;
+  pipe_sources[input] = 0;
+  pipe_sources[output] = 1;
+  pipe_sources[error] = 2;
+
+  //Generate array of pipes per-input-source
+  //TODO: close these at some point
+  int pipes[NUM_STREAM_SPECS][2];
+  for(int i=0; i<NUM_STREAM_SPECS; i++) {
+    if(pipe(pipes[i])) return -1;
+  }
+
+  //Setup file actions
+  posix_spawn_file_actions_t actions;
+  posix_spawn_file_actions_init(&actions);
+
+  int posix_ret;
+  // TODO: close all pipes that get dup2'ed
+  //Setup input pipe if used
+  if(pipe_sources[PROCESS_IN] > 0) {
+    // Close write end
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][1])))
+      exit_with_error();
+    // dup read to STDIN
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_IN][0], STDIN_FILENO)))
+      exit_with_error();
+  }
+  //Setup output pipe if used
+  if(pipe_sources[PROCESS_OUT] > 0) {
+    // Close read end
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][0])))
+      exit_with_error();
+    // dup write to STDOUT
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDOUT_FILENO)))
+      exit_with_error();
+  }
+  //Setup error pipe if used
+  if(pipe_sources[PROCESS_ERR] > 0) {
+    // Close read end
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][0])))
+      exit_with_error();
+    // dup write to STDERR
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDERR_FILENO)))
+      exit_with_error();
+  }
+  //Setup working directory
+  if(working_dir) {
+    if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, working_dir)))
+      exit_with_error();
+  }
+
+  // Spawn process
+  pid_t pid = -1;
+  if(posix_spawn(&pid, file, &actions, NULL, argvs, env_vars) == 0) {
+    printf("Child pid: %d\n", pid);
+  } else {
+    exit_with_error();
+  }
+
+  // Cleanup
+  posix_spawn_file_actions_destroy(&actions);
+
+  //Parent:
+  //Close pipes, setup files
+  FILE* fin = NULL;
+  if(pipe_sources[PROCESS_IN] > 0) {
+    close(pipes[PROCESS_IN][0]);
+    fin = fdopen(pipes[PROCESS_IN][1], "w");
+    if(fin == NULL) return -1;
+  }
+  FILE* fout = NULL;
+  if(pipe_sources[PROCESS_OUT] > 0) {
+    close(pipes[PROCESS_OUT][1]);
+    fout = fdopen(pipes[PROCESS_OUT][0], "r");
+    if(fout == NULL) return -1;
+  }
+  FILE* ferr = NULL;
+  if(pipe_sources[PROCESS_ERR] > 0) {
+    close(pipes[PROCESS_ERR][1]);
+    ferr = fdopen(pipes[PROCESS_ERR][0], "r");
+    if(ferr == NULL) return -1;
+  }
+
+  process->pid = pid;
+  process->in = fin;
+  process->out = fout;
+  process->err = ferr;
+  return 0;
+}
+#endif
+
 //
 //
 //#ifdef PLATFORM_LINUX
@@ -890,172 +968,173 @@ stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error, stz_int pi
 //#endif
  
 // Old version
-stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int pipeid,
-                       stz_byte* working_dir, stz_byte** env_vars, Process* process) {
-  //Figure out unique pipe name
-  char pipe_name[80];
-  make_pipe_name(pipe_name, (int)pipeid);
-
-  //Compute pipe sources
-  int pipe_sources[NUM_STREAM_SPECS];
-  for(int i=0; i<NUM_STREAM_SPECS; i++)
-    pipe_sources[i] = -1;
-  pipe_sources[input] = 0;
-  pipe_sources[output] = 1;
-  pipe_sources[error] = 2;
-
-  //Create pipes to child
-  if(pipe_sources[PROCESS_IN] >= 0)
-    RETURN_NEG(make_pipe(pipe_name, "_in"))
-  if(pipe_sources[PROCESS_OUT] >= 0)
-    RETURN_NEG(make_pipe(pipe_name, "_out"))
-  if(pipe_sources[PROCESS_ERR] >= 0)
-    RETURN_NEG(make_pipe(pipe_name, "_err"))
-
-  stz_byte* in_pipe = NULL;
-  stz_byte* out_pipe = NULL;
-  stz_byte* err_pipe = NULL;
-  
-  int infd  = -1;
-  int outfd = -1;
-  int errfd = -1;
-
-  //Open pipes to child process
-  FILE* fin = NULL;
-  if(pipe_sources[PROCESS_IN] >= 0){
-    infd = open_pipe(pipe_name, "_in", O_RDWR);
-    RETURN_NEG(infd)
-    fin = fdopen(infd, "w");
-    if(fin == NULL) return -1;
-  }
-  FILE* fout = NULL;
-  if(pipe_sources[PROCESS_OUT] >= 0){
-    outfd = open_pipe(pipe_name, "_out", O_RDWR);
-    RETURN_NEG(outfd)
-    printf("fout = fdopen(%d) (%s)\n", outfd, string_join(pipe_name, "_out"));
-    fout = fdopen(outfd, "r");
-    if(fout == NULL) return -1;
-  }
-  FILE* ferr = NULL;
-  if(pipe_sources[PROCESS_ERR] >= 0){
-    int errfd = open_pipe(pipe_name, "_err", O_RDWR);
-    RETURN_NEG(errfd)
-    printf("ferr = fdopen(%d) (%s)\n", errfd, string_join(pipe_name, "_err"));
-    ferr = fdopen(errfd, "r");
-    if(ferr == NULL) return -1;
-  }
-
-  // Compute final file descriptors based on pipe sources
-  int final_outfd = outfd;
-  int final_errfd = errfd;
-
-  if(input == PROCESS_IN) in_pipe = STZ_STR("_in");
-  if(output == PROCESS_OUT) {
-    out_pipe = STZ_STR("_out");
-    final_outfd = outfd;
-  }
-  if(output == PROCESS_ERR) {
-    out_pipe = STZ_STR("_err");
-    final_outfd = errfd;
-  }
-  if(error == PROCESS_OUT) {
-    err_pipe = STZ_STR("_out");
-    final_errfd = outfd;
-  }
-  if(error == PROCESS_ERR) {
-    err_pipe = STZ_STR("_err");
-    final_errfd = errfd;
-  }
-
-
-
-  pid_t pid = -1;
-
-  // OS X : use posix_spawn to initialize child process
-  #ifdef PLATFORM_OS_X
-    // Setup
-    posix_spawn_file_actions_t actions;
-    posix_spawn_file_actions_init(&actions);
-    char* child_in_pipe = in_pipe ? string_join(pipe_name, in_pipe) : NULL;
-    char* child_out_pipe = out_pipe ? string_join(pipe_name, out_pipe) : NULL;
-    char* child_err_pipe = err_pipe ? string_join(pipe_name, err_pipe) : NULL;
-    // File actions
-    // TODO: fix all the warnings
-    int posix_ret;
-    if (in_pipe) {
-      if ((posix_spawn_file_actions_addopen(&actions, 0, child_in_pipe, O_RDONLY, 0)))
-        exit_with_error();
-      if ((posix_spawn_file_actions_adddup2(&actions, infd, 0)))
-        exit_with_error();
-    }
-    if (out_pipe) {
-      if ((posix_ret = posix_spawn_file_actions_addopen(&actions, 1, child_out_pipe, O_RDWR, 0666)))
-        exit_with_error();
-      printf("Opened %s to fd 1\n", child_out_pipe);
-      printf("out: dup2(%d, 1), file = %s\n", 4, child_out_pipe);
-      //if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, 4, 1)))
-      //if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, 1, final_outfd)))
-      //if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, final_outfd, 1)))
-      //  exit_with_error();
-    }
-    if (err_pipe) {
-      //if ((posix_ret = posix_spawn_file_actions_addopen(&actions, 5, child_err_pipe, O_RDWR, 0666)))
-      //  exit_with_error();
-      //printf("err: dup2(%d, 2), file = %s\n", 5, child_err_pipe);
-      if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, 2, 1)))
-        exit_with_error();
-      printf("err: dup2(2, 1)\n");
-    }
-    if (working_dir) {
-      printf("working dir: %s\n", working_dir);
-      if ((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, working_dir)))
-        exit_with_error();
-    }
-    // Call spawn
-    if(posix_spawn(&pid, file, &actions, NULL, argvs, env_vars) == 0) {
-      // Parent process
-      printf("Success: child process = %d\n", pid);
-      //int exec_r;
-      //waitpid(pid, &exec_r, 0);
-      //printf("Child process finished\n");
-    } else {
-      exit_with_error();
-    }
-
-    // Clean up spawn resources
-    posix_spawn_file_actions_destroy(&actions);
-    stz_free(child_in_pipe);
-    stz_free(child_out_pipe);
-    stz_free(child_err_pipe);
-  #endif
-
-  // TODO: Linux: use vfork to initialize child process
-  #ifdef PLATFORM_LINUX
-  #endif
-
-  // TODO:
-  //Read back process id, and set errno if failed
-  //stz_long pid = read_long(launcher_out);
-  //if(pid < 0){
-  //  errno = (int)(- pid);
-  //  return -1;
-  //}
-
-  //Return process structure
-  process->pid = pid;
-  process->in = fin;
-  process->out = fout;
-  process->err = ferr;
-  printf("Returning\n");
-  return 0;
-}
+//stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
+//                       stz_int output, stz_int error, stz_int pipeid,
+//                       stz_byte* working_dir, stz_byte** env_vars, Process* process) {
+//  //Figure out unique pipe name
+//  char pipe_name[80];
+//  make_pipe_name(pipe_name, (int)pipeid);
+//
+//  //Compute pipe sources
+//  int pipe_sources[NUM_STREAM_SPECS];
+//  for(int i=0; i<NUM_STREAM_SPECS; i++)
+//    pipe_sources[i] = -1;
+//  pipe_sources[input] = 0;
+//  pipe_sources[output] = 1;
+//  pipe_sources[error] = 2;
+//
+//  //Create pipes to child
+//  if(pipe_sources[PROCESS_IN] >= 0)
+//    RETURN_NEG(make_pipe(pipe_name, "_in"))
+//  if(pipe_sources[PROCESS_OUT] >= 0)
+//    RETURN_NEG(make_pipe(pipe_name, "_out"))
+//  if(pipe_sources[PROCESS_ERR] >= 0)
+//    RETURN_NEG(make_pipe(pipe_name, "_err"))
+//
+//  stz_byte* in_pipe = NULL;
+//  stz_byte* out_pipe = NULL;
+//  stz_byte* err_pipe = NULL;
+//  
+//  int infd  = -1;
+//  int outfd = -1;
+//  int errfd = -1;
+//
+//  //Open pipes to child process
+//  FILE* fin = NULL;
+//  if(pipe_sources[PROCESS_IN] >= 0){
+//    infd = open_pipe(pipe_name, "_in", O_RDWR);
+//    RETURN_NEG(infd)
+//    fin = fdopen(infd, "w");
+//    if(fin == NULL) return -1;
+//  }
+//  FILE* fout = NULL;
+//  if(pipe_sources[PROCESS_OUT] >= 0){
+//    outfd = open_pipe(pipe_name, "_out", O_RDWR);
+//    int fd2 = open_pipe(pipe_name, "_out", O_RDONLY | O_NONBLOCK);
+//    printf("outfd = %d, fd2 = %d\n", outfd, fd2);
+//    RETURN_NEG(outfd)
+//    printf("fout = fdopen(%d) (%s)\n", outfd, string_join(pipe_name, "_out"));
+//    fout = fdopen(outfd, "r");
+//    if(fout == NULL) return -1;
+//  }
+//  FILE* ferr = NULL;
+//  if(pipe_sources[PROCESS_ERR] >= 0){
+//    int errfd = open_pipe(pipe_name, "_err", O_RDWR);
+//    RETURN_NEG(errfd)
+//    printf("ferr = fdopen(%d) (%s)\n", errfd, string_join(pipe_name, "_err"));
+//    ferr = fdopen(errfd, "r");
+//    if(ferr == NULL) return -1;
+//  }
+//
+//  // Compute final file descriptors based on pipe sources
+//  int final_outfd = outfd;
+//  int final_errfd = errfd;
+//
+//  if(input == PROCESS_IN) in_pipe = STZ_STR("_in");
+//  if(output == PROCESS_OUT) {
+//    out_pipe = STZ_STR("_out");
+//    final_outfd = outfd;
+//  }
+//  if(output == PROCESS_ERR) {
+//    out_pipe = STZ_STR("_err");
+//    final_outfd = errfd;
+//  }
+//  if(error == PROCESS_OUT) {
+//    err_pipe = STZ_STR("_out");
+//    final_errfd = outfd;
+//  }
+//  if(error == PROCESS_ERR) {
+//    err_pipe = STZ_STR("_err");
+//    final_errfd = errfd;
+//  }
+//
+//
+//
+//  pid_t pid = -1;
+//
+//  // OS X : use posix_spawn to initialize child process
+//  #ifdef PLATFORM_OS_X
+//    // Setup
+//    posix_spawn_file_actions_t actions;
+//    posix_spawn_file_actions_init(&actions);
+//    char* child_in_pipe = in_pipe ? string_join(pipe_name, in_pipe) : NULL;
+//    char* child_out_pipe = out_pipe ? string_join(pipe_name, out_pipe) : NULL;
+//    char* child_err_pipe = err_pipe ? string_join(pipe_name, err_pipe) : NULL;
+//    // File actions
+//    // TODO: fix all the warnings
+//    int posix_ret;
+//    if (in_pipe) {
+//      if ((posix_spawn_file_actions_addopen(&actions, 0, child_in_pipe, O_RDONLY, 0)))
+//        exit_with_error();
+//      if ((posix_spawn_file_actions_adddup2(&actions, infd, 0)))
+//        exit_with_error();
+//    }
+//    if (out_pipe) {
+//      if ((posix_ret = posix_spawn_file_actions_addopen(&actions, 1, child_out_pipe, O_RDWR, 0666)))
+//        exit_with_error();
+//      printf("Opened %s to fd 1\n", child_out_pipe);
+//      printf("out: dup2(%d, 1), file = %s\n", 4, child_out_pipe);
+//      //if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, 4, 1)))
+//      //if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, 1, final_outfd)))
+//      //if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, final_outfd, 1)))
+//      //  exit_with_error();
+//    }
+//    if (err_pipe) {
+//      //if ((posix_ret = posix_spawn_file_actions_addopen(&actions, 5, child_err_pipe, O_RDWR, 0666)))
+//      //  exit_with_error();
+//      //printf("err: dup2(%d, 2), file = %s\n", 5, child_err_pipe);
+//      if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, 2, 1)))
+//        exit_with_error();
+//      printf("err: dup2(2, 1)\n");
+//    }
+//    if (working_dir) {
+//      printf("working dir: %s\n", working_dir);
+//      if ((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, working_dir)))
+//        exit_with_error();
+//    }
+//    // Call spawn
+//    if(posix_spawn(&pid, file, &actions, NULL, argvs, env_vars) == 0) {
+//      // Parent process
+//      printf("Success: child process = %d\n", pid);
+//      //int exec_r;
+//      //waitpid(pid, &exec_r, 0);
+//      //printf("Child process finished\n");
+//    } else {
+//      exit_with_error();
+//    }
+//
+//    // Clean up spawn resources
+//    posix_spawn_file_actions_destroy(&actions);
+//    stz_free(child_in_pipe);
+//    stz_free(child_out_pipe);
+//    stz_free(child_err_pipe);
+//  #endif
+//
+//  // TODO: Linux: use vfork to initialize child process
+//  #ifdef PLATFORM_LINUX
+//  #endif
+//
+//  // TODO:
+//  //Read back process id, and set errno if failed
+//  //stz_long pid = read_long(launcher_out);
+//  //if(pid < 0){
+//  //  errno = (int)(- pid);
+//  //  return -1;
+//  //}
+//
+//  //Return process structure
+//  process->pid = pid;
+//  process->in = fin;
+//  process->out = fout;
+//  process->err = ferr;
+//  printf("Returning\n");
+//  return 0;
+//}
 
 int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
 
   int status;
   int ret = waitpid((pid_t)(process->pid), &status, wait_for_termination? 0 : WNOHANG);
-
   if(ret == 0)
     *s = (ProcessState){PROCESS_RUNNING, 0};
   else if(WIFEXITED(status))

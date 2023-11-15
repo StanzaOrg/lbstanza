@@ -268,7 +268,7 @@ defn verify-installation () :
       catch (e:Exception) :
         ;Could not retrieve version of the executable.
         val msg = "Stanza install directory is set to %_, \
-                   but the version of the Stanza executable could not verified. %_"
+                   but the version of the Stanza executable could not be verified. %_"
         throw $ Exception(msg % [STANZA-INSTALL-DIR, e])
 
     ;Check that the version string is well-formatted.
