@@ -9416,45 +9416,45 @@ public defn count<?T> (pred?: T -> True|False, xs:Seqable<?T>) -> Int :
       if pred?(x) : accum = accum + 1
    accum
 
-public defn join<?T,?S> (xs0:Seqable<?T>, y:?S) -> Seq<T|S> :
-  for xs in xs0 do-seq :
-    var join? = false
-    val rs = new Seq<T|S> :
-      defmethod next (this) :
-        fatal("Empty Sequence") when empty?(xs)
-        val result = y when join? else next(xs)
-        join? = not join?
-        result
-      defmethod empty? (this) :
-        empty?(xs)
-    match(xs) :
-      (xs:Seq<T>&Lengthable) :
-        defn rs-length () :
-          if join? : length(xs) * 2
-          else : length(xs) * 2 - 1
-        wrap-length(rs, rs-length)
-      (xs) :
-        rs
+public defn join<?T,?S> (input-xs:Seqable<?T>, y:?S) -> Seq<T|S> :
+  val xs = to-seq(input-xs)
+  var join? = false
+  val rs = new Seq<T|S> :
+    defmethod next (this) :
+      fatal("Empty Sequence") when empty?(xs)
+      val result = y when join? else next(xs)
+      join? = not join?
+      result
+    defmethod empty? (this) :
+      empty?(xs)
+  match(xs) :
+    (xs:Seq<T>&Lengthable) :
+      defn rs-length () :
+        if join? : length(xs) * 2
+        else : length(xs) * 2 - 1
+      wrap-length(rs, rs-length)
+    (xs) :
+      rs
 
 public defn interleave<?T,?S> (xs0:Seqable<?T>, ys0:Seqable<?S>) -> Seq<T|S> :
-  for xs in xs0 do-seq :
-    for ys in ys0 do-seq :
-      var yield-x? = true
-      val rs = new Seq<T|S> :
-        defmethod next (this) :
-          fatal("Empty Sequence") when empty?(this)
-          val result = next(xs) when yield-x? else next(ys)
-          yield-x? = not yield-x?
-          result
-        defmethod empty? (this) :
-          empty?(xs) when yield-x? else empty?(ys)
-      match(xs, ys) :
-        (xs:Seq<T>&Lengthable, ys:Seq<S>&Lengthable) :
-          defn rs-length () :
-            if yield-x? : 2 * min(length(xs), length(ys))
-            else : 1 + 2 * min(length(xs), length(ys) - 1)
-          wrap-length(rs, rs-length)
-        (xs, ys) : rs
+  val xs = to-seq(xs0)
+  val ys = to-seq(ys0)
+  var yield-x? = true
+  val rs = new Seq<T|S> :
+    defmethod next (this) :
+      fatal("Empty Sequence") when empty?(this)
+      val result = next(xs) when yield-x? else next(ys)
+      yield-x? = not yield-x?
+      result
+    defmethod empty? (this) :
+      empty?(xs) when yield-x? else empty?(ys)
+  match(xs, ys) :
+    (xs:Seq<T>&Lengthable, ys:Seq<S>&Lengthable) :
+      defn rs-length () :
+        if yield-x? : 2 * min(length(xs), length(ys))
+        else : 1 + 2 * min(length(xs), length(ys) - 1)
+      wrap-length(rs, rs-length)
+    (xs, ys) : rs
 
 public defn reduce<?T,?S,?U> (f: (T|U, S) -> ?U, x0: ?T, xs:Seqable<?S>) -> T|U :
    var accum = x0
