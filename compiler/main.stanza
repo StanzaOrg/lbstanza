@@ -159,6 +159,7 @@ defn build-system (verbose?:True|False) :
       ;First directly try calling the cc-prog driver.
       try :
         ;Call system
+        println("Calling %_" % [to-tuple(args)])
         val return-code = call-system(to-tuple(args))
         ;Return true if successful
         return-code == 0
@@ -1210,7 +1211,6 @@ add-stanza-command(defs-db-command())
 ;============================================================
 
 public defn stanza-main (commands:Collection<Command>, default-command:String|False) :
-  initialize-process-launcher()
   set-max-heap-size(STANZA-MAX-COMPILER-HEAP-SIZE)
   simple-command-line-cli(version-message(), to-tuple(commands), default-command, true)
 

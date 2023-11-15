@@ -10,7 +10,6 @@
   #include<sys/wait.h>
   #include<sys/mman.h>
 #endif
-#include<spawn.h>
 #include<stdint.h>
 #include<stdbool.h>
 #include<unistd.h>
@@ -640,7 +639,6 @@ static int open_pipe (const char* prefix, const char* suffix, int options){
 }
 
 //Creating a named pipe
-// TODO: free name
 static int make_pipe (char* prefix, char* suffix){
   char* name = string_join(prefix, suffix);
   return mkfifo(name, S_IRUSR|S_IWUSR);
@@ -684,6 +682,17 @@ static void write_optional_strings (FILE* f, stz_byte** s){
     write_int(f, 1);
     write_strings(f, s);
   }     
+}
+
+static void write_earg (FILE* f, EvalArg* earg){
+  write_string(f, earg->pipe);
+  write_string(f, earg->in_pipe);
+  write_string(f, earg->out_pipe);
+  write_string(f, earg->err_pipe);
+  write_string(f, earg->file);
+  write_string(f, earg->working_dir);
+  write_optional_strings(f, earg->env_vars);
+  write_strings(f, earg->argvs);
 }
 
 static void write_process_state (FILE* f, ProcessState* s){
@@ -832,6 +841,159 @@ static void write_error_and_exit (int fd){
   exit(-1);
 }
 
+static void disable_ctrl_c () {
+  #ifdef PLATFORM_WINDOWS
+    SetConsoleCtrlHandler(NULL, TRUE);
+  #else
+    signal(SIGINT, SIG_IGN);
+  #endif
+}
+
+static void launcher_main (FILE* lin, FILE* lout){
+  disable_ctrl_c();
+  while(1){
+    //Read in command
+    int comm = fgetc(lin);
+    if(feof(lin)) exit(0);
+
+    //Interpret launch process command
+    if(comm == LAUNCH_COMMAND){
+      //Read in evaluation arguments
+      EvalArg* earg = read_earg(lin);
+      if(feof(lin)) exit(0);
+
+      //Create error-code pipe
+      int READ = 0;
+      int WRITE = 1;
+      int exec_error[2];
+      if(pipe(exec_error) < 0) exit_with_error();
+
+      //Fork a new child
+      stz_long pid = (stz_long)fork();
+      if(pid < 0) exit_with_error();
+
+      if(pid > 0){
+        //Read from error-code pipe
+        int exec_code;
+        close(exec_error[WRITE]);
+        int exec_r = read(exec_error[READ], &exec_code, sizeof(int));
+        close(exec_error[READ]);
+
+        if(exec_r == 0){
+          //Exec evaluated successfully
+          //Return new process id
+          write_long(lout, pid);
+          fflush(lout);
+        }
+        else if(exec_r == sizeof(int)){
+          //Exec evaluated unsuccessfully
+          //Return error code as negative long
+          write_long(lout, (stz_long)-exec_code);
+          fflush(lout);
+        }
+        else{
+          fprintf(stderr, "Unreachable code.");
+          exit(-1);
+        }
+      }else{
+        //Close exec pipe read, and close write end on successful exec
+        close(exec_error[READ]);
+        fcntl(exec_error[WRITE], F_SETFD, FD_CLOEXEC);
+
+        //Open named pipes
+        if(earg->in_pipe != NULL){
+          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->in_pipe), O_RDONLY);
+          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
+          dup2(fd, 0);
+        }
+        if(earg->out_pipe != NULL){
+          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->out_pipe), O_WRONLY);
+          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
+          dup2(fd, 1);
+        }
+        if(earg->err_pipe != NULL){
+          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->err_pipe), O_WRONLY);
+          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
+          dup2(fd, 2);
+        }
+
+        //Set the working directory of the child process if explicitly
+        //requested.
+        if (earg->working_dir) {
+          if (chdir(C_CSTR(earg->working_dir)) == -1) {
+            write_error_and_exit(exec_error[WRITE]);
+          }
+        }
+
+        //Launch child process.
+        //If an environment is supplied then call execvpe, otherwise call execvp.
+        if(earg->env_vars == NULL)
+          execvp(C_CSTR(earg->file), (char**)earg->argvs);
+        else
+          execvpe(C_CSTR(earg->file), (char**)earg->argvs, (char**)earg->env_vars);
+
+        //Unsuccessful exec, write error number
+        write_error_and_exit(exec_error[WRITE]);
+      }
+    }
+    //Interpret state retrieval command
+    else if(comm == STATE_COMMAND || comm == WAIT_COMMAND){
+      //Read in process id
+      stz_long pid = read_long(lin);
+
+      //Retrieve state
+      ProcessState s; get_process_state(pid, &s, comm == WAIT_COMMAND);
+      write_process_state(lout, &s);
+      fflush(lout);
+    }
+    //Unrecognized command
+    else{
+      fprintf(stderr, "Illegal command: %d\n", comm);
+      exit(-1);
+    }
+  }
+}
+
+static stz_long launcher_pid = -1;
+static FILE* launcher_in = NULL;
+static FILE* launcher_out = NULL;
+void initialize_launcher_process (){
+  if(launcher_pid < 0){
+    //Create pipes
+    int READ = 0;
+    int WRITE = 1;
+    int lin[2];
+    int lout[2];
+    if(pipe(lin) < 0) exit_with_error();
+    if(pipe(lout) < 0) exit_with_error();
+
+    //Fork
+    stz_long pid = (stz_long)fork();
+    if(pid < 0) exit_with_error();
+
+    if(pid > 0){
+      //Parent
+      launcher_pid = pid;
+      close(lin[READ]);
+      close(lout[WRITE]);
+      launcher_in = fdopen(lin[WRITE], "w");
+      if(launcher_in == NULL) exit_with_error();
+      launcher_out = fdopen(lout[READ], "r");
+      if(launcher_out == NULL) exit_with_error();
+    }
+    else{
+      //Child
+      close(lin[WRITE]);
+      close(lout[READ]);
+      FILE* fin = fdopen(lin[READ], "r");
+      if(fin == NULL) exit_with_error();
+      FILE* fout = fdopen(lout[WRITE], "w");
+      if(fout == NULL) exit_with_error();
+      launcher_main(fin, fout);
+    }
+  }
+}
+
 static void make_pipe_name (char* pipe_name, int pipeid) {
   sprintf(pipe_name, "/tmp/stanza_exec_pipe_%ld_%ld", (long)getpid(), (long)pipeid);
 }
@@ -860,39 +1022,12 @@ stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error, stz_int pi
   return 0;
 }
 
-//#ifdef PLATFORM_OS_X
-//stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-//                       stz_int output, stz_int error, stz_int pipeid,
-//                       stz_byte* working_dir, stz_byte** env_vars, Process* process) {
-//  //Compute pipe sources: pipe_sources[i]
-//  int pipe_sources[NUM_STREAM_SPECS];
-//  for(int i=0; i<NUM_STREAM_SPECS; i++)
-//    pipe_sources[i] = -1;
-//  pipe_sources[input] = 0;
-//  pipe_sources[output] = 1;
-//  pipe_sources[error] = 2;
-//
-//  //Compute array of pipes
-//  int pipes[NUM_STREAM_SPECS][2];
-//  for(int i=0; i<NUM_STREAM_SPECS; i++)
-//    pipe(pipes[i]);
-//
-//
-//}
-//#endif
-//
-//
-//#ifdef PLATFORM_LINUX
-//stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-//                       stz_int output, stz_int error, stz_int pipeid,
-//                       stz_byte* working_dir, stz_byte** env_vars, Process* process) {
-//}
-//#endif
- 
-// Old version
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
                        stz_int output, stz_int error, stz_int pipeid,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
+  //Initialize launcher if necessary
+  initialize_launcher_process();
+
   //Figure out unique pipe name
   char pipe_name[80];
   make_pipe_name(pipe_name, (int)pipeid);
@@ -913,180 +1048,77 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   if(pipe_sources[PROCESS_ERR] >= 0)
     RETURN_NEG(make_pipe(pipe_name, "_err"))
 
-  stz_byte* in_pipe = NULL;
-  stz_byte* out_pipe = NULL;
-  stz_byte* err_pipe = NULL;
-  
-  int infd  = -1;
-  int outfd = -1;
-  int errfd = -1;
+  //Write in command and evaluation arguments
+  EvalArg earg = {STZ_STR(pipe_name), NULL, NULL, NULL, file, working_dir, env_vars, argvs};
+  if(input == PROCESS_IN) earg.in_pipe = STZ_STR("_in");
+  if(output == PROCESS_OUT) earg.out_pipe = STZ_STR("_out");
+  if(output == PROCESS_ERR) earg.out_pipe = STZ_STR("_err");
+  if(error == PROCESS_OUT) earg.err_pipe = STZ_STR("_out");
+  if(error == PROCESS_ERR) earg.err_pipe = STZ_STR("_err");
+  int r = fputc(LAUNCH_COMMAND, launcher_in);
+  if(r == EOF) return -1;
+  write_earg(launcher_in, &earg);
+  fflush(launcher_in);
 
-  //Open pipes to child process
+  printf("input = %d, output = %d, err = %d\n", input, output, error);
+
+  //Open pipes to child
   FILE* fin = NULL;
   if(pipe_sources[PROCESS_IN] >= 0){
-    infd = open_pipe(pipe_name, "_in", O_RDWR);
-    RETURN_NEG(infd)
-    fin = fdopen(infd, "w");
+    int fd = open_pipe(pipe_name, "_in", O_WRONLY);
+    RETURN_NEG(fd)
+    fin = fdopen(fd, "w");
     if(fin == NULL) return -1;
   }
   FILE* fout = NULL;
   if(pipe_sources[PROCESS_OUT] >= 0){
-    outfd = open_pipe(pipe_name, "_out", O_RDWR);
-    RETURN_NEG(outfd)
-    printf("fout = fdopen(%d) (%s)\n", outfd, string_join(pipe_name, "_out"));
-    fout = fdopen(outfd, "r");
+    int fd = open_pipe(pipe_name, "_out", O_RDONLY);
+    RETURN_NEG(fd)
+    fout = fdopen(fd, "r");
     if(fout == NULL) return -1;
   }
   FILE* ferr = NULL;
   if(pipe_sources[PROCESS_ERR] >= 0){
-    int errfd = open_pipe(pipe_name, "_err", O_RDWR);
-    RETURN_NEG(errfd)
-    printf("ferr = fdopen(%d) (%s)\n", errfd, string_join(pipe_name, "_err"));
-    ferr = fdopen(errfd, "r");
+    int fd = open_pipe(pipe_name, "_err", O_RDONLY);
+    RETURN_NEG(fd)
+    ferr = fdopen(fd, "r");
     if(ferr == NULL) return -1;
   }
 
-  // Compute final file descriptors based on pipe sources
-  int final_outfd = outfd;
-  int final_errfd = errfd;
-
-  if(input == PROCESS_IN) in_pipe = STZ_STR("_in");
-  if(output == PROCESS_OUT) {
-    out_pipe = STZ_STR("_out");
-    final_outfd = outfd;
-  }
-  if(output == PROCESS_ERR) {
-    out_pipe = STZ_STR("_err");
-    final_outfd = errfd;
-  }
-  if(error == PROCESS_OUT) {
-    err_pipe = STZ_STR("_out");
-    final_errfd = outfd;
-  }
-  if(error == PROCESS_ERR) {
-    err_pipe = STZ_STR("_err");
-    final_errfd = errfd;
-  }
-
-
-
-  pid_t pid = -1;
-
-  // OS X : use posix_spawn to initialize child process
-  #ifdef PLATFORM_OS_X
-    // Setup
-    posix_spawn_file_actions_t actions;
-    posix_spawn_file_actions_init(&actions);
-    char* child_in_pipe = in_pipe ? string_join(pipe_name, in_pipe) : NULL;
-    char* child_out_pipe = out_pipe ? string_join(pipe_name, out_pipe) : NULL;
-    char* child_err_pipe = err_pipe ? string_join(pipe_name, err_pipe) : NULL;
-    // File actions
-    // TODO: fix all the warnings
-    int posix_ret;
-    if (in_pipe) {
-      if ((posix_spawn_file_actions_addopen(&actions, 0, child_in_pipe, O_RDONLY, 0)))
-        exit_with_error();
-      if ((posix_spawn_file_actions_adddup2(&actions, infd, 0)))
-        exit_with_error();
-    }
-    if (out_pipe) {
-      if ((posix_ret = posix_spawn_file_actions_addopen(&actions, 1, child_out_pipe, O_RDWR, 0666)))
-        exit_with_error();
-      printf("Opened %s to fd 1\n", child_out_pipe);
-      printf("out: dup2(%d, 1), file = %s\n", 4, child_out_pipe);
-      //if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, 4, 1)))
-      //if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, 1, final_outfd)))
-      //if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, final_outfd, 1)))
-      //  exit_with_error();
-    }
-    if (err_pipe) {
-      //if ((posix_ret = posix_spawn_file_actions_addopen(&actions, 5, child_err_pipe, O_RDWR, 0666)))
-      //  exit_with_error();
-      //printf("err: dup2(%d, 2), file = %s\n", 5, child_err_pipe);
-      if ((posix_ret = posix_spawn_file_actions_adddup2(&actions, 2, 1)))
-        exit_with_error();
-      printf("err: dup2(2, 1)\n");
-    }
-    if (working_dir) {
-      printf("working dir: %s\n", working_dir);
-      if ((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, working_dir)))
-        exit_with_error();
-    }
-    // Call spawn
-    if(posix_spawn(&pid, file, &actions, NULL, argvs, env_vars) == 0) {
-      // Parent process
-      printf("Success: child process = %d\n", pid);
-      //int exec_r;
-      //waitpid(pid, &exec_r, 0);
-      //printf("Child process finished\n");
-    } else {
-      exit_with_error();
-    }
-
-    // Clean up spawn resources
-    posix_spawn_file_actions_destroy(&actions);
-    stz_free(child_in_pipe);
-    stz_free(child_out_pipe);
-    stz_free(child_err_pipe);
-  #endif
-
-  // TODO: Linux: use vfork to initialize child process
-  #ifdef PLATFORM_LINUX
-  #endif
-
-  // TODO:
   //Read back process id, and set errno if failed
-  //stz_long pid = read_long(launcher_out);
-  //if(pid < 0){
-  //  errno = (int)(- pid);
-  //  return -1;
-  //}
+  stz_long pid = read_long(launcher_out);
+  if(pid < 0){
+    errno = (int)(- pid);
+    return -1;
+  }
 
   //Return process structure
   process->pid = pid;
   process->in = fin;
   process->out = fout;
   process->err = ferr;
-  printf("Returning\n");
   return 0;
 }
 
 int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
+  stz_int pid = process->pid;
+  
+  //Check whether launcher has been initialized
+  if(launcher_pid < 0){
+    fprintf(stderr, "Launcher not initialized.\n");
+    exit(-1);
+  }
 
-  int status;
-  int ret = waitpid((pid_t)(process->pid), &status, wait_for_termination? 0 : WNOHANG);
+  //Send command
+  int r = fputc(wait_for_termination? WAIT_COMMAND : STATE_COMMAND, launcher_in);
+  if(r == EOF) exit_with_error();
+  write_long(launcher_in, pid);
+  fflush(launcher_in);
 
-  if(ret == 0)
-    *s = (ProcessState){PROCESS_RUNNING, 0};
-  else if(WIFEXITED(status))
-    *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
-  else if(WIFSIGNALED(status))
-    *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
-  else if(WIFSTOPPED(status))
-    *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
-  else
-    *s = (ProcessState){PROCESS_RUNNING, 0};
-
+  //Read back process state
+  read_process_state(launcher_out, s);
   return 0;
 }
-//  stz_int pid = process->pid;
-  
-//  //Check whether launcher has been initialized
-//  if(launcher_pid < 0){
-//    fprintf(stderr, "Launcher not initialized.\n");
-//    exit(-1);
-//  }
-
-//  //Send command
-//  int r = fputc(wait_for_termination? WAIT_COMMAND : STATE_COMMAND, launcher_in);
-//  if(r == EOF) exit_with_error();
-//  write_long(launcher_in, pid);
-//  fflush(launcher_in);
-
-//  //Read back process state
-//  read_process_state(launcher_out, s);
-//  return 0;
-//}
 #else
 #include "process-win32.c"
 //============================================================
