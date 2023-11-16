@@ -10,6 +10,8 @@ defpackage stz/vm-normalize :
   import core/stack-trace
   import stz/timing-log-api
   import stz/trace-info
+  import stz/printing-utils
+  import stz/dump-to-log
 
 ;- HighStanza IntOps need to be lowered to sequences of primitive ops.
 ;- Call commands need to be broken up into register and memory arguments.
@@ -41,6 +43,10 @@ public defn packageio (p:NormVMPackage) :
 public defn name (p:NormVMPackage) :
   name(vmpackage(p))
 
+defmethod print (o:OutputStream, p:NormVMPackage) :
+  print(o, vmpackage(p))
+  lnprint(o, "norm datas%_" % [colon-field-list(datas(p))])
+
 public defn normalize (prog:VMPackage, backend:Backend) -> NormVMPackage :
   within log-time(VM-NORMALIZE, suffix(name(prog))) :
     val iotable = IOTable(packageio(prog))
@@ -49,7 +55,9 @@ public defn normalize (prog:VMPackage, backend:Backend) -> NormVMPackage :
     val funcs* = for f in funcs(prog) map :
       val func* = normalize(func(f), databuffer, backend, iotable, extern-table[id(f)])
       sub-func(f, func*)
-    NormVMPackage(sub-funcs(prog, funcs*), datas(databuffer))
+    val norm-package = NormVMPackage(sub-funcs(prog, funcs*), datas(databuffer))
+    ;dump(norm-package, "logs")
+    norm-package
 
 ;============================================================
 ;=================== Main Algorithm =========================

@@ -389,9 +389,6 @@ defn compile (e:EDefmulti, global-table:GlobalTable, iotable:IOTable, ehier:EHie
   add(progbuffer, VMDefn(n(e), func))
 
 defn compile (e:EDefmethod, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer, debug?:True|False) :
-  ;Compile the function that implements the method.
-  add(progbuffer, compile-efunction(true, n(e), false, func(e), global-table, iotable, ehier, progbuffer, debug?))
-
   ;Isolate the dispatch types for the method.
   val dispatch-types = to-tuple $
     for (arg in args(func(e)), mask in dispatch(dispatch(e) as DispatchMask)) seq? :
@@ -400,9 +397,15 @@ defn compile (e:EDefmethod, global-table:GlobalTable, iotable:IOTable, ehier:EHi
   ;Calculate the typesets that the VM uses for dispatch.
   val typesets = map(to-typeset, dispatch-types)
 
-  ;Add the VMMethod registration to the program.
-  val instance-method? = instance-method?(global-table, n(e))
-  add(progbuffer, VMMethod(instance-method?, multi(e), typesets, n(e)))
+  ;If any of the typesets are False, then this method cannot be entered.
+  if none?({_ is False}, typesets) :
+
+    ;Compile the function that implements the method.
+    add(progbuffer, compile-efunction(true, n(e), false, func(e), global-table, iotable, ehier, progbuffer, debug?))
+
+    ;Add the VMMethod registration to the program.
+    val instance-method? = instance-method?(global-table, n(e))
+    add(progbuffer, VMMethod(instance-method?, multi(e), typesets as Tuple<TypeSet>, n(e)))
 
 defn compile (e:EExternFn, global-table:GlobalTable, iotable:IOTable, ehier:EHier, progbuffer:ProgBuffer, debug?:True|False) :
   val f = func(e)
@@ -1390,10 +1393,18 @@ defn Compiler (gt:GlobalTable,
             Branch1Ins(pass-lbl, fail-lbl, false, y0())
       (ins:EMatch) :
         val ys* = map(imm!, ys(ins))
-        val branches* = for b in branches(ins) map :
-          VMBranch(map(to-typeset, types(b)), get-label(n(b)))
-        if covered?(ins) :
-          val len-1 = length(branches(ins)) - 1
+        val branches* = to-tuple $ for b in branches(ins) seq? :
+          val typesets = map(to-typeset, types(b))
+          if all?({_ is TypeSet}, typesets) :
+            One(VMBranch(typesets as Tuple<TypeSet>, get-label(n(b))))
+          else :
+            None()
+        if empty?(branches*) :
+          val arg-tuple = makedef(VMRef())
+          ctuple(arg-tuple, ys*, stack-trace-info(ins))
+          call-error(n(iotable,CORE-NO-BRANCH-ERROR-ID), [arg-tuple], stack-trace-info(ins))        
+        else if covered?(ins) :
+          val len-1 = length(branches*) - 1
           emit(MatchIns(ys*, to-tuple $ branches*[0 to len-1], n(branches*[len-1])))
         else :
           val fail-lbl = make-label()
@@ -1406,17 +1417,26 @@ defn Compiler (gt:GlobalTable,
         val ys* = map(imm!, ys(ins))
         val fail-lbl = make-label()
         val amb-lbl = make-label()
-        val branches* = for b in branches(ins) map :
-          VMBranch(map(to-typeset, types(b)), get-label(n(b)))
-        emit(DispatchIns(ys*, branches*, fail-lbl, amb-lbl))
-        emit(LabelIns(fail-lbl))
-        call-error(n(iotable,CORE-NO-BRANCH-ERROR-ID), [arg-tuple], stack-trace-info(ins)) where :
-          val arg-tuple = makedef(VMRef())
-          ctuple(arg-tuple, ys*, stack-trace-info(ins))
-        emit(LabelIns(amb-lbl))
-        call-error(n(iotable,CORE-AMB-BRANCH-ERROR-ID), [arg-tuple], stack-trace-info(ins)) where :
-          val arg-tuple = makedef(VMRef())
-          ctuple(arg-tuple, ys*, stack-trace-info(ins))
+        val branches* = to-tuple $ for b in branches(ins) seq? :
+          val typesets = map(to-typeset, types(b))
+          if all?({_ is TypeSet}, typesets) :
+            One(VMBranch(typesets as Tuple<TypeSet>, get-label(n(b))))
+          else :
+            None()
+        if empty?(branches*) :
+          call-error(n(iotable,CORE-NO-BRANCH-ERROR-ID), [arg-tuple], stack-trace-info(ins)) where :
+            val arg-tuple = makedef(VMRef())
+            ctuple(arg-tuple, ys*, stack-trace-info(ins))          
+        else :
+          emit(DispatchIns(ys*, branches*, fail-lbl, amb-lbl))
+          emit(LabelIns(fail-lbl))
+          call-error(n(iotable,CORE-NO-BRANCH-ERROR-ID), [arg-tuple], stack-trace-info(ins)) where :
+            val arg-tuple = makedef(VMRef())
+            ctuple(arg-tuple, ys*, stack-trace-info(ins))
+          emit(LabelIns(amb-lbl))
+          call-error(n(iotable,CORE-AMB-BRANCH-ERROR-ID), [arg-tuple], stack-trace-info(ins)) where :
+            val arg-tuple = makedef(VMRef())
+            ctuple(arg-tuple, ys*, stack-trace-info(ins))
       (ins:ECheckFail) :
         val t* = imm!(type(ins))
         val y* = imm!(y(ins))
@@ -1649,14 +1669,24 @@ defn map-cat<?T1,?T2,?S> (f:(T1,T2) -> Seqable<?S>, xs:Tuple<?T1>, ys:Seqable<?T
   to-tuple(seq-cat(f,xs,ys))
 
 ;Convert to typeset
-defn to-typeset (t:EType) :
+defn to-typeset (t:EType) -> TypeSet|False :
   let loop (t:EType = t) :
     match(t) :
       (t:EOf) : SingleType(n(t))
       (t:ETop) : TopType()
-      (t:EAnd) : AndType?([loop(a(t)), loop(b(t))])
-      (t:EOr) : OrType?([loop(a(t)), loop(b(t))])
+      (t:EAnd) : AndType?(loop(a(t)), loop(b(t)))
+      (t:EOr) : OrType?(loop(a(t)), loop(b(t)))
+      (t:EBot) : false
 
+defn AndType? (a:TypeSet|False, b:TypeSet|False) -> TypeSet|False :
+  match(a:TypeSet, b:TypeSet) : AndType?([a,b])
+  
+defn OrType? (a:TypeSet|False, b:TypeSet|False) -> TypeSet|False :
+  match(a, b) :
+    (a:False, b) : b
+    (a, b:False) : a
+    (a:TypeSet, b:TypeSet) : OrType?([a,b])
+    
 defn string-bytes (s:String) :
   val n = length(s)
   val a = ByteArray(n + 1)

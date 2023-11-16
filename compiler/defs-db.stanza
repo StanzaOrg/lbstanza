@@ -320,10 +320,37 @@ defn optional-arg? (arg:FArg<DType>) -> True|False :
 ;------------- Computing Definition Annotations -------------
 ;------------------------------------------------------------
 
+doc: \<DOC>
+Extract the Parent Types from a `deftype`
+This function assumes that the parent type for a deftype can
+only be combined with the `&` operator. The other options are
+no operator (1 parent) or no parents.
+This function is recursive.
+<DOC>
+defn extract-parent-types (parent:IExp, nm:NameMap) -> Seqable<Symbol|False> :
+  match(parent):
+    (op:IAnd):
+      for elem in [a(op), b(op)] seq-cat :
+        extract-parent-types(elem, nm)
+    (n:IVoid): []
+    (e): [stringify?(e, nm)]
+
 ;Create an annotation for a top-level expression.
 defn annotate? (iexp:IExp, nm:NameMap) -> False|DefinitionAnnotation :
   match(iexp) :
-    (idefn:IDefn|IDefmethod|ILSDefn|ILSDefmethod) :
+    (idefvar:IDefVar) : DefVarAnnotation(true)
+    (idefval:IDef) : DefVarAnnotation(false)
+    (ideftype:IDefType|ILSDefType):
+      val targs? = for a in args(ideftype) seq:
+        stringify?(a, nm)
+      val targs = to-tuple $ filter-by<Symbol>(targs?)
+      val parents? = extract-parent-types(parent(ideftype), nm)
+      val parents = to-tuple $ filter-by<Symbol>(parents?)
+      DefTypeAnnotation(
+        targs,
+        parents
+      )
+    (idefn:IDefn|IDefmethod|IDefmulti|ILSDefn|ILSDefmethod) :
       DefnAnnotation(targs, args, return-type?) where :
         val return-type? = stringify?(a2(idefn), nm)
         val targs = to-tuple $
@@ -344,6 +371,8 @@ defn annotate? (iexp:IExp, nm:NameMap) -> False|DefinitionAnnotation :
 ;Create an annotation for a PackageIO Export expression.
 defn annotate? (export:Export, nm:NameMap) -> False|DefinitionAnnotation :
   match(rec(export)) :
+    (v:ValRec) : DefVarAnnotation(mutable?(v))
+    (v:ExternRec) : DefVarAnnotation(false)
     (rec:FnRec|MultiRec) :
       DefnAnnotation(targs, args, return-type?) where :
         val fnid = id(rec) as FnId
@@ -414,6 +443,7 @@ public defn kindof (r:Rec) -> SrcDefinitionKind :
 deftype Indexable :
   VarN         <: Indexable
   IDef         <: Indexable
+  IDefVar      <: Indexable
   IDefn        <: Indexable
   IDefmulti    <: Indexable
   IDefmethod   <: Indexable
