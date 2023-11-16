@@ -609,32 +609,25 @@ static int count_non_null (void** xs){
 //------------------ Child Processes -------------------------
 //------------------------------------------------------------
 
-// This is the max that the parent can _ever_ allocate
-// this approach is dumb
-// but simple
-const int MAX_PROCESSES = 64;
-
 // Process metadata struct
 typedef struct {
   pid_t pid;
-  int* pipe_arr;
+  int (*pipe_arr)[NUM_STREAM_SPECS][2];
   FILE* fin;
   FILE* fout;
   FILE* ferr;
-  int exit_status; // init to -1
 } ChildProcess;
 
 // Free everything allocated by ChildProcess
-static void cleanup_child (ChildProcess* c, int status) {
-  c->exit_status = status;
+static void cleanup_proc (ChildProcess* c, int status) {
   // Close files
   fclose(c->fin);
   fclose(c->fout);
   fclose(c->ferr);
-  // Close pipes (TODO: is the indexing OK?)
+  // Close pipes
   for(int i = 0; i<NUM_STREAM_SPECS; i++) {
-    close(((c->pipe_arr) + (i * sizeof(int)))[0]);
-    close(((c->pipe_arr) + (i * sizeof(int)))[1]);
+    close(*(c->pipe_arr)[i][0]);
+    close(*(c->pipe_arr)[i][1]);
   }
   // Destroy refs
   c->pipe_arr = NULL;
@@ -664,11 +657,18 @@ ProcessNode* proc_head = NULL;
 DeadNode* dead_head = NULL;
 
 // Record process metadata
-static void register_proc (ChildProcess* c) {
+static void register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fin, FILE* fout, FILE* ferr) {
+  // Init ChildProcess struct
+  ChildProcess* child = (ChildProcess*)malloc(sizeof(ChildProcess));
+  if(child == NULL) exit_with_error();
+  child->pid = pid;
+  child->pipe_arr = pipes;
+  child->fin = fin;
+  child->ferr = ferr;
+  // Store child in ProcessNode
   ProcessNode* new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
-  if(new_node == NULL)
-    exit_with_error();
-  new_node->proc = c;
+  if(new_node == NULL) exit_with_error();
+  new_node->proc = child;
   new_node->next = proc_head;
   proc_head = new_node;
 }
@@ -676,14 +676,14 @@ static void register_proc (ChildProcess* c) {
 // Record a dead process
 static void register_dead_proc (DeadProcess* c) {
   DeadNode* new_node = (DeadNode*)malloc(sizeof(DeadNode));
-  if(new_node == NULL)
-    exit_with_error();
+  if(new_node == NULL) exit_with_error();
   new_node->proc = c;
   new_node->next = dead_head;
   dead_head = new_node;
 }
 
-static void kill_child (pid_t pid, int status) {
+// Cleanup all resources for process pid
+static void cleanup_child (pid_t pid, int status) {
   ProcessNode* curr = proc_head;
   ProcessNode* prev = NULL;
   // Find matching Node
@@ -699,7 +699,7 @@ static void kill_child (pid_t pid, int status) {
       prev->next = curr->next;
     }
     // Cleanup resources, generate a DeadProcess node to store exit status
-    cleanup_child(curr->proc, status);
+    cleanup_proc(curr->proc, status);
     DeadProcess* dead_proc = (DeadProcess*)malloc(sizeof(DeadProcess));
     dead_proc->pid = pid;
     dead_proc->status = status;
@@ -707,20 +707,21 @@ static void kill_child (pid_t pid, int status) {
   }
 }
 
-void sigchild_handler(int signo) {
+void sigchld_handler(int sig) {
   int status;
   pid_t pid;
 
   // Cleanup zombie child processes
   while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-    kill_child(pid, status);
+    if(WIFEXITED(status) || WIFSIGNALED(status))
+      cleanup_child(pid, status);
   }
 }
 
+// Free all ChildProcess nodes and their contents
 static void free_processes () {
   ProcessNode* curr = proc_head;
   ProcessNode* tmp = NULL;
-  // Free all nodes and their contents
   while(curr != NULL) {
     tmp = curr;
     curr = curr->next;
@@ -729,10 +730,10 @@ static void free_processes () {
   }
 }
 
+// Free all DeadProcess nodes and their contents 
 static void free_dead_processes () {
   DeadNode* curr = dead_head;
   DeadNode* tmp = NULL;
-  // Free all nodes and their contents 
   while(curr != NULL) {
     tmp = curr;
     curr = curr->next;
@@ -886,21 +887,20 @@ stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error) {
   return 0;
 }
 
-// TODO: delete this
-// Only included for testing linux implementation on OSX
-#ifdef PLATFORM_OS_X
-extern char **environ;
-int execvpe(const char *program, char **argv, char **envp){
-  char **saved = environ;
-  environ = envp;
-  int rc = execvp(program, argv);
-  environ = saved;
-  return rc;
-}
-#endif
+// Useful for testing linux implementation on OSX
+//#ifdef PLATFORM_OS_X
+//extern char **environ;
+//int execvpe(const char *program, char **argv, char **envp){
+//  char **saved = environ;
+//  environ = envp;
+//  int rc = execvp(program, argv);
+//  environ = saved;
+//  return rc;
+//}
+//#endif
 
 #ifdef PLATFORM_LINUX
-//if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
+//#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
                        stz_int output, stz_int error,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
@@ -948,7 +948,8 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     process->in = fin;
     process->out = fout;
     process->err = ferr;
-    // TODO: register with SIGCHILD handler
+
+    register_proc(pid, &pipes, fin, fout, ferr);
   } 
   // Child: setup pipes, exec
   else {
@@ -1062,7 +1063,6 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   // Spawn process
   pid_t pid = -1;
   if(posix_spawn(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars) == 0) {
-    // TODO: setup SIGCHILD handler
     //printf("Child pid: %d\n", pid);
   } else {
     exit_with_error();
@@ -1096,6 +1096,8 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   process->in = fin;
   process->out = fout;
   process->err = ferr;
+
+  register_proc(pid, &pipes, fin, fout, ferr);
   return 0;
 }
 #endif
@@ -1242,6 +1244,13 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
 
   //Initialize trackers to empty list.
   init.trackers = NULL;
+
+  //Setup SIGCHLD handler
+  struct sigaction sa;
+  sa.sa_handler = sigchld_handler;
+  sa.sa_flags = SA_RESTART|SA_NOCLDSTOP;
+  sigaction(SIGCHLD, &sa, NULL);
+
 
   //Call Stanza entry
   stanza_entry(&init);
