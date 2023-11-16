@@ -730,7 +730,7 @@ static void free_processes () {
   }
 }
 
-// Free all DeadProcess nodes and their contents 
+// Free all DeadProcess nodes and their contents
 static void free_dead_processes () {
   DeadNode* curr = dead_head;
   DeadNode* tmp = NULL;
@@ -781,7 +781,7 @@ static void write_optional_strings (FILE* f, stz_byte** s){
   }else{
     write_int(f, 1);
     write_strings(f, s);
-  }     
+  }
 }
 
 static void write_process_state (FILE* f, ProcessState* s){
@@ -925,7 +925,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
   // Parent: open files, register with signal handler
   if(pid > 0) {
-    FILE* fin = NULL;  
+    FILE* fin = NULL;
     if(pipe_sources[PROCESS_IN] > 0) {
       close(pipes[PROCESS_IN][0]);
       fin = fdopen(pipes[PROCESS_IN][1], "w");
@@ -950,7 +950,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     process->err = ferr;
 
     register_proc(pid, &pipes, fin, fout, ferr);
-  } 
+  }
   // Child: setup pipes, exec
   else {
     //Setup input pipe if used
