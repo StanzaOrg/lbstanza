@@ -818,80 +818,69 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   }
   // TODO: don't spawn
 
+  stz_long pid = (stz_long)vfork();
+  if(pid < 0) exit_with_error();
+  if(pid > 0) { // Parent
+    FILE* fin = NULL;  
+    if(pipe_sources[PROCESS_IN] > 0) {
+      close(pipes[PROCESS_IN][0]);
+      fin = fdopen(pipes[PROCESS_IN][1], "w");
+      if(fin == NULL) return -1;
+    }
+    FILE* fout = NULL;
+    if(pipe_sources[PROCESS_OUT] > 0) {
+      close(pipes[PROCESS_OUT][1]);
+      fout = fdopen(pipes[PROCESS_OUT][0], "r");
+      if(fout == NULL) return -1;
+    }
+    FILE* ferr = NULL;
+    if(pipe_sources[PROCESS_ERR] > 0) {
+      close(pipes[PROCESS_ERR][1]);
+      ferr = fdopen(pipes[PROCESS_ERR][0], "r");
+      if(ferr == NULL) return -1;
+    }
 
-  int posix_ret;
-  //Setup input pipe if used
-  if(pipe_sources[PROCESS_IN] > 0) {
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][1])))
-      exit_with_error();
-    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_IN][0], STDIN_FILENO)))
-      exit_with_error();
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][0])))
-      exit_with_error();
+    process->pid = pid;
+    process->in = fin;
+    process->out = fout;
+    process->err = ferr;
+    // TODO: register with SIGCHILD handler
+  } else { // Child
+    //Setup input pipe if used
+    if(pipe_sources[PROCESS_IN] > 0) {
+      if(close(pipes[PROCESS_IN][1]) < 0)
+        exit_with_error();
+      if(dup2(pipes[PROCESS_IN][0], STDIN_FILENO) < 0)
+        exit_with_error();
+      if(close(pipes[PROCESS_IN][0]) < 0)
+        exit_with_error();
+    }
+    //Setup output pipe if used
+    if(pipe_sources[PROCESS_OUT] > 0) {
+      if(close(pipes[PROCESS_OUT][0]) < 0)
+        exit_with_error();
+      if(dup2(pipes[PROCESS_OUT][1], STDOUT_FILENO) < 0)
+        exit_with_error();
+      if(close(pipes[PROCESS_OUT][1]) < 0)
+        exit_with_error();
+    }
+    //Setup error pipe if used
+    if(pipe_sources[PROCESS_ERR] > 0) {
+      if(close(pipes[PROCESS_ERR][0]) < 0)
+        exit_with_error();
+      if(dup2(pipes[PROCESS_ERR][1], STDERR_FILENO) < 0)
+        exit_with_error();
+      if(close(pipes[PROCESS_ERR][1]) < 0)
+        exit_with_error();
+    }
+    //Setup working directory
+    if(working_dir) {
+      // TODO: is this cast OK?
+      if(chdir(C_CSTR(working_dir)) < 0)
+        exit_with_error();
+    }
+    // TODO: exec
   }
-  //Setup output pipe if used
-  if(pipe_sources[PROCESS_OUT] > 0) {
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][0])))
-      exit_with_error();
-    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDOUT_FILENO)))
-      exit_with_error();
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][1])))
-      exit_with_error();
-  }
-  //Setup error pipe if used
-  if(pipe_sources[PROCESS_ERR] > 0) {
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][0])))
-      exit_with_error();
-    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDERR_FILENO)))
-      exit_with_error();
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][1])))
-      exit_with_error();
-  }
-  //Setup working directory
-  if(working_dir) {
-    // TODO: is this cast OK?
-    if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, (const char *) working_dir)))
-      exit_with_error();
-  }
-
-  // Spawn process
-  pid_t pid = -1;
-  // TODO: are these casts OK?
-  if(posix_spawn(&pid, (const char *) file, &actions, NULL, (char * const *) argvs, (char * const *) env_vars) == 0) {
-    // TODO: setup SIGCHILD handler
-    //printf("Child pid: %d\n", pid);
-  } else {
-    exit_with_error();
-  }
-
-  // Cleanup
-  posix_spawn_file_actions_destroy(&actions);
-
-  //Parent:
-  //Close pipes, setup files
-  FILE* fin = NULL;
-  if(pipe_sources[PROCESS_IN] > 0) {
-    close(pipes[PROCESS_IN][0]);
-    fin = fdopen(pipes[PROCESS_IN][1], "w");
-    if(fin == NULL) return -1;
-  }
-  FILE* fout = NULL;
-  if(pipe_sources[PROCESS_OUT] > 0) {
-    close(pipes[PROCESS_OUT][1]);
-    fout = fdopen(pipes[PROCESS_OUT][0], "r");
-    if(fout == NULL) return -1;
-  }
-  FILE* ferr = NULL;
-  if(pipe_sources[PROCESS_ERR] > 0) {
-    close(pipes[PROCESS_ERR][1]);
-    ferr = fdopen(pipes[PROCESS_ERR][0], "r");
-    if(ferr == NULL) return -1;
-  }
-
-  process->pid = pid;
-  process->in = fin;
-  process->out = fout;
-  process->err = ferr;
   return 0;
 }
 #endif
@@ -951,15 +940,13 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   }
   //Setup working directory
   if(working_dir) {
-    // TODO: is this cast OK?
-    if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, (const char *) working_dir)))
+    if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, C_CSTR(working_dir))))
       exit_with_error();
   }
 
   // Spawn process
   pid_t pid = -1;
-  // TODO: are these casts OK?
-  if(posix_spawn(&pid, (const char *) file, &actions, NULL, (char * const *) argvs, (char * const *) env_vars) == 0) {
+  if(posix_spawn(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char **)env_vars) == 0) {
     // TODO: setup SIGCHILD handler
     //printf("Child pid: %d\n", pid);
   } else {
