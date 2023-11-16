@@ -798,7 +798,21 @@ stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error) {
   return 0;
 }
 
+// TODO: delete this
+// Only included for testing linux implementation on OSX
+#ifdef PLATFORM_OS_X
+extern char **environ;
+int execvpe(const char *program, char **argv, char **envp){
+  char **saved = environ;
+  environ = envp;
+  int rc = execvp(program, argv);
+  environ = saved;
+  return rc;
+}
+#endif
+
 #ifdef PLATFORM_LINUX
+//if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
                        stz_int output, stz_int error,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
@@ -811,16 +825,18 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   pipe_sources[error] = 2;
 
   //Generate array of pipes per-input-source
-  //TODO: close these at some point
   int pipes[NUM_STREAM_SPECS][2];
   for(int i=0; i<NUM_STREAM_SPECS; i++) {
     if(pipe(pipes[i])) return -1;
   }
-  // TODO: don't spawn
 
+  // Fork child process
   stz_long pid = (stz_long)vfork();
+
   if(pid < 0) exit_with_error();
-  if(pid > 0) { // Parent
+
+  // Parent: open files, register with signal handler
+  if(pid > 0) {
     FILE* fin = NULL;  
     if(pipe_sources[PROCESS_IN] > 0) {
       close(pipes[PROCESS_IN][0]);
@@ -845,7 +861,9 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     process->out = fout;
     process->err = ferr;
     // TODO: register with SIGCHILD handler
-  } else { // Child
+  } 
+  // Child: setup pipes, exec
+  else {
     //Setup input pipe if used
     if(pipe_sources[PROCESS_IN] > 0) {
       if(close(pipes[PROCESS_IN][1]) < 0)
@@ -875,11 +893,19 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     }
     //Setup working directory
     if(working_dir) {
-      // TODO: is this cast OK?
       if(chdir(C_CSTR(working_dir)) < 0)
         exit_with_error();
     }
-    // TODO: exec
+
+    //Launch child process.
+    //If an environment is supplied then call execvpe, otherwise call execvp.
+    int cstatus;
+    if(env_vars == NULL)
+      cstatus = execvp(C_CSTR(file), (char**)argvs);
+    else
+      cstatus = execvpe(C_CSTR(file), (char**)argvs, (char**)env_vars);
+    if(cstatus < 0)
+      exit_with_error();
   }
   return 0;
 }
@@ -900,7 +926,6 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   pipe_sources[error] = 2;
 
   //Generate array of pipes per-input-source
-  //TODO: close these at some point
   int pipes[NUM_STREAM_SPECS][2];
   for(int i=0; i<NUM_STREAM_SPECS; i++) {
     if(pipe(pipes[i])) return -1;
@@ -938,15 +963,17 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][1])))
       exit_with_error();
   }
+
   //Setup working directory
   if(working_dir) {
     if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, C_CSTR(working_dir))))
       exit_with_error();
   }
 
+
   // Spawn process
   pid_t pid = -1;
-  if(posix_spawn(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char **)env_vars) == 0) {
+  if(posix_spawn(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars) == 0) {
     // TODO: setup SIGCHILD handler
     //printf("Child pid: %d\n", pid);
   } else {

@@ -85,8 +85,8 @@ protected extern stz_memory_resize: (ptr<?>, long, long) -> int
   protected extern launch_process: (ptr<byte>, int, int, int, ptr<byte>, ptr<byte>, ptr<?>) -> int
   protected extern close_process_handle: (ptr<byte>) -> int
 #else:
-  protected extern launch_process: (ptr<byte>, ptr<ptr<byte>>, int, int, int, int, ptr<byte>, ptr<ptr<byte>>, ptr<?>) -> int
-  protected extern delete_process_pipes: (ptr<?>, ptr<?>, ptr<?>, int) -> int
+  protected extern launch_process: (ptr<byte>, ptr<ptr<byte>>, int, int, int, ptr<byte>, ptr<ptr<byte>>, ptr<?>) -> int
+  protected extern delete_process_pipes: (ptr<?>, ptr<?>, ptr<?>) -> int
 protected extern retrieve_process_state: (ptr<?>, ptr<?>, int) -> int
 
 
