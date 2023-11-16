@@ -613,6 +613,8 @@ static int count_non_null (void** xs){
 // this approach is dumb
 // but simple
 const int MAX_PROCESSES = 64;
+
+// Process metadata struct
 typedef struct {
   pid_t pid;
   int* pipe_arr;
@@ -622,27 +624,14 @@ typedef struct {
   int exit_status; // init to -1
 } ChildProcess;
 
-ChildProcess* child_processes[MAX_PROCESSES];
-int num_processes = 0;
-
-static void register_proc (ChildProcess* c) {
-  child_processes[num_processes] = c;
-  num_processes++;
-}
-
-static ChildProcess* get_child (pid_t pid) {
-  for(int i = 0; i < num_processes; i++)
-    if(child_processes[i]->pid == pid) return child_processes[i];
-  return NULL;
-}
-
-static void kill_child (ChildProcess* c, int exit_code) {
-  c->exit_status = exit_code;
+// Free everything allocated by ChildProcess
+static void cleanup_child (ChildProcess* c, int status) {
+  c->exit_status = status;
   // Close files
   fclose(c->fin);
   fclose(c->fout);
   fclose(c->ferr);
-  // Close pipes
+  // Close pipes (TODO: is the indexing OK?)
   for(int i = 0; i<NUM_STREAM_SPECS; i++) {
     close(((c->pipe_arr) + (i * sizeof(int)))[0]);
     close(((c->pipe_arr) + (i * sizeof(int)))[1]);
@@ -653,6 +642,105 @@ static void kill_child (ChildProcess* c, int exit_code) {
   c->fout = NULL;
   c->ferr = NULL;
 }
+
+// Dead process exit code struct
+typedef struct {
+  pid_t pid;
+  int status;
+} DeadProcess;
+
+// Linked lists of alive/dead processes
+typedef struct ProcessNode {
+  ChildProcess* proc;
+  struct ProcessNode* next;
+} ProcessNode;
+
+typedef struct DeadNode {
+  DeadProcess* proc;
+  struct DeadNode* next;
+} DeadNode;
+
+ProcessNode* proc_head = NULL;
+DeadNode* dead_head = NULL;
+
+// Record process metadata
+static void register_proc (ChildProcess* c) {
+  ProcessNode* new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
+  if(new_node == NULL)
+    exit_with_error();
+  new_node->proc = c;
+  new_node->next = proc_head;
+  proc_head = new_node;
+}
+
+// Record a dead process
+static void register_dead_proc (DeadProcess* c) {
+  DeadNode* new_node = (DeadNode*)malloc(sizeof(DeadNode));
+  if(new_node == NULL)
+    exit_with_error();
+  new_node->proc = c;
+  new_node->next = dead_head;
+  dead_head = new_node;
+}
+
+static void kill_child (pid_t pid, int status) {
+  ProcessNode* curr = proc_head;
+  ProcessNode* prev = NULL;
+  // Find matching Node
+  while(curr != NULL && curr->proc->pid != pid) {
+    prev = curr;
+    curr = curr->next;
+  }
+  if(curr != NULL) {
+    // Remove node from list of alive processes
+    if(prev == NULL) {
+      proc_head = curr->next;
+    } else {
+      prev->next = curr->next;
+    }
+    // Cleanup resources, generate a DeadProcess node to store exit status
+    cleanup_child(curr->proc, status);
+    DeadProcess* dead_proc = (DeadProcess*)malloc(sizeof(DeadProcess));
+    dead_proc->pid = pid;
+    dead_proc->status = status;
+    register_dead_proc(dead_proc);
+  }
+}
+
+void sigchild_handler(int signo) {
+  int status;
+  pid_t pid;
+
+  // Cleanup zombie child processes
+  while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+    kill_child(pid, status);
+  }
+}
+
+static void free_processes () {
+  ProcessNode* curr = proc_head;
+  ProcessNode* tmp = NULL;
+  // Free all nodes and their contents
+  while(curr != NULL) {
+    tmp = curr;
+    curr = curr->next;
+    free(tmp->proc);
+    free(tmp);
+  }
+}
+
+static void free_dead_processes () {
+  DeadNode* curr = dead_head;
+  DeadNode* tmp = NULL;
+  // Free all nodes and their contents 
+  while(curr != NULL) {
+    tmp = curr;
+    curr = curr->next;
+    free(tmp->proc);
+    free(tmp);
+  }
+}
+
 
 #endif
 
@@ -1158,6 +1246,8 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
   //Call Stanza entry
   stanza_entry(&init);
 
+  free_processes();
+  free_dead_processes();
   //Heap and freespace are disposed by OS at process termination
   return 0;
 }
