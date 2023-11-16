@@ -9,8 +9,8 @@
 #else
   #include<sys/wait.h>
   #include<sys/mman.h>
+  #include<spawn.h>
 #endif
-#include<spawn.h>
 #include<stdint.h>
 #include<stdbool.h>
 #include<unistd.h>
