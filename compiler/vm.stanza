@@ -26,6 +26,8 @@ defpackage stz/vm :
   import stz/absolute-info
   import stz/trace-info
   import core/stack-trace
+  import stz/asmjit
+  import clib
 
 ;<doc>=======================================================
 ;================= Virtual Machine Interface ================
@@ -341,6 +343,7 @@ lostanza defn update-vmstate (vm:ref<VirtualMachine>) -> ref<False> :
   vms.data-mem = vmt.data.mem
   vms.code-offsets = vmt.function-addresses.data
   vms.trie-table = trie-table-data(branch-table(vm))
+  vms.dispatchers = dispatchers-data(branch-table(vm))
   vms.class-table = packed-class-table(vmt.class-table)
   return false
 
@@ -356,6 +359,8 @@ public defn VirtualMachine (dylibs:LoadedDynamicLibraries) :
       VirtualMachine(dylibs, L64Backend())
     #else :
       VirtualMachine(dylibs, X64Backend())
+
+defn jit? () : contains?(EXPERIMENTAL-FEATURES, `jit)
 
 public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend:ref<Backend>) -> ref<VirtualMachine> :
   val vmstate:ptr<VMState> = call-c clib/malloc(sizeof(VMState))
@@ -379,10 +384,10 @@ public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend
   val extern-defns = ExternDefnTable(backend)
   val vm-ids = VMIds(dylibs, extern-defns)
   val class-table = ClassTable()
-  val branch-table = BranchTable(class-table)
+  val branch-table = BranchTable(class-table, jit?(), backend)
   val linker = Linker(branch-table)
   val resolver = EncodingResolver(class-table, branch-table, live-map-table(linker), dylibs, extern-defns)
-  val code-table = make-code-table(resolver, backend)
+  val code-table = make-code-table(resolver, backend, branch-table)
   val vmtable = VMTable(class-table, branch-table, code-table)
   val vm = new VirtualMachine{dylibs, extern-defns, backend, vmtable, vm-ids, linker, vmstate, false}
   update-vmstate(vm)
@@ -390,8 +395,8 @@ public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend
 
 ;Make an appropriate CodeTable depending on whether the user has
 ;enabled the JIT.
-defn make-code-table (resolver:EncodingResolver, backend:Backend) -> CodeTable :
-  if contains?(EXPERIMENTAL-FEATURES, `jit) : JITCodeTable(resolver, backend)
+defn make-code-table (resolver:EncodingResolver, backend:Backend, branch-table:BranchTable) -> CodeTable :
+  if jit?() : JITCodeTable(resolver, backend, branch-table)
   else : CVMCodeTable()
 
 lostanza defn vm-iterate-roots (f:ptr<((ptr<long>, ptr<core/VMState>) -> ref<False>)>,
@@ -896,12 +901,12 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
 
       ;Load functions
       vprintln("VM: Encoding functions")
+      ;Compute the functions that are exposed externally via callbacks.
+      val callback-set = to-intset(seq(function-id, callbacks(load-unit)))
+      ;Create the encoding resolver for compiling the function.
+      val encoding-resolver = EncodingResolver(class-table(vm), branch-table(vm), live-map-table(linker(vm)),
+                                               dynamic-libraries(vm), extern-defns(vm))
       within log-time(LOAD-FUNCTIONS) :
-        ;Compute the functions that are exposed externally via callbacks.
-        val callback-set = to-intset(seq(function-id, callbacks(load-unit)))
-        ;Create the encoding resolver for compiling the function.
-        val encoding-resolver = EncodingResolver(class-table(vm), branch-table(vm), live-map-table(linker(vm)),
-                                                 dynamic-libraries(vm), extern-defns(vm))
         ;Load each of the functions.
         for f in funcs(load-unit) do :
           load-function(vmt, f, callback-set[id(f)], encoding-resolver, backend(vm))
@@ -916,7 +921,7 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
       ;Update the virtual machine state
       vprintln("VM: Updating branch table")
       within log-time(UPDATE-BRANCH-TABLE) :
-        update(branch-table(vm))
+        update(branch-table(vm), encoding-resolver)
       vprintln("VM: Updating VMState")
       within log-time(UPDATE-VMSTATE) :
         update-vmstate(vm)

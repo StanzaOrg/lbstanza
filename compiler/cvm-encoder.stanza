@@ -14,10 +14,16 @@ defpackage stz/cvm-encoder :
   import stz/code-table
   import stz/vm-opcodes
   import stz/trace-info
+  import stz/asmjit
+  import stz/params
 
 public defstruct EncodedFunction :
-  buffer: ByteBuffer
+  jit?: True|False
+  func: ByteBuffer|Func
   trace-entries: Vector<TraceTableEntry>
+
+public defn byte-buffer! (f:EncodedFunction) -> ByteBuffer :
+  func(f) as ByteBuffer
 
 public defn encode (func:VMFunction,
                     resolver:EncodingResolver,
@@ -698,7 +704,7 @@ public defn encode (func:VMFunction,
   ;Use delayed actions and encode instructions
   within delay-actions() :
     encode(func as VMMultifn|VMFunc)
-  EncodedFunction(buffer, trace-entry-table)
+  EncodedFunction(contains?(EXPERIMENTAL-FEATURES, `jit), buffer, trace-entry-table)
 
 ;============================================================
 ;====================== Utilities ===========================
