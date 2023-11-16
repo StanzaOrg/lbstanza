@@ -605,6 +605,54 @@ static int count_non_null (void** xs){
 }
 
 
+//------------------------------------------------------------
+//------------------ Child Processes -------------------------
+//------------------------------------------------------------
+
+// This is the max that the parent can _ever_ allocate
+// this approach is dumb
+// but simple
+const int MAX_PROCESSES = 64;
+typedef struct {
+  pid_t pid;
+  int* pipe_arr;
+  FILE* fin;
+  FILE* fout;
+  FILE* ferr;
+  int exit_status; // init to -1
+} ChildProcess;
+
+ChildProcess* child_processes[MAX_PROCESSES];
+int num_processes = 0;
+
+static void register_proc (ChildProcess* c) {
+  child_processes[num_processes] = c;
+  num_processes++;
+}
+
+static ChildProcess* get_child (pid_t pid) {
+  for(int i = 0; i < num_processes; i++)
+    if(child_processes[i]->pid == pid) return child_processes[i];
+  return NULL;
+}
+
+static void kill_child (ChildProcess* c, int exit_code) {
+  c->exit_status = exit_code;
+  // Close files
+  fclose(c->fin);
+  fclose(c->fout);
+  fclose(c->ferr);
+  // Close pipes
+  for(int i = 0; i<NUM_STREAM_SPECS; i++) {
+    close(((c->pipe_arr) + (i * sizeof(int)))[0]);
+    close(((c->pipe_arr) + (i * sizeof(int)))[1]);
+  }
+  // Destroy refs
+  c->pipe_arr = NULL;
+  c->fin = NULL;
+  c->fout = NULL;
+  c->ferr = NULL;
+}
 
 #endif
 
@@ -750,6 +798,104 @@ stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error, stz_int pi
   return 0;
 }
 
+#ifdef PLATFORM_LINUX
+stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
+                       stz_int output, stz_int error, stz_int pipeid,
+                       stz_byte* working_dir, stz_byte** env_vars, Process* process) {
+  //Compute pipe sources:
+  int pipe_sources[NUM_STREAM_SPECS];
+  for(int i=0; i<NUM_STREAM_SPECS; i++)
+    pipe_sources[i] = -1;
+  pipe_sources[input] = 0;
+  pipe_sources[output] = 1;
+  pipe_sources[error] = 2;
+
+  //Generate array of pipes per-input-source
+  //TODO: close these at some point
+  int pipes[NUM_STREAM_SPECS][2];
+  for(int i=0; i<NUM_STREAM_SPECS; i++) {
+    if(pipe(pipes[i])) return -1;
+  }
+
+  int posix_ret;
+  //Setup input pipe if used
+  if(pipe_sources[PROCESS_IN] > 0) {
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][1])))
+      exit_with_error();
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_IN][0], STDIN_FILENO)))
+      exit_with_error();
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][0])))
+      exit_with_error();
+  }
+  //Setup output pipe if used
+  if(pipe_sources[PROCESS_OUT] > 0) {
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][0])))
+      exit_with_error();
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDOUT_FILENO)))
+      exit_with_error();
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][1])))
+      exit_with_error();
+  }
+  //Setup error pipe if used
+  if(pipe_sources[PROCESS_ERR] > 0) {
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][0])))
+      exit_with_error();
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDERR_FILENO)))
+      exit_with_error();
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][1])))
+      exit_with_error();
+  }
+  //Setup working directory
+  if(working_dir) {
+    // TODO: is this cast OK?
+    if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, (const char *) working_dir)))
+      exit_with_error();
+  }
+
+  // Spawn process
+  pid_t pid = -1;
+  // TODO: are these casts OK?
+  if(posix_spawn(&pid, (const char *) file, &actions, NULL, (char * const *) argvs, (char * const *) env_vars) == 0) {
+    // TODO: setup SIGCHILD handler
+    //printf("Child pid: %d\n", pid);
+  } else {
+    exit_with_error();
+  }
+
+  // Cleanup
+  posix_spawn_file_actions_destroy(&actions);
+
+  //Parent:
+  //Close pipes, setup files
+  FILE* fin = NULL;
+  if(pipe_sources[PROCESS_IN] > 0) {
+    close(pipes[PROCESS_IN][0]);
+    fin = fdopen(pipes[PROCESS_IN][1], "w");
+    if(fin == NULL) return -1;
+  }
+  FILE* fout = NULL;
+  if(pipe_sources[PROCESS_OUT] > 0) {
+    close(pipes[PROCESS_OUT][1]);
+    fout = fdopen(pipes[PROCESS_OUT][0], "r");
+    if(fout == NULL) return -1;
+  }
+  FILE* ferr = NULL;
+  if(pipe_sources[PROCESS_ERR] > 0) {
+    close(pipes[PROCESS_ERR][1]);
+    ferr = fdopen(pipes[PROCESS_ERR][0], "r");
+    if(ferr == NULL) return -1;
+  }
+
+  process->pid = pid;
+  process->in = fin;
+  process->out = fout;
+  process->err = ferr;
+  return 0;
+}
+#endif
+
+
+
 #ifdef PLATFORM_OS_X
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
                        stz_int output, stz_int error, stz_int pipeid,
@@ -849,6 +995,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   return 0;
 }
 #endif
+
 
 
 
