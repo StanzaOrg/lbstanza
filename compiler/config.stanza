@@ -260,10 +260,7 @@ defn verify-installation () :
     val v =
       try :
         ;Retrieve the version of the executable.
-        println("Calling %_" % [exe-file])
-        val o = call-system-and-get-output(exe-file, [exe-file, "version", "-terse"])
-        println("Called %_" % [exe-file])
-        o
+        call-system-and-get-output(exe-file, [exe-file, "version", "-terse"])
 
       catch (e:Exception) :
         ;Could not retrieve version of the executable.

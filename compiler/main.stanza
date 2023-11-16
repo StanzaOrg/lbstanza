@@ -159,7 +159,6 @@ defn build-system (verbose?:True|False) :
       ;First directly try calling the cc-prog driver.
       try :
         ;Call system
-        println("Calling %_" % [to-tuple(args)])
         val return-code = call-system(to-tuple(args))
         ;Return true if successful
         return-code == 0
