@@ -261,7 +261,6 @@ defn verify-installation () :
       try :
         ;Retrieve the version of the executable.
         call-system-and-get-output(exe-file, [exe-file, "version", "-terse"])
-
       catch (e:Exception) :
         ;Could not retrieve version of the executable.
         val msg = "Stanza install directory is set to %_, \

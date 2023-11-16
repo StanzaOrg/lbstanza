@@ -87,7 +87,6 @@ protected extern stz_memory_resize: (ptr<?>, long, long) -> int
 #else:
   protected extern launch_process: (ptr<byte>, ptr<ptr<byte>>, int, int, int, int, ptr<byte>, ptr<ptr<byte>>, ptr<?>) -> int
   protected extern delete_process_pipes: (ptr<?>, ptr<?>, ptr<?>, int) -> int
-  ;protected extern initialize_launcher_process: () -> int
 protected extern retrieve_process_state: (ptr<?>, ptr<?>, int) -> int
 
 
@@ -10235,13 +10234,6 @@ public lostanza defn error-stream (p:ref<Process>) -> ref<InputStream> :
     if p.error == null : fatal(String("Process has no error stream."))
     p.error-stream = new FileInputStream{p.error, 0}
   return p.error-stream as ref<FileInputStream>
-
-;                          Initialization
-;                          ==============
-;public lostanza defn initialize-process-launcher () -> ref<False> :
-;  #if-not-defined(PLATFORM-WINDOWS):
-;    call-c clib/initialize_launcher_process()
-;  return false
 
 ;                            State API
 ;                            =========
