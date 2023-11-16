@@ -430,7 +430,7 @@ defn gen (os:OutputStream, ins:Ins, backend:Backend) :
 
    defn #pic-set (x:Loc, y:ExMem) :
       #println(os, "  movq %_@GOTPCREL(%%rip), %_" % [#lbl(y), #imm(LongT(),x)])
-      #println(os, "  addq $_, %_" % [offset(y), #imm(LongT(), x)]) when offset(y) != 0
+      #println(os, "  addq %_, %_" % [offset(y), #imm(LongT(), x)]) when offset(y) != 0
 
    ;     Convert Instruction
    ;     -------------------
