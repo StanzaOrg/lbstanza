@@ -7,15 +7,12 @@
 //communicating with it.
 //- pid: The id of the process. 
 //- handle: The Windows handle to the process. Not used by other platforms.
-//- pipeid: A unique integer used to generate the names of the named pipes for communication.
-//          Will be set to -1 for Windows to indicate that no named pipes are created.
 //- in: The standard input stream of the Process.
 //- out: The standard output stream of the Process.
 //- err: The standard error stream of the Process.
 typedef struct {
   stz_long pid;
   void* handle;
-  stz_int pipeid;
   FILE* in;
   FILE* out;
   FILE* err;

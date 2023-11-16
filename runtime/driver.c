@@ -788,7 +788,7 @@ static int delete_process_pipe (FILE* fd) {
   return 0;
 }
 
-stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error, stz_int pipeid) {
+stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error) {
   if (delete_process_pipe(input) < 0)
     return -1;
   if (delete_process_pipe(output) < 0)
@@ -800,7 +800,7 @@ stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error, stz_int pi
 
 #ifdef PLATFORM_LINUX
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int pipeid,
+                       stz_int output, stz_int error,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
@@ -816,6 +816,8 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   for(int i=0; i<NUM_STREAM_SPECS; i++) {
     if(pipe(pipes[i])) return -1;
   }
+  // TODO: don't spawn
+
 
   int posix_ret;
   //Setup input pipe if used
@@ -898,7 +900,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
 #ifdef PLATFORM_OS_X
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int pipeid,
+                       stz_int output, stz_int error,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
