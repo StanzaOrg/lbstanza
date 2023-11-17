@@ -1145,14 +1145,20 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
   } else {
     *s = (ProcessState){PROCESS_RUNNING, 0}; //exit_with_error();
   }
-  if(wait_for_termination) {
-    sleep(1);
-    // TODO: check again 
-  }
 
   // TODO: maybe use the last argument and reset to initial state?
+  // TODO: use pselect to unblock and wait for SIGCHLD
   if(sigprocmask(SIG_UNBLOCK, &sigchld_mask, NULL))
     exit_with_error();
+
+  // TODO: possible race condition if SIGCHLD hits here
+
+  if(wait_for_termination && !(WIFSIGNALED(status) || WIFEXITED(status))) {
+    // sleep should be interrupted by SIGCHLD
+    sleep(100);
+    // TODO: check again 
+    retrieve_process_state(process, s, wait_for_termination);
+  }
 
   return 0;
 }
