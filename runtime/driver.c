@@ -75,6 +75,11 @@ static void exit_with_error_line_and_func (const char* file, int line){
 
 #define exit_with_error() exit_with_error_line_and_func(__FILE__, __LINE__)
 
+static void throw_error (const char * msg) {
+  fprintf(stderr, "%s\n", msg);
+  exit(-1);
+}
+
 //     Stanza Defined Entities
 //     =======================
 typedef struct{
@@ -689,7 +694,7 @@ static void register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* f
   // Init and register ProcessStatus struct
   ProcessStatus* pstatus = (ProcessStatus*)malloc(sizeof(ProcessStatus));
   pstatus->pid = pid;
-  // TODO: is this OK? Maybe I don't even need to initialize
+  // TODO: is status=-1 OK?
   pstatus->status = -1;
   register_proc_status(pstatus);
 }
@@ -746,7 +751,6 @@ static void update_status (pid_t pid, int status) {
 void sigchld_handler(int sig) {
   int status;
   pid_t pid;
-
   while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
     // Cleanup dead process
     if(WIFEXITED(status) || WIFSIGNALED(status))
@@ -754,6 +758,8 @@ void sigchld_handler(int sig) {
     // Update process status 
     update_status(pid, status);
   }
+  // it's OK if there are no more children
+  if(pid < 0 && errno != ECHILD) exit_with_error();
 }
 
 // Free all ProcessNodes and their contents
@@ -941,7 +947,6 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   stz_long pid = (stz_long)vfork();
 
   if(pid < 0) exit_with_error();
-
   // Parent: open files, register with signal handler
   if(pid > 0) {
     FILE* fin = NULL;
@@ -1078,15 +1083,14 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
       exit_with_error();
   }
 
-
-  // Spawn process
   pid_t pid = -1;
-  if(posix_spawn(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars) == 0) {
-    //printf("Child pid: %d\n", pid);
+  int spawn_ret;
+  if((spawn_ret = posix_spawnp(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars)) == 0) {
+    // success
   } else {
-    exit_with_error();
+    errno = spawn_ret; // might not want to do this manually?
+    return -1;
   }
-
   // Cleanup
   posix_spawn_file_actions_destroy(&actions);
 
@@ -1128,9 +1132,11 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
 
   int status;
 
-  sigset_t sigchld_mask;
+  sigset_t sigchld_mask, empty_mask;
   sigemptyset(&sigchld_mask);
   sigaddset(&sigchld_mask, SIGCHLD);
+  // useful later
+  sigemptyset(&empty_mask);
 
   // block SIGCHLD during check
   if(sigprocmask(SIG_BLOCK, &sigchld_mask, NULL))
@@ -1143,24 +1149,35 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
       *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
     else if(WIFSTOPPED(status))
       *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
-    else exit_with_error();
+    else // exit_with_error();
+      *s = (ProcessState){PROCESS_RUNNING, 0};
   } else {
-    *s = (ProcessState){PROCESS_RUNNING, 0}; //exit_with_error();
+    char* err;
+    sprintf(err, "Process %lld not found", process->pid);
+    throw_error(err);
   }
-
-  // TODO: maybe use the last argument and reset to initial state?
-  // TODO: use pselect to unblock and wait for SIGCHLD
-  if(sigprocmask(SIG_UNBLOCK, &sigchld_mask, NULL))
-    exit_with_error();
-
-  // TODO: possible race condition if SIGCHLD hits here
 
   if(wait_for_termination && !(WIFSIGNALED(status) || WIFEXITED(status))) {
-    // sleep should be interrupted by SIGCHLD
-    sleep(100);
-    // TODO: check again 
-    retrieve_process_state(process, s, wait_for_termination);
+    // TODO: maybe parameterize? This is kinda silly
+    struct timespec to = {100, 0};
+    if(pselect(0, NULL, NULL, NULL, &to, &empty_mask) < 0) {
+      if(errno == EINTR) {// Signal interrupt; try again
+        // reset mask to original state
+        if(sigprocmask(SIG_UNBLOCK, &sigchld_mask, NULL))
+          exit_with_error();
+        // try again
+        retrieve_process_state(process, s, wait_for_termination);
+      } else {
+        exit_with_error();
+      }
+    }
+    else { // timeout, try again
+      retrieve_process_state(process, s, wait_for_termination);
+    }
   }
+
+  // reset mask to original state
+  if(sigprocmask(SIG_UNBLOCK, &sigchld_mask, NULL)) exit_with_error();
 
   return 0;
 }
