@@ -86,7 +86,6 @@ protected extern stz_memory_resize: (ptr<?>, long, long) -> int
   protected extern close_process_handle: (ptr<byte>) -> int
 #else:
   protected extern launch_process: (ptr<byte>, ptr<ptr<byte>>, int, int, int, ptr<byte>, ptr<ptr<byte>>, ptr<?>) -> int
-  protected extern delete_process_pipes: (ptr<?>, ptr<?>, ptr<?>) -> int
 protected extern retrieve_process_state: (ptr<?>, ptr<?>, int) -> int
 
 
@@ -10265,12 +10264,6 @@ lostanza defn retrieve-state (p:ref<Process>, wait-for-termination?:ref<True|Fal
   val DONE = 1
   val TERMINATED = 2
   val STOPPED = 3
-
-  #if-not-defined(PLATFORM-WINDOWS):
-    if s.state != RUNNING :
-      val res = call-c clib/delete_process_pipes(p.input, p.output, p.error)
-      if res < 0 :
-        throw(SystemCallException(linux-error-msg()))
 
   ;Translation
   if s.state == RUNNING :

@@ -620,8 +620,8 @@ typedef struct {
 
 // Free everything allocated by ChildProcess
 static void cleanup_proc (ChildProcess* c, int status) {
-  // Close files
-  fclose(c->fin);
+  // Close files. TODO: should I check for EOF to throw an error?
+  fclose(c->fin); 
   fclose(c->fout);
   fclose(c->ferr);
   // Close pipes
@@ -680,6 +680,20 @@ static void register_dead_proc (DeadProcess* c) {
   new_node->proc = c;
   new_node->next = dead_head;
   dead_head = new_node;
+}
+
+// Retrieve state of a dead process
+static int get_state (pid_t pid, int* status) {
+  DeadNode* curr = dead_head;
+  while(curr != NULL && curr->proc->pid != pid) {
+    curr = curr->next;
+  }
+  if(curr != NULL) {
+    *status = curr->proc->status;
+    return 0;
+  } else { // pid not found
+    return -1;
+  }
 }
 
 // Cleanup all resources for process pid
@@ -867,24 +881,6 @@ static void write_error_and_exit (int fd){
   write(fd, &code, sizeof(int));
   close(fd);
   exit(-1);
-}
-
-static int delete_process_pipe (FILE* fd) {
-  if (fd != NULL) {
-    int close_res = fclose(fd);
-    if (close_res == EOF) return -1;
-  }
-  return 0;
-}
-
-stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error) {
-  if (delete_process_pipe(input) < 0)
-    return -1;
-  if (delete_process_pipe(output) < 0)
-    return -1;
-  if (delete_process_pipe(error) < 0)
-    return -1;
-  return 0;
 }
 
 // Useful for testing linux implementation on OSX
@@ -1108,17 +1104,34 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
 
   int status;
-  int ret = waitpid((pid_t)(process->pid), &status, wait_for_termination? 0 : WNOHANG);
-  if(ret == 0)
-    *s = (ProcessState){PROCESS_RUNNING, 0};
-  else if(WIFEXITED(status))
-    *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
-  else if(WIFSIGNALED(status))
-    *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
-  else if(WIFSTOPPED(status))
-    *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
-  else
-    *s = (ProcessState){PROCESS_RUNNING, 0};
+
+  sigset_t sigchld_mask;
+  sigemptyset(&sigchld_mask);
+  sigaddset(&sigchld_mask, SIGCHLD);
+
+  // block SIGCHLD during check
+  if(sigprocmask(SIG_BLOCK, &sigchld_mask, NULL))
+    exit_with_error();
+
+  if(get_state(process->pid, &status) == 0) {
+    if(WIFEXITED(status))
+      *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
+    else if(WIFSIGNALED(status))
+      *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
+    else if(WIFSTOPPED(status))
+      *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
+    else exit_with_error();
+  } else {
+    *s = (ProcessState){PROCESS_RUNNING, 0}; //exit_with_error();
+  }
+  if(wait_for_termination) {
+    sleep(1);
+    // TODO: check again 
+  }
+
+  // TODO: maybe use the last argument and reset to initial state?
+  if(sigprocmask(SIG_UNBLOCK, &sigchld_mask, NULL))
+    exit_with_error();
 
   return 0;
 }
