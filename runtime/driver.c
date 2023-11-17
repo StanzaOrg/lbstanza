@@ -1304,18 +1304,22 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
   //Initialize trackers to empty list.
   init.trackers = NULL;
 
-  //Setup SIGCHLD handler
-  struct sigaction sa;
-  sa.sa_handler = sigchld_handler;
-  sa.sa_flags = SA_RESTART;
-  sigaction(SIGCHLD, &sa, NULL);
+  #if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
+    //Setup SIGCHLD handler
+    struct sigaction sa;
+    sa.sa_handler = sigchld_handler;
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGCHLD, &sa, NULL);
+  #endif
 
 
   //Call Stanza entry
   stanza_entry(&init);
 
-  free_processes();
-  free_status_nodes();
+  #if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
+    free_processes();
+    free_status_nodes();
+  #endif
   //Heap and freespace are disposed by OS at process termination
   return 0;
 }
