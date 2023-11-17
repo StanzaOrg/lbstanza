@@ -616,6 +616,7 @@ typedef struct {
   FILE* fin;
   FILE* fout;
   FILE* ferr;
+  int status;
 } ChildProcess;
 
 // Free everything allocated by ChildProcess
@@ -665,6 +666,7 @@ static void register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* f
   child->pipe_arr = pipes;
   child->fin = fin;
   child->ferr = ferr;
+  child->status = -1;
   // Store child in ProcessNode
   ProcessNode* new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
   if(new_node == NULL) exit_with_error();
@@ -683,6 +685,9 @@ static void register_dead_proc (DeadProcess* c) {
 }
 
 // Retrieve state of a dead process
+// TODO: this will not detect STOPPED since it will still be in the 
+//   list of live processes
+// maybe make a separate list of process statuses?
 static int get_state (pid_t pid, int* status) {
   DeadNode* curr = dead_head;
   while(curr != NULL && curr->proc->pid != pid) {
@@ -721,6 +726,21 @@ static void cleanup_child (pid_t pid, int status) {
   }
 }
 
+
+// Cleanup all resources for process pid
+static void update_child (pid_t pid, int status) {
+  ProcessNode* curr = proc_head;
+  // Find matching Node
+  while(curr != NULL && curr->proc->pid != pid) {
+    curr = curr->next;
+  }
+  if(curr != NULL) {
+    curr->proc->status = status;
+  }
+}
+
+
+
 void sigchld_handler(int sig) {
   int status;
   pid_t pid;
@@ -729,6 +749,7 @@ void sigchld_handler(int sig) {
   while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
     if(WIFEXITED(status) || WIFSIGNALED(status))
       cleanup_child(pid, status);
+    else update_child(pid, status);
   }
 }
 
@@ -1261,7 +1282,7 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
   //Setup SIGCHLD handler
   struct sigaction sa;
   sa.sa_handler = sigchld_handler;
-  sa.sa_flags = SA_RESTART|SA_NOCLDSTOP;
+  sa.sa_flags = SA_RESTART;
   sigaction(SIGCHLD, &sa, NULL);
 
 
