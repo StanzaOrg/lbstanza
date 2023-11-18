@@ -126,7 +126,8 @@ defsyntax stanza-projfile :
                   entry?(bs, `ccfiles)
                   entry?(bs, `ccflags)
                   entry?(bs, `flags)
-                  entry?(bs, `optimize, false))
+                  entry?(bs, `optimize, false)
+                  entry?(bs, `debug, false))
 
   defrule projstmt = (var ?name:#symbol! = ?v:#projvalue!) :
     VarStmtS0(closest-info(), name, v)
@@ -201,6 +202,7 @@ defsyntax stanza-projfile :
   defrule build-option! = (ccflags #:! ?v:#projvalue!) : `ccflags => v
   defrule build-option! = (flags #:! ?v:#projvalue!) : `flags => v
   defrule build-option! = (optimize) : `optimize => true
+  defrule build-option! = (debug) : `debug => true
 
   ;----------------------------------------------------------
   ;--------------------- Error Productions ------------------
