@@ -651,7 +651,7 @@ static void cleanup_proc (ChildProcess* c) {
 
 // Process status struct
 typedef struct ProcessStatus {
-  stz_int pipeid;
+  stz_int stz_proc_id;
   int status;
 } ProcessStatus;
 
@@ -676,11 +676,11 @@ static int register_proc_status (ProcessStatus* c) {
 }
 
 // Record process metadata
-static int register_proc (pid_t pid, stz_int pipeid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fin, FILE* fout, FILE* ferr) {
+static int register_proc (pid_t pid, stz_int stz_proc_id, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fin, FILE* fout, FILE* ferr) {
 
   // Init and register ProcessStatus struct
   ProcessStatus* pstatus = (ProcessStatus*)malloc(sizeof(ProcessStatus));
-  pstatus->pipeid = pipeid;
+  pstatus->stz_proc_id = stz_proc_id;
   // TODO: is status=-1 OK?
   pstatus->status = -1;
   RETURN_NEG(register_proc_status(pstatus))
@@ -705,9 +705,9 @@ static int register_proc (pid_t pid, stz_int pipeid, int (*pipes)[NUM_STREAM_SPE
 
 
 // Retrieve process state
-static int get_status (stz_int pipeid, int* status) {
+static int get_status (stz_int stz_proc_id, int* status) {
   StatusNode* curr = status_head;
-  while(curr != NULL && curr->proc->pipeid != pipeid) {
+  while(curr != NULL && curr->proc->stz_proc_id != stz_proc_id) {
     curr = curr->next;
   }
   if(curr != NULL) {
@@ -920,7 +920,7 @@ static void free_strings (stz_byte** ss){
 #ifdef PLATFORM_LINUX
 //#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int pipeid,
+                       stz_int output, stz_int error, stz_int stz_proc_id,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
@@ -962,12 +962,12 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     }
 
     process->pid = pid;
-    process->pipeid = pipeid;
+    process->stz_proc_id = stz_proc_id;
     process->in = fin;
     process->out = fout;
     process->err = ferr;
 
-    RETURN_NEG(register_proc(pid, pipeid, &pipes, fin, fout, ferr))
+    RETURN_NEG(register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr))
   }
   // Child: setup pipes, exec
   else {
@@ -1020,7 +1020,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
 #ifdef PLATFORM_OS_X
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int pipeid,
+                       stz_int output, stz_int error, stz_int stz_proc_id,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
@@ -1108,12 +1108,12 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   }
 
   process->pid = pid;
-  process->pipeid = pipeid;
+  process->stz_proc_id = stz_proc_id;
   process->in = fin;
   process->out = fout;
   process->err = ferr;
 
-  RETURN_NEG(register_proc(pid, pipeid, &pipes, fin, fout, ferr))
+  RETURN_NEG(register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr))
   return 0;
 }
 #endif
@@ -1133,7 +1133,7 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
   if(sigprocmask(SIG_BLOCK, &sigchld_mask, &old_mask))
     exit_with_error();
 
-  if(get_status(process->pipeid, &status) == 0) {
+  if(get_status(process->stz_proc_id, &status) == 0) {
     if(WIFEXITED(status))
       *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
     else if(WIFSIGNALED(status))

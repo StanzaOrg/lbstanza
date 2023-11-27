@@ -9918,7 +9918,7 @@ public val CURRENT-PLATFORM:Platform =
 public lostanza deftype Process <: Unique :
   var pid: long
   var handle: ptr<?>
-  var pipeid: int
+  var stz-proc-id: int
   var input: ptr<?>
   var output: ptr<?>
   var error: ptr<?>
@@ -10087,7 +10087,6 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
         return copy-buffer-to-stable-memory(buffer)
 
 #else:
-  val PIPE-ID-GENERATOR = Random()
   public lostanza defn Process (filename:ref<String>,
                                 args0:ref<Seqable<String>>,
                                 input:ref<StreamSpecifier>,
@@ -10099,8 +10098,8 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     ensure-valid-env-var-names!(env-vars)
     ensure-valid-stream-specifiers(input, output, error)
     val args = to-tuple(args0)
-    val pipe-id = next-int(PIPE-ID-GENERATOR).value
-    val proc = new Process{0, null, pipe-id, null, null, null, false, false, false, false}
+    val stz-proc-id = genid().value 
+    val proc = new Process{0, null, stz-proc-id, null, null, null, false, false, false, false}
     val input_v = value(input).value
     val output_v = value(output).value
     val error_v = value(error).value
@@ -10122,7 +10121,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
 
     ;Launch the process
     val launch_succ = call-c clib/launch_process(addr!(filename.chars), argvs,
-      input_v, output_v, error_v, pipe-id, working-dir-chars, env-var-string, addr!([proc]))
+      input_v, output_v, error_v, stz-proc-id, working-dir-chars, env-var-string, addr!([proc]))
 
     ;Free the memory created using malloc.
     free-linux-env-var-string(env-var-string)
