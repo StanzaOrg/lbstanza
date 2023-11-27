@@ -1125,6 +1125,8 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
 
   int status;
 
+  bool state_unknown = true;
+
   sigset_t sigchld_mask, old_mask;
   sigemptyset(&sigchld_mask);
   sigaddset(&sigchld_mask, SIGCHLD);
@@ -1133,36 +1135,38 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
   if(sigprocmask(SIG_BLOCK, &sigchld_mask, &old_mask))
     exit_with_error();
 
-  if(get_status(process->stz_proc_id, &status) == 0) {
-    if(WIFEXITED(status))
-      *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
-    else if(WIFSIGNALED(status))
-      *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
-    else if(WIFSTOPPED(status))
-      *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
-    else
-      *s = (ProcessState){PROCESS_RUNNING, 0};
-  } else {
-    char* err;
-    sprintf(err, "Process %lld not found", process->pid);
-    throw_error(err);
-  }
+  while(state_unknown) {
+    if(get_status(process->stz_proc_id, &status) == 0) {
+      if(WIFEXITED(status))
+        *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
+      else if(WIFSIGNALED(status))
+        *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
+      else if(WIFSTOPPED(status))
+        *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
+      else
+        *s = (ProcessState){PROCESS_RUNNING, 0};
+      state_unknown = false;
+    } else {
+      char* err;
+      sprintf(err, "Process %lld not found", process->pid);
+      throw_error(err);
+    }
 
-  if(wait_for_termination && !(WIFSIGNALED(status) || WIFEXITED(status))) {
-    // no file descriptors or timeout; just wait indefinitely for an interrupt
-    if(pselect(0, NULL, NULL, NULL, NULL, &old_mask) < 0) {
-      if(errno == EINTR) {// Signal interrupt; try again
-        // reset mask to original state
-        if(sigprocmask(SIG_UNBLOCK, &sigchld_mask, NULL))
+    if(wait_for_termination && !(WIFSIGNALED(status) || WIFEXITED(status))) {
+      // no file descriptors or timeout; just wait indefinitely for an interrupt
+      if(pselect(0, NULL, NULL, NULL, NULL, &old_mask) < 0) {
+        if(errno == EINTR) {
+          // interrupt: try again
+          state_unknown = true;
+        } else {
+          // non-interrupt error: impossible
           exit_with_error();
-        // try again
-        retrieve_process_state(process, s, wait_for_termination);
-      } else {
-        exit_with_error();
+        }
       }
     }
-    else { // timeout, try again
-      retrieve_process_state(process, s, wait_for_termination);
+    if(!wait_for_termination) { // TODO: should this be an else?
+      // do not loop if we don't need the process to terminate
+      state_unknown = false;
     }
   }
 

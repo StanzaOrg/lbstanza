@@ -2435,7 +2435,7 @@ public lostanza defn collect-garbage (allocation-size:long, vms:ptr<VMState>) ->
 
     ;Step 1. Define the desired size of the nursery.
     val nursery-size = compute-nursery-size(allocation-size, heap)
-    
+
     ;Determine whether we should attempt a partial GC at all.
     ;Skip the partial GC if the desired nursery size is less than the
     ;amount of space available.
@@ -3520,7 +3520,7 @@ defstruct DyCtxtFrame :
 ;Create a new non-finally dynamic context frame.
 defn DyCtxtFrame (in:False|(() -> ?),
                   out:False|(() -> ?)) -> DyCtxtFrame :
-  DyCtxtFrame(false, in, out)                
+  DyCtxtFrame(false, in, out)
 
 ;Create a new finally dynamic context frame.
 defn DyCtxtFinallyFrame (out:False|(() -> ?)) -> DyCtxtFrame :
@@ -3626,7 +3626,7 @@ defn empty? (s:DyCtxtState) -> True|False :
   empty?(frames(s))
 
 ;Execute and push a new frame onto the state.
-;The frame is pushed *after* it executes. 
+;The frame is pushed *after* it executes.
 defn push-frame (s:DyCtxtState, f:DyCtxtFrame) -> False :
   match(in(f)) :
     (f:False) : false
@@ -3685,7 +3685,7 @@ defn wind-in (winder:DyCtxtWinder, c:RawCoroutine) -> False :
         exec-frame(cos, key(entry), value(entry))
     defn* exec-frame (cos:List<RawCoroutine>, co-id:Int, frame:DyCtxtFrame) :
       val co = head(cos)
-      if id(co) == co-id :        
+      if id(co) == co-id :
         push-frame(dy-ctxt-state(co), frame)
         pop-next-frame(cos)
       else :
@@ -3865,7 +3865,7 @@ lostanza defmethod resume (c:ref<RawCoroutine>, x:ref<?>) -> ref<?> :
 
   ;Adjust state
   attach-coroutine(c)
-  
+
   ;Begin execution
   val result = call-prim yield(current-coroutine.stack, x)
 
@@ -3979,7 +3979,7 @@ lostanza defn free-coroutine (c:ref<RawCoroutine>) -> int :
 ;Fix up the .parent, .status, and .crsp links from
 ;attaching the given coroutine to 'current-coroutine'.
 ;The current coroutine will be set to the last parent in the chain.
-lostanza defn attach-coroutine (c:ref<RawCoroutine>) -> int :  
+lostanza defn attach-coroutine (c:ref<RawCoroutine>) -> int :
   labels :
     begin :
       goto loop(c)
@@ -5174,7 +5174,7 @@ lostanza defmethod get-int (i:ref<FileInputStream>) -> ref<False|Int> :
   if n == 4 :
     val int-ptr = addr!(READ-BUFFER.chars) as ptr<int>
     return new Int{[int-ptr]}
-  return false    
+  return false
 
 ;Optimized implementation for FileInputStream.
 lostanza defmethod get-long (i:ref<FileInputStream>) -> ref<False|Long> :
@@ -5196,7 +5196,7 @@ lostanza defmethod get-float (i:ref<FileInputStream>) -> ref<False|Float> :
   if n == 4 :
     val float-ptr = addr!(READ-BUFFER.chars) as ptr<float>
     return new Float{[float-ptr]}
-  return false      
+  return false
 
 ;Generic implementation for all input streams.
 defmethod get-double (i:InputStream) -> False|Double :
@@ -6084,7 +6084,7 @@ defmethod print (o:OutputStream, e:CreateDirException) :
 ;Recursively create all directories that lead up to filepath.
 ;Behaves like 'mkdir -p'.
 ;Throws an exception if the filepath (or a path leading up to filepath)
-;is not a directory. 
+;is not a directory.
 public defn create-dir-recursive (filepath:String,
                                   permissions:Int) -> False :
   val path = parse-path(filepath)
@@ -6174,7 +6174,7 @@ public lostanza defn get-env-vars () -> ref<Tuple<KeyValue<String,String>>> :
 
 ;Helper: Add x to vector v if x is not empty.
 defn add?<?T> (v:Vector<?T>, x:Maybe<T>) -> False :
-  add(v,value!(x)) when not empty?(x)  
+  add(v,value!(x)) when not empty?(x)
 
 ;Helper: Parse an env-var string with foramt: "VAR=VALUE".
 ;Returns None() if it is not in that format.
@@ -8381,7 +8381,7 @@ public defn map<?R> (f: Int -> ?R, r:Range) -> List<R> :
 
 ;An efficient implementation for the most commonly-used
 ;type of Range: a starting integer, an exclusive ending integer,
-;and a step of +1. 
+;and a step of +1.
 public deftype SimpleRange <: Range
 
 ;A SimpleRange always has a step of +1, and has
@@ -8577,7 +8577,7 @@ defmethod to-seq<?T> (s:Seq<?T>) : s
 ;must not be empty.
 public defmulti next<?T> (s:Seq<?T>) -> T
 
-;Test whether the sequence is empty. 
+;Test whether the sequence is empty.
 public defmulti empty? (s:Seq) -> True|False
 
 ;Release any resources required by the seq. Default
@@ -8615,16 +8615,16 @@ public defn PeekSeq<?T> (xs-seq:Seq<?T>) -> PeekSeq<T> :
   ;not be empty. This function guarantees that the buffer
   ;is full.
   defn fill () : (item = next(xs-seq)) when item is Sentinel
-  
+
   new PeekSeq<T> :
-  
+
     defmethod next (this) :
       ;Retrieve the next item in the buffer, and then
       ;empty the buffer.
       val x = peek(this)
       item = sentinel
       x
-      
+
     defmethod peek (this) :
       ;Ensure that the buffer is full. If the underlying
       ;Seq is empty, this call will properly fail.
@@ -8632,7 +8632,7 @@ public defn PeekSeq<?T> (xs-seq:Seq<?T>) -> PeekSeq<T> :
       ;If the fill() succeeds, then we're guaranteed that
       ;the buffer is full.
       item as T
-      
+
     defmethod empty? (this) :
       ;The PeekSeq is empty if both the buffer is empty
       ;and the underlying sequence is empty.
@@ -8982,7 +8982,7 @@ public defn first!<?T,?S,?R> (f: (T,S) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<
 
 ;Helper function that creates a sequence from a generating
 ;function. The generating function returns Sentinel when it
-;is exhausted. 
+;is exhausted.
 ;- f: The callback that is called repeatedly to retrieve
 ;  each item in the sequence. When the sequence is empty, f must
 ;  return and continue returning Sentinel.
@@ -9323,7 +9323,7 @@ public defn cat-all<?T> (input-xss:Seqable<Seqable<?T>>) -> Seq<T> :
   ;Hold the currently active sequence. Initialized
   ;to false in the beginning.
   var xs:Seq<T>|False = false
-  
+
   ;Advance 'xs' to first non empty? seq. Returns true if any is available.
   ;Guarantees that 'xs' is a non empty seq in this case.
   defn* ready? () -> True|False :
@@ -9335,7 +9335,7 @@ public defn cat-all<?T> (input-xss:Seqable<Seqable<?T>>) -> Seq<T> :
         ready?()
     else :
       true
-      
+
   new Seq :
     defmethod next (this) :
       ready?()
@@ -10098,7 +10098,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     ensure-valid-env-var-names!(env-vars)
     ensure-valid-stream-specifiers(input, output, error)
     val args = to-tuple(args0)
-    val stz-proc-id = genid().value 
+    val stz-proc-id = genid().value
     val proc = new Process{0, null, stz-proc-id, null, null, null, false, false, false, false}
     val input_v = value(input).value
     val output_v = value(output).value
@@ -10137,7 +10137,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     match(env-vars) :
       (env-vars:ref<False>) :
         return null
-      (env-vars:ref<Tuple<KeyValue<String,String>>>) :        
+      (env-vars:ref<Tuple<KeyValue<String,String>>>) :
         val n = env-vars.length
         val scratch = ByteBuffer()
         val env-array:ptr<ptr<byte>> = call-c clib/malloc((n + 1) * sizeof(ptr<?>))
@@ -10219,7 +10219,7 @@ public defn Process (filename:String,
                      working-dir:String|False,
                      env-vars:Tuple<KeyValue<String,String>>|False) -> Process :
   Process(filename, args, input, output, error, working-dir, env-vars, AddEnvVars)
-                                
+
 ;Default working-dir is false. Default env-vars is false.
 public defn Process (filename:String, args:Seqable<String>,
                      input:StreamSpecifier, output:StreamSpecifier, error:StreamSpecifier) -> Process :
@@ -10315,7 +10315,7 @@ public defn call-system (filename:String,
                          env-vars:Tuple<KeyValue<String,String>>|False) -> Int :
   match(wait(Process(filename, args, working-dir, env-vars))) :
     (s:ProcessDone) : value(s)
-    (s) : throw(ProcessAbortedError(s))  
+    (s) : throw(ProcessAbortedError(s))
 
 public defn call-system (file:String, args:Seqable<String>) -> Int :
   call-system(file, args, false, false)
@@ -10323,12 +10323,12 @@ public defn call-system (file:String, args:Seqable<String>) -> Int :
 public defn call-system (args:Tuple<String>,
                          working-dir:String|False,
                          env-vars:Tuple<KeyValue<String,String>>|False) -> Int :
-  if empty?(args) :                       
+  if empty?(args) :
     fatal("Arguments must have length 1. Program name is expected to be first argument.")
   call-system(args[0], args, working-dir, env-vars)
 
 public defn call-system (args:Tuple<String>) -> Int :
-  if empty?(args) :                       
+  if empty?(args) :
     fatal("Arguments must have minimum length 1. Program name is expected to be first argument.")
   call-system(args[0], args, false, false)
 
@@ -10357,16 +10357,16 @@ public defn call-system-and-get-output (file:String, args:Seqable<String>) -> St
 public defn call-system-and-get-output (args:Tuple<String>,
                                         working-dir:String|False,
                                         env-vars:Tuple<KeyValue<String,String>>|False) -> String :
-  if empty?(args) :                       
-    fatal("Arguments must have minimum length 1. Program name is expected to be first argument.")  
+  if empty?(args) :
+    fatal("Arguments must have minimum length 1. Program name is expected to be first argument.")
   call-system-and-get-output(args[0],
                              args,
                              working-dir,
                              env-vars)
 
 public defn call-system-and-get-output (args:Tuple<String>) -> String :
-  if empty?(args) :                       
-    fatal("Arguments must have minimum length 1. Program name is expected to be first argument.")  
+  if empty?(args) :
+    fatal("Arguments must have minimum length 1. Program name is expected to be first argument.")
   call-system-and-get-output(args[0], args, false, false)
 
 ;============================================================
