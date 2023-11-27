@@ -13,6 +13,7 @@
 typedef struct {
   stz_long pid;
   void* handle;
+  stz_int pipeid;
   FILE* in;
   FILE* out;
   FILE* err;

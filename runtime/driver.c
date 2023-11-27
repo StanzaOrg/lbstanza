@@ -621,7 +621,7 @@ typedef struct ChildProcess {
   FILE* fin;
   FILE* fout;
   FILE* ferr;
-  int status;
+  int* status;
 } ChildProcess;
 
 // Linked lists of process metadata
@@ -632,7 +632,7 @@ typedef struct ProcessNode {
 
 
 // Free everything allocated by ChildProcess
-static void cleanup_proc (ChildProcess* c, int status) {
+static void cleanup_proc (ChildProcess* c) {
   // Close files. TODO: should I check for EOF to throw an error?
   fclose(c->fin); 
   fclose(c->fout);
@@ -652,6 +652,7 @@ static void cleanup_proc (ChildProcess* c, int status) {
 // Process status struct
 typedef struct ProcessStatus {
   pid_t pid;
+  stz_int pipeid;
   int status;
 } ProcessStatus;
 
@@ -677,6 +678,15 @@ static int register_proc_status (ProcessStatus* c) {
 
 // Record process metadata
 static int register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fin, FILE* fout, FILE* ferr) {
+
+  // Init and register ProcessStatus struct
+  ProcessStatus* pstatus = (ProcessStatus*)malloc(sizeof(ProcessStatus));
+  pstatus->pid = pid;
+  pstatus->pipeid = -1;
+  // TODO: is status=-1 OK?
+  pstatus->status = -1;
+  RETURN_NEG(register_proc_status(pstatus))
+
   // Init ChildProcess struct
   ChildProcess* child = (ChildProcess*)malloc(sizeof(ChildProcess));
   if(child == NULL) return -1;
@@ -684,7 +694,7 @@ static int register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fi
   child->pipe_arr = pipes;
   child->fin = fin;
   child->ferr = ferr;
-  child->status = -1;
+  child->status = &(pstatus->status);
   // Store child in ProcessNode
   ProcessNode* new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
   if(new_node == NULL) return -1;
@@ -692,18 +702,12 @@ static int register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fi
   new_node->next = proc_head;
   proc_head = new_node;
 
-  // Init and register ProcessStatus struct
-  ProcessStatus* pstatus = (ProcessStatus*)malloc(sizeof(ProcessStatus));
-  pstatus->pid = pid;
-  // TODO: is status=-1 OK?
-  pstatus->status = -1;
-  RETURN_NEG(register_proc_status(pstatus))
   return 0;
 }
 
 
 // Retrieve process state
-static int get_state (pid_t pid, int* status) {
+static int get_status (pid_t pid, int* status) {
   StatusNode* curr = status_head;
   while(curr != NULL && curr->proc->pid != pid) {
     curr = curr->next;
@@ -733,19 +737,19 @@ static void cleanup_child (pid_t pid, int status) {
       prev->next = curr->next;
     }
     // Cleanup resources
-    cleanup_proc(curr->proc, status);
+    cleanup_proc(curr->proc);
   }
 }
 
 // Update a process' status code
 static void update_status (pid_t pid, int status) {
-  StatusNode* curr = status_head;
+  ProcessNode* curr = proc_head;
   // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
     curr = curr->next;
   }
   if(curr != NULL) {
-    curr->proc->status = status;
+    *(curr->proc->status) = status;
   }
 }
 
@@ -754,11 +758,11 @@ void sigchld_handler(int sig) {
   int status;
   pid_t pid;
   while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+    // Update process status 
+    update_status(pid, status);
     // Cleanup dead process
     if(WIFEXITED(status) || WIFSIGNALED(status))
       cleanup_child(pid, status);
-    // Update process status 
-    update_status(pid, status);
   }
   // it's OK if there are no more children
   if(pid < 0 && errno != ECHILD) exit_with_error();
@@ -929,7 +933,7 @@ static void write_error_and_exit (int fd){
 #ifdef PLATFORM_LINUX
 //#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error,
+                       stz_int output, stz_int error, stz_int pipeid,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
@@ -1028,7 +1032,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
 #ifdef PLATFORM_OS_X
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error,
+                       stz_int output, stz_int error, stz_int pipeid,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
@@ -1142,7 +1146,7 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
   if(sigprocmask(SIG_BLOCK, &sigchld_mask, &old_mask))
     exit_with_error();
 
-  if(get_state(process->pid, &status) == 0) {
+  if(get_status(process->pid, &status) == 0) {
     if(WIFEXITED(status))
       *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
     else if(WIFSIGNALED(status))

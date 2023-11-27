@@ -273,6 +273,7 @@ stz_int launch_process(stz_byte* command_line,
   if (success) {
     // Populate process with the relevant info
     process->pid = (stz_long)proc_info.dwProcessId;
+    process->pipeid = -1; // no pipe ids on Windows
     process->handle = (void*)proc_info.hProcess;
     process->in  = file_from_handle(stdin_write, FT_WRITE);
     process->out = file_from_handle(stdout_read, FT_READ);
