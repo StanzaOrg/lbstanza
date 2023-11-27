@@ -642,7 +642,7 @@ static void cleanup_proc (ChildProcess* c, int status) {
     close(*(c->pipe_arr)[i][0]);
     close(*(c->pipe_arr)[i][1]);
   }
-  // Destroy refs
+  // Destroy refs (might not need to do this?)
   c->pipe_arr = NULL;
   c->fin = NULL;
   c->fout = NULL;
@@ -950,19 +950,19 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   // Parent: open files, register with signal handler
   if(pid > 0) {
     FILE* fin = NULL;
-    if(pipe_sources[PROCESS_IN] > 0) {
+    if(pipe_sources[PROCESS_IN] >= 0) {
       close(pipes[PROCESS_IN][0]);
       fin = fdopen(pipes[PROCESS_IN][1], "w");
       if(fin == NULL) return -1;
     }
     FILE* fout = NULL;
-    if(pipe_sources[PROCESS_OUT] > 0) {
+    if(pipe_sources[PROCESS_OUT] >= 0) {
       close(pipes[PROCESS_OUT][1]);
       fout = fdopen(pipes[PROCESS_OUT][0], "r");
       if(fout == NULL) return -1;
     }
     FILE* ferr = NULL;
-    if(pipe_sources[PROCESS_ERR] > 0) {
+    if(pipe_sources[PROCESS_ERR] >= 0) {
       close(pipes[PROCESS_ERR][1]);
       ferr = fdopen(pipes[PROCESS_ERR][0], "r");
       if(ferr == NULL) return -1;
@@ -978,7 +978,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   // Child: setup pipes, exec
   else {
     //Setup input pipe if used
-    if(pipe_sources[PROCESS_IN] > 0) {
+    if(pipe_sources[PROCESS_IN] >= 0) {
       if(close(pipes[PROCESS_IN][1]) < 0)
         exit_with_error();
       if(dup2(pipes[PROCESS_IN][0], STDIN_FILENO) < 0)
@@ -987,7 +987,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
         exit_with_error();
     }
     //Setup output pipe if used
-    if(pipe_sources[PROCESS_OUT] > 0) {
+    if(pipe_sources[PROCESS_OUT] >= 0) {
       if(close(pipes[PROCESS_OUT][0]) < 0)
         exit_with_error();
       if(dup2(pipes[PROCESS_OUT][1], STDOUT_FILENO) < 0)
@@ -996,7 +996,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
         exit_with_error();
     }
     //Setup error pipe if used
-    if(pipe_sources[PROCESS_ERR] > 0) {
+    if(pipe_sources[PROCESS_ERR] >= 0) {
       if(close(pipes[PROCESS_ERR][0]) < 0)
         exit_with_error();
       if(dup2(pipes[PROCESS_ERR][1], STDERR_FILENO) < 0)
@@ -1050,7 +1050,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
   int posix_ret;
   //Setup input pipe if used
-  if(pipe_sources[PROCESS_IN] > 0) {
+  if(pipe_sources[PROCESS_IN] >= 0) {
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][1])))
       exit_with_error();
     if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_IN][0], STDIN_FILENO)))
@@ -1059,7 +1059,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
       exit_with_error();
   }
   //Setup output pipe if used
-  if(pipe_sources[PROCESS_OUT] > 0) {
+  if(pipe_sources[PROCESS_OUT] >= 0) {
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][0])))
       exit_with_error();
     if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDOUT_FILENO)))
@@ -1068,7 +1068,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
       exit_with_error();
   }
   //Setup error pipe if used
-  if(pipe_sources[PROCESS_ERR] > 0) {
+  if(pipe_sources[PROCESS_ERR] >= 0) {
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][0])))
       exit_with_error();
     if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDERR_FILENO)))
@@ -1097,19 +1097,19 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   //Parent:
   //Close pipes, setup files
   FILE* fin = NULL;
-  if(pipe_sources[PROCESS_IN] > 0) {
+  if(pipe_sources[PROCESS_IN] >= 0) {
     close(pipes[PROCESS_IN][0]);
     fin = fdopen(pipes[PROCESS_IN][1], "w");
     if(fin == NULL) return -1;
   }
   FILE* fout = NULL;
-  if(pipe_sources[PROCESS_OUT] > 0) {
+  if(pipe_sources[PROCESS_OUT] >= 0) {
     close(pipes[PROCESS_OUT][1]);
     fout = fdopen(pipes[PROCESS_OUT][0], "r");
     if(fout == NULL) return -1;
   }
   FILE* ferr = NULL;
-  if(pipe_sources[PROCESS_ERR] > 0) {
+  if(pipe_sources[PROCESS_ERR] >= 0) {
     close(pipes[PROCESS_ERR][1]);
     ferr = fdopen(pipes[PROCESS_ERR][0], "r");
     if(ferr == NULL) return -1;
@@ -1132,14 +1132,14 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
 
   int status;
 
-  sigset_t sigchld_mask, empty_mask;
+  sigset_t sigchld_mask, old_mask;
   sigemptyset(&sigchld_mask);
   sigaddset(&sigchld_mask, SIGCHLD);
   // useful later
-  sigemptyset(&empty_mask);
+  // sigemptyset(&empty_mask);
 
   // block SIGCHLD during check
-  if(sigprocmask(SIG_BLOCK, &sigchld_mask, NULL))
+  if(sigprocmask(SIG_BLOCK, &sigchld_mask, &old_mask))
     exit_with_error();
 
   if(get_state(process->pid, &status) == 0) {
@@ -1158,9 +1158,8 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
   }
 
   if(wait_for_termination && !(WIFSIGNALED(status) || WIFEXITED(status))) {
-    // TODO: maybe parameterize? This is kinda silly
-    struct timespec to = {100, 0};
-    if(pselect(0, NULL, NULL, NULL, &to, &empty_mask) < 0) {
+    // no file descriptors or timeout; just wait indefinitely for an interrupt
+    if(pselect(0, NULL, NULL, NULL, NULL, &old_mask) < 0) {
       if(errno == EINTR) {// Signal interrupt; try again
         // reset mask to original state
         if(sigprocmask(SIG_UNBLOCK, &sigchld_mask, NULL))
@@ -1177,7 +1176,7 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
   }
 
   // reset mask to original state
-  if(sigprocmask(SIG_UNBLOCK, &sigchld_mask, NULL)) exit_with_error();
+  if(sigprocmask(SIG_SETMASK, &old_mask, NULL)) exit_with_error();
 
   return 0;
 }
