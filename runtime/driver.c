@@ -651,7 +651,6 @@ static void cleanup_proc (ChildProcess* c) {
 
 // Process status struct
 typedef struct ProcessStatus {
-  pid_t pid;
   stz_int pipeid;
   int status;
 } ProcessStatus;
@@ -677,12 +676,11 @@ static int register_proc_status (ProcessStatus* c) {
 }
 
 // Record process metadata
-static int register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fin, FILE* fout, FILE* ferr) {
+static int register_proc (pid_t pid, stz_int pipeid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fin, FILE* fout, FILE* ferr) {
 
   // Init and register ProcessStatus struct
   ProcessStatus* pstatus = (ProcessStatus*)malloc(sizeof(ProcessStatus));
-  pstatus->pid = pid;
-  pstatus->pipeid = -1;
+  pstatus->pipeid = pipeid;
   // TODO: is status=-1 OK?
   pstatus->status = -1;
   RETURN_NEG(register_proc_status(pstatus))
@@ -707,9 +705,9 @@ static int register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fi
 
 
 // Retrieve process state
-static int get_status (pid_t pid, int* status) {
+static int get_status (stz_int pipeid, int* status) {
   StatusNode* curr = status_head;
-  while(curr != NULL && curr->proc->pid != pid) {
+  while(curr != NULL && curr->proc->pipeid != pipeid) {
     curr = curr->next;
   }
   if(curr != NULL) {
@@ -907,17 +905,6 @@ static void free_strings (stz_byte** ss){
 //---------------------- Launcher Main -----------------------
 //------------------------------------------------------------
 
-#define LAUNCH_COMMAND 0
-#define STATE_COMMAND 1
-#define WAIT_COMMAND 2
-
-static void write_error_and_exit (int fd){
-  int code = errno;
-  write(fd, &code, sizeof(int));
-  close(fd);
-  exit(-1);
-}
-
 // Useful for testing linux implementation on OSX
 //#ifdef PLATFORM_OS_X
 //extern char **environ;
@@ -975,11 +962,12 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     }
 
     process->pid = pid;
+    process->pipeid = pipeid;
     process->in = fin;
     process->out = fout;
     process->err = ferr;
 
-    RETURN_NEG(register_proc(pid, &pipes, fin, fout, ferr))
+    RETURN_NEG(register_proc(pid, pipeid, &pipes, fin, fout, ferr))
   }
   // Child: setup pipes, exec
   else {
@@ -1120,11 +1108,12 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   }
 
   process->pid = pid;
+  process->pipeid = pipeid;
   process->in = fin;
   process->out = fout;
   process->err = ferr;
 
-  RETURN_NEG(register_proc(pid, &pipes, fin, fout, ferr))
+  RETURN_NEG(register_proc(pid, pipeid, &pipes, fin, fout, ferr))
   return 0;
 }
 #endif
@@ -1139,21 +1128,19 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
   sigset_t sigchld_mask, old_mask;
   sigemptyset(&sigchld_mask);
   sigaddset(&sigchld_mask, SIGCHLD);
-  // useful later
-  // sigemptyset(&empty_mask);
 
   // block SIGCHLD during check
   if(sigprocmask(SIG_BLOCK, &sigchld_mask, &old_mask))
     exit_with_error();
 
-  if(get_status(process->pid, &status) == 0) {
+  if(get_status(process->pipeid, &status) == 0) {
     if(WIFEXITED(status))
       *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
     else if(WIFSIGNALED(status))
       *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
     else if(WIFSTOPPED(status))
       *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
-    else // exit_with_error();
+    else
       *s = (ProcessState){PROCESS_RUNNING, 0};
   } else {
     char* err;
