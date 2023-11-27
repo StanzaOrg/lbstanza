@@ -666,19 +666,20 @@ ProcessNode* proc_head = NULL;
 StatusNode* status_head = NULL;
 
 // Record a process' status
-static void register_proc_status (ProcessStatus* c) {
+static int register_proc_status (ProcessStatus* c) {
   StatusNode* new_node = (StatusNode*)malloc(sizeof(StatusNode));
-  if(new_node == NULL) exit_with_error();
+  if(new_node == NULL) return -1;
   new_node->proc = c;
   new_node->next = status_head;
   status_head = new_node;
+  return 0;
 }
 
 // Record process metadata
-static void register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fin, FILE* fout, FILE* ferr) {
+static int register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fin, FILE* fout, FILE* ferr) {
   // Init ChildProcess struct
   ChildProcess* child = (ChildProcess*)malloc(sizeof(ChildProcess));
-  if(child == NULL) exit_with_error();
+  if(child == NULL) return -1;
   child->pid = pid;
   child->pipe_arr = pipes;
   child->fin = fin;
@@ -686,7 +687,7 @@ static void register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* f
   child->status = -1;
   // Store child in ProcessNode
   ProcessNode* new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
-  if(new_node == NULL) exit_with_error();
+  if(new_node == NULL) return -1;
   new_node->proc = child;
   new_node->next = proc_head;
   proc_head = new_node;
@@ -696,7 +697,8 @@ static void register_proc (pid_t pid, int (*pipes)[NUM_STREAM_SPECS][2], FILE* f
   pstatus->pid = pid;
   // TODO: is status=-1 OK?
   pstatus->status = -1;
-  register_proc_status(pstatus);
+  RETURN_NEG(register_proc_status(pstatus))
+  return 0;
 }
 
 
@@ -946,7 +948,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   // Fork child process
   stz_long pid = (stz_long)vfork();
 
-  if(pid < 0) exit_with_error();
+  if(pid < 0) return -1; 
   // Parent: open files, register with signal handler
   if(pid > 0) {
     FILE* fin = NULL;
@@ -973,7 +975,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     process->out = fout;
     process->err = ferr;
 
-    register_proc(pid, &pipes, fin, fout, ferr);
+    RETURN_NEG(register_proc(pid, &pipes, fin, fout, ferr))
   }
   // Child: setup pipes, exec
   else {
@@ -1012,13 +1014,11 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
     //Launch child process.
     //If an environment is supplied then call execvpe, otherwise call execvp.
-    int cstatus;
     if(env_vars == NULL)
-      cstatus = execvp(C_CSTR(file), (char**)argvs);
+      execvp(C_CSTR(file), (char**)argvs);
     else
-      cstatus = execvpe(C_CSTR(file), (char**)argvs, (char**)env_vars);
-    if(cstatus < 0)
-      exit_with_error();
+      execvpe(C_CSTR(file), (char**)argvs, (char**)env_vars);
+    exit_with_error();
   }
   return 0;
 }
@@ -1052,35 +1052,35 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   //Setup input pipe if used
   if(pipe_sources[PROCESS_IN] >= 0) {
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][1])))
-      exit_with_error();
+      return -1;
     if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_IN][0], STDIN_FILENO)))
-      exit_with_error();
+      return -1;
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][0])))
-      exit_with_error();
+      return -1;
   }
   //Setup output pipe if used
   if(pipe_sources[PROCESS_OUT] >= 0) {
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][0])))
-      exit_with_error();
+      return -1;
     if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDOUT_FILENO)))
-      exit_with_error();
+      return -1;
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][1])))
-      exit_with_error();
+      return -1;
   }
   //Setup error pipe if used
   if(pipe_sources[PROCESS_ERR] >= 0) {
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][0])))
-      exit_with_error();
+      return -1;
     if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDERR_FILENO)))
-      exit_with_error();
+      return -1;
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][1])))
-      exit_with_error();
+      return -1;
   }
 
   //Setup working directory
   if(working_dir) {
     if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, C_CSTR(working_dir))))
-      exit_with_error();
+      return -1;
   }
 
   pid_t pid = -1;
@@ -1120,7 +1120,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   process->out = fout;
   process->err = ferr;
 
-  register_proc(pid, &pipes, fin, fout, ferr);
+  RETURN_NEG(register_proc(pid, &pipes, fin, fout, ferr))
   return 0;
 }
 #endif
