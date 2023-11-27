@@ -633,20 +633,19 @@ typedef struct ProcessNode {
 
 // Free everything allocated by ChildProcess
 static void cleanup_proc (ChildProcess* c) {
-  // Close files. TODO: should I check for EOF to throw an error?
-  fclose(c->fin); 
-  fclose(c->fout);
-  fclose(c->ferr);
+  // Close files
+  if(c->fin != NULL)
+    if(fclose(c->fin) == EOF) exit_with_error();
+  if(c->fout != NULL)
+    if(fclose(c->fout) == EOF) exit_with_error();
+  if(c->ferr != NULL)
+    if(fclose(c->ferr) == EOF) exit_with_error();
   // Close pipes
   for(int i = 0; i<NUM_STREAM_SPECS; i++) {
     close(*(c->pipe_arr)[i][0]);
     close(*(c->pipe_arr)[i][1]);
   }
-  // Destroy refs (might not need to do this?)
-  c->pipe_arr = NULL;
-  c->fin = NULL;
-  c->fout = NULL;
-  c->ferr = NULL;
+  free(c);
 }
 
 // Process status struct
@@ -756,7 +755,7 @@ void sigchld_handler(int sig) {
   int status;
   pid_t pid;
   while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-    // Update process status 
+    // Update process status
     update_status(pid, status);
     // Cleanup dead process
     if(WIFEXITED(status) || WIFSIGNALED(status))
@@ -939,7 +938,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   // Fork child process
   stz_long pid = (stz_long)vfork();
 
-  if(pid < 0) return -1; 
+  if(pid < 0) return -1;
   // Parent: open files, register with signal handler
   if(pid > 0) {
     FILE* fin = NULL;
@@ -1164,7 +1163,7 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
         }
       }
     }
-    if(!wait_for_termination) { // TODO: should this be an else?
+    else if(!wait_for_termination) {
       // do not loop if we don't need the process to terminate
       state_unknown = false;
     }
