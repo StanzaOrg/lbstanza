@@ -712,7 +712,7 @@ static int get_status (stz_int stz_proc_id, int* status) {
   if(curr != NULL) {
     *status = curr->proc->status;
     return 0;
-  } else { // pid not found
+  } else { // stz_proc_id not found
     return -1;
   }
 }
@@ -1146,9 +1146,7 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
         *s = (ProcessState){PROCESS_RUNNING, 0};
       state_unknown = false;
     } else {
-      char* err;
-      sprintf(err, "Process %lld not found", process->pid);
-      throw_error(err);
+      return -1; // process not found
     }
 
     if(wait_for_termination && !(WIFSIGNALED(status) || WIFEXITED(status))) {
