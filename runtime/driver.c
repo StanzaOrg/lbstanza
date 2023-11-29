@@ -690,6 +690,7 @@ static int register_proc (pid_t pid, stz_int stz_proc_id, int (*pipes)[NUM_STREA
   child->pid = pid;
   child->pipe_arr = pipes;
   child->fin = fin;
+  child->fout = fout;
   child->ferr = ferr;
   child->status = &(pstatus->status);
   // Store child in ProcessNode
@@ -904,6 +905,13 @@ static void free_strings (stz_byte** ss){
 //---------------------- Launcher Main -----------------------
 //------------------------------------------------------------
 
+static void write_error_and_exit (int fd){
+  int code = errno;
+  write(fd, &code, sizeof(int));
+  close(fd);
+  exit(-1);
+}
+
 // Useful for testing linux implementation on OSX
 //#ifdef PLATFORM_OS_X
 //extern char **environ;
@@ -935,72 +943,97 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     if(pipe(pipes[i])) return -1;
   }
 
+  //Create error-code pipe
+  int READ = 0;
+  int WRITE = 1;
+  int exec_error[2];
+  if(pipe(exec_error) < 0) exit_with_error();
+
   // Fork child process
   stz_long pid = (stz_long)vfork();
 
   if(pid < 0) return -1;
-  // Parent: open files, register with signal handler
+  // Parent: if exec succeeded, open files, register with signal handler
   if(pid > 0) {
-    FILE* fin = NULL;
-    if(pipe_sources[PROCESS_IN] >= 0) {
-      close(pipes[PROCESS_IN][0]);
-      fin = fdopen(pipes[PROCESS_IN][1], "w");
-      if(fin == NULL) return -1;
-    }
-    FILE* fout = NULL;
-    if(pipe_sources[PROCESS_OUT] >= 0) {
-      close(pipes[PROCESS_OUT][1]);
-      fout = fdopen(pipes[PROCESS_OUT][0], "r");
-      if(fout == NULL) return -1;
-    }
-    FILE* ferr = NULL;
-    if(pipe_sources[PROCESS_ERR] >= 0) {
-      close(pipes[PROCESS_ERR][1]);
-      ferr = fdopen(pipes[PROCESS_ERR][0], "r");
-      if(ferr == NULL) return -1;
-    }
 
-    process->pid = pid;
-    process->stz_proc_id = stz_proc_id;
-    process->in = fin;
-    process->out = fout;
-    process->err = ferr;
+    //Read from error-code pipe
+    int exec_code;
+    close(exec_error[WRITE]);
+    int exec_r = read(exec_error[READ], &exec_code, sizeof(int));
+    close(exec_error[READ]);
 
-    RETURN_NEG(register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr))
+    if(exec_r == 0) {
+      FILE* fin = NULL;
+      if(pipe_sources[PROCESS_IN] >= 0) {
+        close(pipes[PROCESS_IN][0]);
+        fin = fdopen(pipes[PROCESS_IN][1], "w");
+        if(fin == NULL) return -1;
+      }
+      FILE* fout = NULL;
+      if(pipe_sources[PROCESS_OUT] >= 0) {
+        close(pipes[PROCESS_OUT][1]);
+        fout = fdopen(pipes[PROCESS_OUT][0], "r");
+        if(fout == NULL) return -1;
+      }
+      FILE* ferr = NULL;
+      if(pipe_sources[PROCESS_ERR] >= 0) {
+        close(pipes[PROCESS_ERR][1]);
+        ferr = fdopen(pipes[PROCESS_ERR][0], "r");
+        if(ferr == NULL) return -1;
+      }
+
+      process->pid = pid;
+      process->stz_proc_id = stz_proc_id;
+      process->in = fin;
+      process->out = fout;
+      process->err = ferr;
+
+      RETURN_NEG(register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr))
+    } else if(exec_r == sizeof(int)) {
+      errno = exec_code;
+      return -1;
+    } else {
+      fprintf(stderr, "Unreachable code.");
+      exit(-1);
+    }
   }
   // Child: setup pipes, exec
   else {
+    //Close exec pipe read, and close write end on successful exec
+    close(exec_error[READ]);
+    fcntl(exec_error[WRITE], F_SETFD, FD_CLOEXEC);
+
     //Setup input pipe if used
     if(pipe_sources[PROCESS_IN] >= 0) {
       if(close(pipes[PROCESS_IN][1]) < 0)
-        exit_with_error();
+        write_error_and_exit(exec_error[WRITE]);
       if(dup2(pipes[PROCESS_IN][0], STDIN_FILENO) < 0)
-        exit_with_error();
+        write_error_and_exit(exec_error[WRITE]);
       if(close(pipes[PROCESS_IN][0]) < 0)
-        exit_with_error();
+        write_error_and_exit(exec_error[WRITE]);
     }
     //Setup output pipe if used
     if(pipe_sources[PROCESS_OUT] >= 0) {
       if(close(pipes[PROCESS_OUT][0]) < 0)
-        exit_with_error();
+        write_error_and_exit(exec_error[WRITE]);
       if(dup2(pipes[PROCESS_OUT][1], STDOUT_FILENO) < 0)
-        exit_with_error();
+        write_error_and_exit(exec_error[WRITE]);
       if(close(pipes[PROCESS_OUT][1]) < 0)
-        exit_with_error();
+        write_error_and_exit(exec_error[WRITE]);
     }
     //Setup error pipe if used
     if(pipe_sources[PROCESS_ERR] >= 0) {
       if(close(pipes[PROCESS_ERR][0]) < 0)
-        exit_with_error();
+        write_error_and_exit(exec_error[WRITE]);
       if(dup2(pipes[PROCESS_ERR][1], STDERR_FILENO) < 0)
-        exit_with_error();
+        write_error_and_exit(exec_error[WRITE]);
       if(close(pipes[PROCESS_ERR][1]) < 0)
-        exit_with_error();
+        write_error_and_exit(exec_error[WRITE]);
     }
     //Setup working directory
     if(working_dir) {
       if(chdir(C_CSTR(working_dir)) < 0)
-        exit_with_error();
+        write_error_and_exit(exec_error[WRITE]);
     }
 
     //Launch child process.
@@ -1009,12 +1042,11 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
       execvp(C_CSTR(file), (char**)argvs);
     else
       execvpe(C_CSTR(file), (char**)argvs, (char**)env_vars);
-    exit_with_error();
+    write_error_and_exit(exec_error[WRITE]);
   }
   return 0;
 }
 #endif
-
 
 
 #ifdef PLATFORM_OS_X
