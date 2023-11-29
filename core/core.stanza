@@ -10008,14 +10008,15 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
 ;                           Constructor
 ;                           ===========
 #if-defined(PLATFORM-WINDOWS):
-  public lostanza defn Process (filename:ref<String>,
-                                args0:ref<Seqable<String>>,
-                                input:ref<StreamSpecifier>,
-                                output:ref<StreamSpecifier>,
-                                error:ref<StreamSpecifier>,
-                                working-dir:ref<String|False>,
-                                env-vars:ref<Tuple<KeyValue<String,String>>|False>
-                                env-var-mode:ref<EnvVarMode>) -> ref<Process> :
+  lostanza defn Process (filename:ref<String>,
+                         args0:ref<Seqable<String>>,
+                         input:ref<StreamSpecifier>,
+                         output:ref<StreamSpecifier>,
+                         error:ref<StreamSpecifier>,
+                         working-dir:ref<String|False>,
+                         env-vars:ref<Tuple<KeyValue<String,String>>|False>
+                         env-var-mode:ref<EnvVarMode>,
+                         placeholder-ignore:ref<True|False>) -> ref<Process> :
     ensure-valid-env-var-names!(env-vars)
     ensure-valid-stream-specifiers(input, output, error)
     val proc = new Process{0, null, -1, null, null, null, false, false, false, false}
@@ -10088,14 +10089,15 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
         return copy-buffer-to-stable-memory(buffer)
 
 #else:
-  public lostanza defn Process (filename:ref<String>,
-                                args0:ref<Seqable<String>>,
-                                input:ref<StreamSpecifier>,
-                                output:ref<StreamSpecifier>,
-                                error:ref<StreamSpecifier>,
-                                working-dir:ref<String|False>
-                                env-vars:ref<Tuple<KeyValue<String,String>>|False>
-                                env-var-mode:ref<EnvVarMode>) -> ref<Process> :
+  lostanza defn Process (filename:ref<String>,
+                         args0:ref<Seqable<String>>,
+                         input:ref<StreamSpecifier>,
+                         output:ref<StreamSpecifier>,
+                         error:ref<StreamSpecifier>,
+                         working-dir:ref<String|False>
+                         env-vars:ref<Tuple<KeyValue<String,String>>|False>
+                         env-var-mode:ref<EnvVarMode>,
+                         cleanup-files:ref<True|False>) -> ref<Process> :
     ensure-valid-env-var-names!(env-vars)
     ensure-valid-stream-specifiers(input, output, error)
     val args = to-tuple(args0)
@@ -10218,20 +10220,24 @@ public defn Process (filename:String,
                      output:StreamSpecifier,
                      error:StreamSpecifier,
                      working-dir:String|False,
-                     env-vars:Tuple<KeyValue<String,String>>|False) -> Process :
-  Process(filename, args, input, output, error, working-dir, env-vars, AddEnvVars)
+                     env-vars:Tuple<KeyValue<String,String>>|False
+                     -- cleanup-files:True|False = true) -> Process :
+  Process(filename, args, input, output, error, working-dir, env-vars, AddEnvVars, cleanup-files)
 
 ;Default working-dir is false. Default env-vars is false.
 public defn Process (filename:String, args:Seqable<String>,
-                     input:StreamSpecifier, output:StreamSpecifier, error:StreamSpecifier) -> Process :
-  Process(filename, args, input, output, error, false, false)
+                     input:StreamSpecifier, output:StreamSpecifier, error:StreamSpecifier,
+                     -- cleanup-files:True|False = true) -> Process :
+  Process(filename, args, input, output, error, false, false, cleanup-files = cleanup-files)
 
 public defn Process (filename:String, args:Seqable<String>,
-                     working-dir:String|False, env:Tuple<KeyValue<String,String>>|False) -> Process :
-  Process(filename, args, STANDARD-IN, STANDARD-OUT, STANDARD-ERR, working-dir, env)
+                     working-dir:String|False, env:Tuple<KeyValue<String,String>>|False,
+                     -- cleanup-files:True|False = true) -> Process :
+  Process(filename, args, STANDARD-IN, STANDARD-OUT, STANDARD-ERR, working-dir, env, cleanup-files = cleanup-files)
 
-public defn Process (filename:String, args:Seqable<String>) :
-  Process(filename, args, STANDARD-IN, STANDARD-OUT, STANDARD-ERR, false, false)
+public defn Process (filename:String, args:Seqable<String>,
+                     -- cleanup-files:True|False = true) :
+  Process(filename, args, STANDARD-IN, STANDARD-OUT, STANDARD-ERR, false, false, cleanup-files = cleanup-files)
 
 ;                            Stream API
 ;                            ==========
@@ -10320,7 +10326,7 @@ public defn call-system (filename:String,
                          args:Seqable<String>,
                          working-dir:String|False,
                          env-vars:Tuple<KeyValue<String,String>>|False) -> Int :
-  match(wait(Process(filename, args, working-dir, env-vars))) :
+  match(wait(Process(filename, args, working-dir, env-vars, cleanup-files = false))) :
     (s:ProcessDone) : value(s)
     (s) : throw(ProcessAbortedError(s))
 
@@ -10348,7 +10354,7 @@ public defn call-system-and-get-output (file:String,
                                         working-dir:String|False,
                                         env-vars:Tuple<KeyValue<String,String>>|False) -> String :
   val buffer = StringBuffer()
-  val proc = Process(file, args, STANDARD-IN, PROCESS-OUT, PROCESS-OUT, working-dir, env-vars)
+  val proc = Process(file, args, STANDARD-IN, PROCESS-OUT, PROCESS-OUT, working-dir, env-vars, cleanup-files = false)
   val proc-out = output-stream(proc)
   let loop () :
     val c = get-char(proc-out)
