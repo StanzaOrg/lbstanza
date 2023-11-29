@@ -622,6 +622,7 @@ typedef struct ChildProcess {
   FILE* fout;
   FILE* ferr;
   int* status;
+  bool auto_cleanup;
 } ChildProcess;
 
 // Linked lists of process metadata
@@ -634,12 +635,14 @@ typedef struct ProcessNode {
 // Free everything allocated by ChildProcess
 static void cleanup_proc (ChildProcess* c) {
   // Close files
-  if(c->fin != NULL)
-    if(fclose(c->fin) == EOF) exit_with_error();
-  if(c->fout != NULL)
-    if(fclose(c->fout) == EOF) exit_with_error();
-  if(c->ferr != NULL)
-    if(fclose(c->ferr) == EOF) exit_with_error();
+  if(c->auto_cleanup) {
+    if(c->fin != NULL)
+      if(fclose(c->fin) == EOF) exit_with_error();
+    if(c->fout != NULL)
+      if(fclose(c->fout) == EOF) exit_with_error();
+    if(c->ferr != NULL)
+      if(fclose(c->ferr) == EOF) exit_with_error();
+  }
   // Close pipes
   for(int i = 0; i<NUM_STREAM_SPECS; i++) {
     close(*(c->pipe_arr)[i][0]);
@@ -675,7 +678,14 @@ static int register_proc_status (ProcessStatus* c) {
 }
 
 // Record process metadata
-static int register_proc (pid_t pid, stz_int stz_proc_id, int (*pipes)[NUM_STREAM_SPECS][2], FILE* fin, FILE* fout, FILE* ferr) {
+static int register_proc (
+    pid_t pid,
+    stz_int stz_proc_id,
+    int (*pipes)[NUM_STREAM_SPECS][2],
+    FILE* fin,
+    FILE* fout,
+    FILE* ferr,
+    bool auto_cleanup) {
 
   // Init and register ProcessStatus struct
   ProcessStatus* pstatus = (ProcessStatus*)malloc(sizeof(ProcessStatus));
@@ -693,6 +703,7 @@ static int register_proc (pid_t pid, stz_int stz_proc_id, int (*pipes)[NUM_STREA
   child->fout = fout;
   child->ferr = ferr;
   child->status = &(pstatus->status);
+  child->auto_cleanup = auto_cleanup;
   // Store child in ProcessNode
   ProcessNode* new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
   if(new_node == NULL) return -1;
@@ -912,6 +923,24 @@ static void write_error_and_exit (int fd){
   exit(-1);
 }
 
+static int delete_process_pipe (FILE* fd) {
+  if (fd != NULL) {
+    int close_res = fclose(fd);
+    if (close_res == EOF) return -1;
+  }
+  return 0;
+}
+
+stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error) {
+  if (delete_process_pipe(input) < 0)
+    return -1;
+  if (delete_process_pipe(output) < 0)
+    return -1;
+  if (delete_process_pipe(error) < 0)
+    return -1;
+  return 0;
+}
+
 // Useful for testing linux implementation on OSX
 //#ifdef PLATFORM_OS_X
 //extern char **environ;
@@ -927,7 +956,7 @@ static void write_error_and_exit (int fd){
 #ifdef PLATFORM_LINUX
 //#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int stz_proc_id,
+                       stz_int output, stz_int error, stz_int stz_proc_id, stz_int cleanup_files,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
@@ -988,7 +1017,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
       process->out = fout;
       process->err = ferr;
 
-      RETURN_NEG(register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr))
+      RETURN_NEG(register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, cleanup_files > 0))
     } else if(exec_r == sizeof(int)) {
       errno = exec_code;
       return -1;
@@ -1051,7 +1080,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
 #ifdef PLATFORM_OS_X
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int stz_proc_id,
+                       stz_int output, stz_int error, stz_int stz_proc_id, stz_int cleanup_files,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
@@ -1144,7 +1173,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   process->out = fout;
   process->err = ferr;
 
-  RETURN_NEG(register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr))
+  RETURN_NEG(register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, cleanup_files > 0))
   return 0;
 }
 #endif
