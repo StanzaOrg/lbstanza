@@ -26,6 +26,7 @@ defpackage stz/el :
   import stz/absolute-info
   import stz/trace-info
   import stz/el-trace-info
+  import stz/el-basic-blocks
 
 ;============================================================
 ;==================== Drivers ===============================
@@ -60,6 +61,8 @@ defn lower (epackage:EPackage, optimize?:True|False) -> EPackage :
   val lower-timer-name = to-string("EL-LOWER -- %_" % [name(epackage)])
   within log-time(EL-LOWER, lower-timer-name) :
 
+    val tot-timer = MillisecondTimer("EL-OPT")
+    start(tot-timer)
     ;Reset id generation
     take-ids(epackage)
 
@@ -87,8 +90,16 @@ defn lower (epackage:EPackage, optimize?:True|False) -> EPackage :
       run-pass(pass-name, f{_, iotable}, suffix, update-tables?)
     defn run-pass (pass-name:String, f:(EPackage, VarTable) -> EPackage, suffix:String, update-tables?:True|False) :
       run-pass(pass-name, f{_, global-vt}, suffix, update-tables?)
+    defn run-pass (pass-name:String, f:(EPackage, VarTable, Int -> True|False, IntSet) -> EPackage, enabled?:Int -> True|False, changed?:IntSet, suffix:String, update-tables?:True|False) :
+      run-pass(pass-name, f{_, global-vt, enabled?, changed?}, suffix, update-tables?)
     defn run-pass (pass-name:String, f:(EPackage, EHier, VarTable) -> EPackage, suffix:String, update-tables?:True|False) :
       run-pass(pass-name, f{_, ehier, global-vt}, suffix, update-tables?)
+
+    val defstruct-table = IntTable<EDefStruct>()
+
+    defn init-defstruct-table (epackage:EPackage) :
+      for e in filter-by<EDefStruct>(exps(epackage)) do :
+        defstruct-table[n(e)] = e
 
     ;Dump input
     ;dump(cur-package, "logs", "input")
@@ -103,39 +114,71 @@ defn lower (epackage:EPackage, optimize?:True|False) -> EPackage :
     if not optimize? :
       run-pass("Convert Checks to Typeof", convert-checks-to-typeof, "typeof", false)
     run-pass("Box Mutables", box-mutables, "boxed", false)
-    run-pass("Detect Loops", detect-loops, "looped", false)
+    val loop-variables = IntSet()
+    val unboxed-variables = IntSet()
+    run-pass("Detect Loops", detect-loops{_, loop-variables}, "looped", false)
     run-pass("Simple Inline", simple-inline, "inlined0", false)
-    run-pass("Within Package Inline", within-package-inline{_, true}, "wp-inlined0", false)
-    run-pass("Cleanup Labels", cleanup-labels, "cleanup-labels", false)
+    run-pass("Within Package Inline", within-package-inline{_, true, loop-variables, unboxed-variables, { true }, IntSet()}, "wp-inlined0", false)
+    run-pass("Cleanup Labels", cleanup-labels{_, _, { true }, IntSet()}, "cleanup-labels", false)
     if optimize? :
       run-pass("Remove Reified Types", force-remove-types, "removed-types", true)
     run-pass("Simplify Typeof", simplify-typeof, "simplify-typeof1", false)
     run-pass("Lambda Lift", lambda-lift, "lambda", true)
     run-pass("Lift Objects", lift-objects, "objlifted", true)
     if optimize? :
-      run-pass("Resolve Methods And Matches", resolve-methods-and-matches, "resolved-methods", false)
-      ;Phase 1
-      run-pass("Simple Inline", simple-inline, "inlined1", false)
-      run-pass("Within Package Inline", within-package-inline{_, false}, "wp-inlined1", false)
-      run-pass("Cleanup Labels", cleanup-labels, "cleanup-labels1", false)
-      run-pass("Beta Reduce", beta-reduce, "beta-reduce1", false)
-      run-pass("Box Unbox", box-unbox-fold, "box-unbox1", false)
-      run-pass("Eliminate Dead Code", eliminate-dead-code, "dead-code1", false)
-      run-pass("Remove Boxes", remove-boxes, "remove-boxes1", false)
-      run-pass("Constant Fold", constant-fold, "constant-fold1", false)
-      ;Phase 2
-      run-pass("Simple Inline", simple-inline, "inlined2", false)
-      run-pass("Within Package Inline", within-package-inline{_, true}, "wp-inlined2", false)
-      run-pass("Cleanup Labels", cleanup-labels, "cleanup-labels2", false)
-      run-pass("Beta Reduce", beta-reduce, "beta-reduce2", false)
-      run-pass("Box Unbox", box-unbox-fold, "box-unbox2", false)
-      run-pass("Eliminate Dead Code", eliminate-dead-code, "dead-code2", false)
-      run-pass("Remove Boxes", remove-boxes, "remove-boxes2", false)
-      ;Stabilize
-      run-pass("Constant Fold Beta Reduce", iterative-constant-fold-beta-reduce, "constant-fold-beta-reduce", false)
-      run-pass("Eliminate Dead Code", eliminate-dead-code, "dead-code3", false)
+      val changed0? = IntSet()
+      val changed1? = IntSet()
+      val changed2? = IntSet()
+
+      ;Create the dispatch table for the package.
+      val dispatch-table = DispatchTable(cur-package)
+      ;Create the table of defobjects for use by the type annotation engine in resolve-methods-and-matches
+      val defobjects = to-inttable<EDefObject> $
+        for e in filter-by<EDefObject>(exps(cur-package)) seq :
+          n(e) => e
+
+      for e in exps(cur-package) do : match(e:EDefn|EDefmethod) : add(changed0?, n(e))
+
+      update-tables()
+      init-defstruct-table(cur-package)
+
+      defn eliminate-all-dead-code (all-enabled?:True|False, enabled?:IntSet, changed?:IntSet) :
+        let kill (i:Int = 0, enabled?:IntSet = enabled?, killed?:IntSet = IntSet()) :
+          val f = { true } when (all-enabled? and i == 0) else { enabled?[_] }
+          run-pass("Eliminate Dead Code", eliminate-dead-code{_, _, f, killed?}, "dead-code", false)
+          if not empty?(killed?) :
+            add-all(changed?, killed?)
+            kill(i + 1, killed?, IntSet())
+
+      let loop (i:Int = 1, n:Int = 5, enabled?:IntSet = changed0?, changed?:IntSet = changed1?) :
+        if n > 0 :
+
+          within time-ms!(string-join $ ["LOOP" i]) :
+            clear(changed?)
+
+            defn run? (id:Int) : enabled?[id]
+
+            run-pass("Resolve Methods And Matches", resolve-methods-and-matches{_, _, dispatch-table, defobjects, run?, changed?}, "resolved-methods", false)
+            run-pass("Within Package Inline", within-package-inline{_, true, loop-variables, unboxed-variables, run?, changed?}, "wp-inlined", false)
+            run-pass("Cleanup Labels", cleanup-labels{_, _, run?, changed?}, "cleanup-labels", false)
+            run-pass("Beta Reduce", beta-reduce{_, _, loop-variables, run?, changed?}, "beta-reduce", false)
+            run-pass("Box Unbox", box-unbox-fold{_, _, loop-variables, run?, changed?}, "box-unbox", false)
+            eliminate-all-dead-code(false, enabled?, IntSet())
+            run-pass("Remove Boxes", remove-boxes{_, _, unboxed-variables, run?, changed?}, "remove-boxes", false)
+            run-pass("Control Fold", control-fold{_, _, run?, changed?}, "control-fold", false)
+            run-pass("Peephole Optimize", peephole-optimize{_, _, run?, changed?}, "peephole-optimize", false)
+            run-pass("Constant Fold", constant-fold{_, _, run?, changed?}, "constant-fold", false)
+            run-pass("Convert Loop Vars", convert-loop-vars{_, _, loop-variables, unboxed-variables, run?, changed?}, "convert-loop-vars", false)
+            clear(enabled?)
+            add-all(enabled?, changed?)
+
+          loop(i + 1, n - 1, changed?, enabled?) when not empty?(changed?)
+
       ;Finish by removing checks
+      run-pass("Hoist Loops", hoist-loops{_, _, loop-variables, { true }, IntSet() }, "hoist-loops", false)
       run-pass("Force Remove Checks", force-remove-checks, "removed-checks", false)
+      eliminate-all-dead-code(true, IntSet(), IntSet())
+
     run-pass("Resolve Matches", resolve-matches, "resolved-matches", false)
     run-pass("Simplify Typeof", simplify-typeof, "simplify-typeof2", false)
     run-pass("Lift Closures", lift-closures, "closurelifted", false)
@@ -1120,7 +1163,7 @@ defn insert-guards (epackage:EPackage, gvt:VarTable) :
       emit(buffer, guard-localobj(o,vt, uninitialized-vars))
     guard-body(body(e), buffer, vt, lostanza?(e), false, false, uninitialized-vars)
     val body* = to-body(buffer, true, false, false)
-    EInit(body*, lostanza?(e))
+    EInit(n(e), body*, lostanza?(e))
 
   ;Overall driver
   defn analyze (e:ELBigItem, vt:VarTable) -> ELBigItem :
@@ -1413,7 +1456,7 @@ defn box-mutables (epackage:EPackage, gvt:VarTable) -> EPackage :
 ;=================== Detect Loops ===========================
 ;============================================================
 
-defn detect-loops (epackage:EPackage) -> EPackage :
+defn detect-loops (epackage:EPackage, loop-variables:IntSet) -> EPackage :
   ;Does the given immediate match the given function id?
   defn matches-fid? (e:EImm, fid:Int|False) :
     match(e) :
@@ -1473,6 +1516,7 @@ defn detect-loops (epackage:EPackage) -> EPackage :
       ;mutated and assigned to after every loop iteration.
       val loop-vars = map(uniqueid{}, args(e))
       for (a in loop-vars, arg in args(e)) do :
+        add(loop-variables, a)
         emit(buffer, ELocal(a, type(arg), true, debug-name(arg)))
 
       ;Convert the original function arguments into loop body locals.
@@ -1843,6 +1887,15 @@ defn force-inline-core-functions (epackage:EPackage) -> Tuple<Int> :
   ;Create set of functions to force inline.
   val functions = HashSet<ValId>()
   add(functions, ValId(`core, `do))
+  add(functions, ValId(`core, `do-seq))
+  ; add(functions, ValId(`core, `seq))
+  ; add(functions, ValId(`core, `any?))
+  ; add(functions, ValId(`core, `all?))
+  ; add(functions, ValId(`core, `none?))
+  add(functions, ValId(`core, `count))
+  add(functions, ValId(`core, `reduce))
+  add(functions, ValId(`core, `reduce-right))
+  add(functions, ValId(`core, `Range))
   add(functions, ValId(`collections, `bsearch))
 
   ;GC functions
@@ -1862,10 +1915,9 @@ defn force-inline-core-functions (epackage:EPackage) -> Tuple<Int> :
 
 ;Helper function for within-package-inline with parameter to control
 ;whether to include core functions to force include.
-defn within-package-inline (epackage:EPackage, inline-from-core?:True|False) :
-  val ids = force-inline-core-functions(epackage) when inline-from-core?
-       else []
-  within-package-inline(epackage, ids)
+defn within-package-inline (epackage:EPackage, inline-from-core?:True|False, loop-vars:IntSet, unboxed-vars:IntSet, enabled?:Int -> True|False, changed?:IntSet) :
+  val ids = force-inline-core-functions(epackage) when inline-from-core? else []
+  within-package-inline(epackage, ids, loop-vars, unboxed-vars, enabled?, changed?)
 
 ;------------------------------------------------------------
 ;--------------- Main Inlining Algorithm --------------------
@@ -1876,7 +1928,25 @@ defn within-package-inline (epackage:EPackage, inline-from-core?:True|False) :
 ;package are considered for inlining.
 ;- force-inline contains the functions that are forced to
 ;  to always be inlined regardless of their size.
-defn within-package-inline (epackage:EPackage, force-inline:Tuple<Int>) :
+defn within-package-inline (epackage:EPackage, force-inline:Tuple<Int>, loop-vars:IntSet, unboxed-vars:IntSet, enabled?:Int -> True|False, changed?:IntSet) :
+
+  val [num-calls, num-reads] = num-calls-reads(epackage, enabled?)
+
+  defn local-and-only-called? (n:False|Int) -> True|False :
+    match(n:Int) : num-reads[n] == 0 and num-calls[n] == 1
+  
+  ;Return true if the given function should be inlined.
+  defn inline-function? (f:EFunction, n:False|Int) -> True|False :
+    match(f) :
+      (f:EMultifn) :
+        all?(inline-function?{_, false}, funcs(f))
+      (f:EFn) :
+        if empty?(localfns(body(f))) and empty?(localobjs(body(f))) :
+          small-function?(f) or
+          higher-order-function?(f) or
+          local-and-only-called?(n)
+
+
   ;Scans through the top-level definitions in the package,
   ;and collects the functions that are appropriate for
   ;inlining.
@@ -1889,10 +1959,10 @@ defn within-package-inline (epackage:EPackage, force-inline:Tuple<Int>) :
     for exp in exps(epackage) do :
       match(exp) :
         (exp:EDefn) :
-          if force-set[n(exp)] or inline-function?(func(exp)) :
+          if force-set[n(exp)] or inline-function?(func(exp), false) :
             inline-table[n(exp)] = func(exp)
         (exp:EDefmethod) :
-          if force-set[multi(exp)] or inline-function?(func(exp)) :
+          if force-set[multi(exp)] or inline-function?(func(exp), false) :
             inline-table[n(exp)] = func(exp)
         (exp) : false
     inline-table
@@ -1928,64 +1998,71 @@ defn within-package-inline (epackage:EPackage, force-inline:Tuple<Int>) :
       inlined-functions[n(l)] = func(l)
 
     ;Return a version of e with inlining performed.
-    defn inline (e:ELBigItem) -> ELBigItem :
-      match(e:EBody) :
-        ;Scan through local functions within this body,
-        ;and add them to the inline table if they
-        ;are appropriate to be inlined.
-        for l in localfns(e) do :
-          add-to-inline-table(l) when inline-function?(func(l))
+    defn inline (e:ELBigItem, tops:List<Int>) -> ELBigItem :
+      match(e) :
+        (e:EBody) :
+          ;Scan through local functions within this body,
+          ;and add them to the inline table if they
+          ;are appropriate to be inlined.
+          for l in localfns(e) do :
+            add-to-inline-table(l) when inline-function?(func(l), n(l))
 
-        ;Create buffer to store new inlined instructions.
-        val buffer = BodyBuffer(e)
+          ;Create buffer to store new inlined instructions.
+          val buffer = BodyBuffer(e)
 
-        ;Recursively inline local functions and
-        ;objects.
-        for l in localfns(e) do :
-          emit(buffer, inline(l) as ELocalFn)
-        for o in localobjs(e) do :
-          emit(buffer, inline(o) as ELocalObj)
+          ;Recursively inline local functions and
+          ;objects.
+          for l in localfns(e) do :
+            emit(buffer, inline(l, tops) as ELocalFn)
+          for o in localobjs(e) do :
+            emit(buffer, inline(o, tops) as ELocalObj)
 
-        ;Scan through each instruction and for
-        ;function calls inline them when appropriate.
-        ;Pass through other instructions changed.
-        for i in ins(e) do :
-          match(i:ECall|ETCall) :
-            ;Retrieve the function being called, and the
-            ;type arguments it is called with.
-            val f* = deconstruct-function(f(i))
-            if empty?(f*) :
-              ;Cannot determine the name of the
-              ;function being called.
-              emit(buffer, i)
+          ;Scan through each instruction and for
+          ;function calls inline them when appropriate.
+          ;Pass through other instructions changed.
+          for i in ins(e) do :
+            match(i:ECall|ETCall) :
+              ;Retrieve the function being called, and the
+              ;type arguments it is called with.
+              val f* = deconstruct-function(f(i))
+              if empty?(f*) :
+                ;Cannot determine the name of the
+                ;function being called.
+                emit(buffer, i)
+              else :
+                ;Calling fid with type arguments targs.
+                val [fid, targs] = value!(f*)
+                match(get-inlined-function(fid, length(ys(i)), git, inlined-functions)) :
+                  (func:EFn) :
+                    ;Retrieve the variable the function call
+                    ;is returned to, and whether it is a tail call
+                    ;or not.
+                    val [ret, tail?] = match(i) :
+                      (i:ECall) : [x(i), false]
+                      (i:ETCall) : [false, true]
+                    ;Inline all of the instruction in the function body
+                    ;into the current buffer.
+                    for top in tops do : add(changed?, top)
+                    inline-call(buffer, ret, rename-fn(func, loop-vars, unboxed-vars), targs, ys(i), info(i), tail?)
+                  (_:False) :
+                    emit(buffer, i)
             else :
-              ;Calling fid with type arguments targs.
-              val [fid, targs] = value!(f*)
-              match(get-inlined-function(fid, length(ys(i)), git, inlined-functions)) :
-                (func:EFn) :
-                  ;Retrieve the variable the function call
-                  ;is returned to, and whether it is a tail call
-                  ;or not.
-                  val [ret, tail?] = match(i) :
-                    (i:ECall) : [x(i), false]
-                    (i:ETCall) : [false, true]
-                  ;Inline all of the instruction in the function body
-                  ;into the current buffer.
-                  inline-call(buffer, ret, rename-fn(func), targs, ys(i), info(i), tail?)
-                (_:False) :
-                  emit(buffer, i)
+              emit(buffer, i)
+
+          ;Return new body
+          to-body(buffer, true, false, false)
+
+        (e:EDefmethod|EDefn|EInit) : 
+          if enabled?(n(e)) :
+            map(inline{_, cons(n(e), tops)}, e)
           else :
-            emit(buffer, i)
+            e
 
-        ;Return new body
-        to-body(buffer, true, false, false)
-
-      else :
-        ;Recursively perform inlining on all nested bodies.
-        map(inline, e)
+        (e) :
+          map(inline{_, tops}, e)
 
     ;Inline the top level.
-    inline(e) as ETExp
+    inline(e, List()) as ETExp
 
   ;Launch!
   val git = compute-global-inlining-table()
@@ -1996,16 +2073,6 @@ defn within-package-inline (epackage:EPackage, force-inline:Tuple<Int>) :
 ;------------------------------------------------------------
 ;--------------- Determine Whether to Inline ----------------
 ;------------------------------------------------------------
-
-;Return true if the given function should be inlined.
-defn inline-function? (f:EFunction) -> True|False :
-  match(f) :
-    (f:EMultifn) :
-      all?(inline-function?, funcs(f))
-    (f:EFn) :
-      if empty?(localfns(body(f))) and empty?(localobjs(body(f))) :
-        small-function?(f) or
-        higher-order-function?(f)
 
 ;Return true if the given function is a leaf function.
 ;It contains no nested functions or objects and does not call
@@ -2060,17 +2127,43 @@ defn higher-order-function? (e:EFn) -> True|False :
   ;Return true if any of the arguments appear only in calling position.
   any?(only-called?{n(_)}, args(e))
 
+defn num-calls-reads (epackage:EPackage, enabled?:Int -> True|False) -> [IntTable<Int>, IntTable<Int>] :
+  val num-reads = IntTable<Int>(0)
+  val num-calls = IntTable<Int>(0)
+  defn walk (e:ELItem) :
+    match(e) :
+      (e:EDefn|EDefmethod|EInit) : 
+        do(walk, e) when enabled?(n(e))
+      (e:ELive) :
+        false
+      (e:ECall|ETCall) :
+        val f* = deconstruct-function(f(e))
+        if not empty?(f*) :
+          val [callee, targs] = value!(f*)
+          increment(num-calls, callee)
+        do(walk, ys(e))
+      (e:EVar) :
+        increment(num-reads, n(e))
+      (e) :
+        do(walk, e)
+  do(walk, exps(epackage))
+  [num-calls, num-reads]
+
 ;------------------------------------------------------------
 ;------------ Rename using Fresh Variables ------------------
 ;------------------------------------------------------------
 
 ;Return a behaviourally-identical function with fresh
 ;identifiers generated for all local definitions.
-defn rename-fn (f:EFn) -> EFn :
+defn rename-fn (f:EFn, loop-vars:IntSet, unboxed-vars:IntSet) -> EFn :
   ;Collect renamed identifiers
   val id-table = IntTable<Int>()
   val label-table = IntTable-init<Int>(uniqueid{})
-  defn make-id (x:Int) : id-table[x] = uniqueid()
+  defn make-id (x:Int) :
+    val new-id = uniqueid()
+    id-table[x] = new-id
+    add(loop-vars, new-id) when loop-vars[x]
+    add(unboxed-vars, new-id) when unboxed-vars[x]
   defn make-ids (xs:Seqable<Int>) : do(make-id, xs)
   defn id (x:Int) : get?(id-table, x, x)
   defn ids (xs:Tuple<Int>) : map(id, xs)
@@ -2141,7 +2234,7 @@ defn rename-fn (f:EFn) -> EFn :
 ;usage of that label.
 ;This pattern occurs as a result of function inlining.
 
-defn cleanup-labels (epackage:EPackage) -> EPackage :
+defn cleanup-labels (epackage:EPackage, gvt:VarTable, enabled?:Int -> True|False, changed?:IntSet) -> EPackage :
   defn cleanup-body (e:EBody) -> EBody :
     ;Collect all used labels
     val num-uses = IntTable<Int>(0)
@@ -2173,6 +2266,7 @@ defn cleanup-labels (epackage:EPackage) -> EPackage :
   ;Recursively clean up all nested definitions
   defn cleanup-item (e:ELBigItem) -> ELBigItem :
     match(map(cleanup-item, e)) :
+      (d:EDefmethod|EDefn) : map(cleanup-item, d) when enabled?(n(d)) else d
       (b:EBody) : cleanup-body(b)
       (item) : item
 
@@ -2370,8 +2464,8 @@ defmethod fold-binary-op (op:EOp, f:ConstantValue -> EIns|False, a0:ConstantValu
       (op:ShlOp, a0:Byte|Int|Long, a1:Byte|Int|Long) : f(call(shift-left,a0,a1))
       (op:ShrOp, a0:Byte|Int|Long, a1:Byte|Int|Long) : f(call(shift-right,a0,a1))
       (op:AshrOp, a0:Int|Long, a1:Int|Long) : f(call(arithmetic-shift-right,a0,a1))
-      (op:EqOp, a0:Byte|Int|Long|Float|Double, a1:Byte|Int|Long|Float|Double) : f(bool-to-long(a0 == a1))
-      (op:NeOp, a0:Byte|Int|Long|Float|Double, a1:Byte|Int|Long|Float|Double) : f(bool-to-long(a0 != a1))
+      (op:EqOp, a0:Byte|Int|Long|Float|Double|True|False, a1:Byte|Int|Long|Float|Double|True|False) : f(bool-to-long(a0 == a1))
+      (op:NeOp, a0:Byte|Int|Long|Float|Double|True|False, a1:Byte|Int|Long|Float|Double|True|False) : f(bool-to-long(a0 != a1))
       (op:LtOp, a0:Byte|Int|Long|Float|Double, a1:Byte|Int|Long|Float|Double) : f(bool-to-long(a0 < a1))
       (op:GtOp, a0:Byte|Int|Long|Float|Double, a1:Byte|Int|Long|Float|Double) : f(bool-to-long(a0 > a1))
       (op:LeOp, a0:Byte|Int|Long|Float|Double, a1:Byte|Int|Long|Float|Double) : f(bool-to-long(a0 <= a1))
@@ -2563,15 +2657,10 @@ defn* classify-and-fold-conv (make-ins:ConstantValue -> EIns|False,
 ; to feed a large set of functions that run operations at compile time on
 ; values of these literals and produce new literal bindings as a result or
 ; in partial folding cases just create simplifications.
-; Returns false if no changes were made.
-defn try-constant-fold (epackage:EPackage, gvt:VarTable) -> EPackage|False :
-  ;Record whether progress was made.
-  var progress?:True|False = false
-  defn record-progress () : progress? = true
-
+defn constant-fold (epackage:EPackage, gvt:VarTable, enabled?:Int -> True|False, changed?:IntSet) -> EPackage :
   ;Perform constant folding on all instructions in the given body.
   ;Assumes that nested bodies are already folded.
-  defn fold-in-body (e:EBody, vt:VarTable) -> EBody :
+  defn fold-in-body (e:EBody, vt:VarTable, top:False|Int) -> EBody :
     ;Return the constant-folded version of the given instruction.
     defn fold (i:EIns) -> EIns :
       match(i) :
@@ -2586,7 +2675,7 @@ defn try-constant-fold (epackage:EPackage, gvt:VarTable) -> EPackage|False :
           ;Fold the arguments and store result in EDef instruction.
           match(fold-args(make-def, op(i), ys(i))) :
             (ins:EIns) :
-              record-progress()
+              add-changed(changed?, top)
               ins
             (f:False) : i
         (i:EConv) :
@@ -2596,7 +2685,7 @@ defn try-constant-fold (epackage:EPackage, gvt:VarTable) -> EPackage|False :
           val xtype = type(vt,n(x(i)))
           match(classify-and-fold-conv(make-def, xtype, y(i))) :
             (ins:EIns) :
-              record-progress()
+              add-changed(changed?, top)
               ins
             (f:False) : i
         (i:EIf) :
@@ -2610,7 +2699,7 @@ defn try-constant-fold (epackage:EPackage, gvt:VarTable) -> EPackage|False :
           ;Fold the arguments and create goto instruction.
           match(fold-args(make-goto, op(i), ys(i))) :
             (ins:EIns) :
-              record-progress()
+              add-changed(changed?, top)
               ins
             (f:False) : i
         (i) :
@@ -2620,20 +2709,15 @@ defn try-constant-fold (epackage:EPackage, gvt:VarTable) -> EPackage|False :
     sub-ins(e, ins*)
 
   ;Recursively perform constant folding on all bodies.
-  defn fold-all-bodies (x:ELBigItem, vt:VarTable) -> ELBigItem :
-    match(map(fold-all-bodies{_, vt}, x)) :
-      (x:EBody) : fold-in-body(x,vt)
+  defn fold-all-bodies (x:ELBigItem, vt:VarTable, top:False|Int) -> ELBigItem :
+    match(map(fold-all-bodies{_, vt, top}, x)) :
+      (x:EBody) : fold-in-body(x,vt,top)
       (x) : x
 
   ;Launch!
-  val result = map-with-var-table({fold-all-bodies(_, _) as ETExp}, gvt, epackage)
-  result when progress?
-
-;Return the original package if constant folding didn't do anything.
-defn constant-fold (epackage:EPackage, gvt:VarTable) -> EPackage :
-  match(try-constant-fold(epackage, gvt)) :
-    (p:EPackage) : p
-    (f:False) : epackage
+  within (texp, vt) = map-with-var-table(gvt, epackage, enabled?) :
+    val top = match(texp:EDefmethod|EDefn|EInit) : n(texp)
+    fold-all-bodies(texp, vt, top) as ETExp
 
 ;============================================================
 ;================== Type Simplification =====================
@@ -3124,6 +3208,7 @@ defn DispatchTable (epackage:EPackage) -> DispatchTable :
     val dispatch-types = to-tuple(filter({_1}, types, mask(mdag)))
     val args = map(etype-to-arg{class-tree, _, false}, dispatch-types)
     val solns = all-solns(dag(mdag), args, false)
+    val real-solns = map({targets(mdag)[index(_ as UniqueSoln)]}, solns) when all?({_ is UniqueSoln}, solns) else []
     if length(solns) == 1 :
       val i = index(solns[0] as UniqueSoln)
       targets(mdag)[i]
@@ -3163,22 +3248,12 @@ defn DispatchTable (epackage:EPackage) -> DispatchTable :
 ;Dispatches are replaced with either a goto, or a dispatch with a smaller set of branches.
 ;Note that this is an unsafe optimization: a match with only a single branch remaining
 ;is not guaranteed to be equivalent to a Goto. It may also not match any of the branches.
-defn resolve-methods-and-matches (epackage:EPackage, gvt:VarTable) -> EPackage :
-  ;Create the dispatch table for the package.
-  val dispatch-table = DispatchTable(epackage)
-
-  ;Create the table of defobjects for use by the type
-  ;annotation engine.
-  val defobjects = to-inttable<EDefObject> $
-    for e in filter-by<EDefObject>(exps(epackage)) seq :
-      n(e) => e
-
+defn resolve-methods-and-matches (epackage:EPackage, gvt:VarTable, dispatch-table:DispatchTable, defobjects:IntTable, enabled?: Int -> True|False, changed?:IntSet) -> EPackage :
   ;Resolve all dispatches in the given body.
   ;Does not recurse to nested definitions.
-  defn resolve-in-body (e:EBody, vt:VarTable) -> EBody :
+  defn resolve-in-body (e:EBody, vt:VarTable, top:False|Int) -> EBody :
     ;Compute type annotations for the body.
     val annotations = EBodyAnnotations(e, vt, true)
-
     ;Resolve target of call.
     ;Returns the new function if the call can be resolved.
     defn resolve-call-target (f:EImm, ys:Tuple<EImm>) -> EImm|False :
@@ -3189,6 +3264,7 @@ defn resolve-methods-and-matches (epackage:EPackage, gvt:VarTable) -> EPackage :
         (f) : false
       ;Function for replacing the function id.
       defn sub-fid (n:Int) :
+        match(top:Int) : (add(changed?, top))
         match(f) :
           (f:EVar) : EVar(n)
           (f:ECurry) : ECurry(EVar(n), targs(f))
@@ -3213,6 +3289,8 @@ defn resolve-methods-and-matches (epackage:EPackage, gvt:VarTable) -> EPackage :
     defn resolve-branches (i:EMatch|EDispatch) -> EIns :
       val ys-types = map({annotations[_]}, ys(i))
       val branches* = /resolve-branches(dispatch-table, branches(i), ys-types, i is EDispatch)
+      if length(branches(i)) != length(branches*) :
+        match(top:Int) : (add(changed?, top))
       if length(branches*) == 1 : EGoto(n(branches*[0]))
       else : sub-branches(i, branches*)
 
@@ -3228,28 +3306,631 @@ defn resolve-methods-and-matches (epackage:EPackage, gvt:VarTable) -> EPackage :
   ;Call resolve-in-body for all EBody structures in the
   ;given top-level expression.
   defn resolve-texp (e:ETExp, vt:VarTable) -> ETExp :
+    val top = match(e:EDefmethod|EDefn|EInit) : n(e)
     defn resolve-bodies (e:ELBigItem) -> ELBigItem :
       match(map(resolve-bodies,e)) :
-        (e:EBody) : resolve-in-body(e,vt)
+        (e:EBody) : resolve-in-body(e,vt,top)
         (e) : e
     val annotated = add-type-annotations(e, defobjects, vt, true)
     resolve-bodies(annotated) as ETExp
 
   ;Resolve each top-level expression with the computed
   ;local VarTable for each top-level expression.
-  map-with-var-table(resolve-texp, gvt, epackage)
+  map-with-var-table(resolve-texp, gvt, epackage, enabled?)
+
+
+;============================================================
+;==================== LOOP HOISTING =========================
+;============================================================
+
+defstruct Block :
+  name : Int
+  prev : Tuple<Int>
+with:
+  printer => true
+
+defstruct Blocks :
+  start : Int
+  data : IntTable<Block>
+  prev : IntTable<Tuple<Int>>
+  next : IntTable<Tuple<Int>>
+with:
+  printer => true
+
+defstruct IntBlock :
+  id : Int
+  name : Int
+  prev : Tuple<Int>
+  next : Tuple<Int>
+with:
+  printer => true
+
+defn Blocks (blocks:Tuple<Block>, start-idx:Int) -> Blocks :
+  val prevs = to-inttable<Tuple<Int>> $ for b in blocks seq : name(b) => prev(b)
+  val data = to-inttable<Block> $ for b in blocks seq : name(b) => b
+  val nexts = to-inttable<List<Int>> $ for b in blocks seq : name(b) => List()
+  for b in blocks do :
+    for p in prev(b) do :
+      nexts[p] = cons(name(b), nexts[p])
+  Blocks(name(blocks[start-idx]), data, prevs,
+         to-inttable<Tuple<Int>> $ for n in nexts seq : key(n) => to-tuple(value(n)) )
+
+defn IntBlocks (blocks:Blocks) -> Tuple<IntBlock> :
+  val list = Vector<Block>()
+  val visited? = IntSet()
+  let loop (name:Int = start(blocks)) :
+    if not visited?[name] :
+      add(visited?, name)
+      for nb in next(blocks)[name] do : loop(nb)
+      add(list, data(blocks)[name])
+  val ids = to-inttable<Int> $ for (b in list, i in 0 to false) seq : name(b) => i
+  to-tuple $ for (b in list, i in 0 to false) seq :
+    IntBlock(i, name(b), map({ ids[_] }, prev(b)), map({ ids[_] }, next(blocks)[name(b)]))
+
+defn idom (blocks : Tuple<IntBlock>) -> Tuple<Int> :
+  val doms = Array<Int>(length(blocks), -1)
+  val start-id = length(blocks) - 1
+  doms[start-id] = start-id
+  defn intersect (b1:Int, b2:Int) -> Int :
+    let loop (finger1:Int = b1, finger2:Int = b2) :
+      if finger1 != finger2 :
+        val finger1 = let iter (finger1:Int = finger1) :
+          if finger1 < finger2 : iter(doms[finger1])
+          else : finger1
+        val finger2 = let iter (finger2:Int = finger2) :
+          if finger2 < finger1 : iter(doms[finger2])
+          else : finger2
+        loop(finger1, finger2)
+      else :
+        finger1
+  let loop () :
+    let iter (b : Int = start-id - 1, changed? : True|False = false) :
+      if b >= 0 :
+        val ps = prev(blocks[b])
+        val new-idom = let find (idom:Int = -1, pi:Int = 0) :
+          if pi < length(ps) :
+            val p = ps[pi]
+            val nxt-idom =
+              if doms[p] != -1 :
+                if idom == -1 : p
+                else : intersect(p, idom)
+              else : idom
+            find(nxt-idom, pi + 1)
+          else :
+            idom
+        val changed? = doms[b] != new-idom
+        doms[b] = new-idom
+        iter(b - 1, changed?)          
+      else :
+        loop() when changed?
+  to-tuple $ doms
+
+defstruct Edge :
+  src : Int
+  dst : Int
+
+defn back-edges (blocks:Tuple<IntBlock>, idoms:Tuple<Int>) -> Seq<Edge> :
+  generate<Edge> :
+    for n in blocks do :
+      for h in next(n) do :
+        if dominate?(idoms, id(n), h) :
+          yield(Edge(id(n), h))
+
+defstruct PreHeader :
+  id : Int
+  instructions : Vector<EIns> with: ( init => Vector<EIns>() )
+with:
+  printer => true
+
+defstruct Loop <: Equalable :
+  header : Int
+  jumps : List<Int> with: ( setter => set-jumps )
+  body : IntSet
+  pre-header : False|PreHeader with: ( init => false, setter => set-pre-header )
+  parent : False|Int with: ( default => false, updater => set-parent )
+with:
+  printer => true
+
+defmethod equal? (l0:Loop, l1:Loop) -> True|False :
+  header(l0) == header(l1) and jumps(l0) == jumps(l1)
+
+defn dominate? (idoms:Tuple<Int>, a:Int, b:Int) -> True|False :
+  let loop (k:Int = idoms[a], pk:Int = a) :
+    if pk != k :
+      if k == b :
+        true
+      else :
+        loop(idoms[k], k)
+
+defn pre-header (blocks:Tuple<IntBlock>, idoms:Tuple<Int>, n:Int, h:Int, body:IntSet) -> Tuple<Int> :
+  to-tuple $ filter(fn (x) : not body[x] and dominate?(idoms, h, x), prev(blocks[h]))
+
+defn post-header (blocks:Tuple<IntBlock>, idoms:Tuple<Int>, body:IntSet) -> Tuple<Int> :
+  val all-nexts = to-intset $ seq-cat({ next(blocks[_]) }, body)
+  to-tuple $ filter({ not body[_] }, all-nexts)
+
+defn natural-loop (blocks:Tuple<IntBlock>, idoms:Tuple<Int>, header:Int, jumps:List<Int>) -> Loop :
+  val body = IntSet()
+  val stack = Vector<Int>()
+  defn nm (i:Int) : name(blocks[i])
+  add-all(body, cat(jumps, [header]))
+  for jump in jumps do :
+    add(stack, jump) when jump != header
+  let iter () :
+    if not empty?(stack) :
+      val p = pop(stack)
+      for q in prev(blocks[p]) do :
+        if not contains?(body, q) :
+          add(body, q)
+          add(stack, q)
+      iter()
+  Loop(header, jumps, body)
+  
+defn nested? (l0:Loop, l1:Loop) -> True|False :
+  l0 != l1 and for b0 in body(l0) all? : body(l1)[b0]
+
+defn loop-tree (blocks:Tuple<IntBlock>, idoms:Tuple<Int>, raw-loops:Seqable<Loop>) -> IntTable<Loop> :
+  val tree = to-inttable<Loop> $ for l in raw-loops seq : header(l) => l
+  defn nm (i:Int) : name(blocks[i])
+  for l in raw-loops do :
+    let loop (n:Int = idoms[header(l)], pn:Int = header(l)) :
+      if n != pn :
+        if key?(tree, n) :
+          if nested?(l, tree[n]) :
+            tree[header(l)] = set-parent(l, n)
+          else :
+            loop(idoms[n], n)
+        else :
+          loop(idoms[n], n)
+  tree
+
+defn find-inner-loops (loops:Seqable<Loop>) -> Seq<Loop> :
+  val outers = IntSet()
+  for loop in loops do :
+    match(parent(loop)) :
+      (parent:Int) : add(outers, parent)
+      (parent:False) : false
+  for loop in loops filter : not outers[header(loop)]
+
+defstruct BlockInfo :
+  defs : Tuple<Int>
+  uses : Tuple<Int>
+  dels : Vector<Int> with: ( init => Vector<Int>() )
+  reps : Vector<KeyValue<Int,Int>> with: ( init => Vector<KeyValue<Int,Int>>() )
+  pre-header : False|PreHeader with: ( init => false, setter => set-pre-header )
+with :
+  printer => true
+
+;Inline single control flow instruction blocks into goto's
+;setting up box-unbox of match/if's to fold away overhead
+;Also prune unreachable blocks by walking basic-blocks
+defn hoist-loops (epackage:EPackage, gvt:VarTable, loop-vars:IntSet, enabled?:Int -> True|False, changed?:IntSet) -> EPackage :
+  ;Compute defstruct table
+  val defstruct-table = DefStructTable(epackage)
+  val no-dels = IntSet()
+  val no-reps = IntTable<Int>()
+  defn hoist-body (bdy:EBody, vt:VarTable, top:False|Int) -> EBody :
+    val locals-table = to-inttable<ELocal> $ for local in locals(bdy) seq : n(local) => local
+    val block-table = analyze-basic-blocks(ins(bdy))
+    val start-idx = 0
+    val bt-blocks = Blocks(to-tuple $ for block in block-table seq : Block(lbl(block), predecessors(block)), start-idx)
+    val blocks = IntBlocks $ bt-blocks
+    defn nm! (i:Int) : name(blocks[i])
+    defn nm (i:Int|False) : match(i:Int) : nm!(i)
+    val idom = idom(blocks)
+    val block-info = to-inttable<BlockInfo> $ for block in block-table seq :
+      val uses = for i in filter({ _ is-not ELive }, instructions(block)) seq-cat : uses(i)
+      val defs = for i in instructions(block) seq-cat : varlocs(i)
+      lbl(block) => BlockInfo(to-tuple $ seq(n, filter-by<EVarLoc>(defs)), to-tuple $ seq(n, filter-by<EVar>(uses)))
+
+    val edges = to-tuple $ back-edges(blocks, idom)
+    val header-edges = IntTable<List<Int>>(List())
+    for e in edges do : update(header-edges, { cons(src(e), _) }, dst(e))
+    val loops = to-tuple $ for (e in header-edges) seq :
+      natural-loop(blocks, idom, key(e), value(e))
+    val tree = loop-tree(blocks, idom, loops)
+    val inner-loops = find-inner-loops(loops)
+    val new-locals-table = IntTable<Int>()
+    val new-instructions = IntTable<EIns>()
+    val new-locals = Vector<ELocal>()
+    var pre-headers? = false
+    val print? = false ; top == 621
+    for l in inner-loops do :          
+      val loop-uses = to-intset $ for name in body(l) seq-cat :
+        uses(block-info[nm!(name)])
+      val loop-defs = to-intset $ for name in body(l) seq-cat :
+        defs(block-info[nm!(name)])
+      defn loop-invariant-var? (use:EVar) -> True|False :
+        not loop-defs[n(use)] and (loop-vars[n(use)] or not mutable?(vt, n(use)))
+      defn loop-invariant-use? (use:EImm) -> True|False :
+        match(use) :
+          (use:ELiteral|ELSLiteral) : true
+          (use:EVar) : loop-invariant-var?(use)
+          (use) : false
+      defn loop-invariant-uses? (uses:Seqable<EImm>) -> True|False :
+        for use in uses all? : loop-invariant-use?(use)
+      defn pure-prim? (prim:EPrim) -> True|False :
+        op(prim) is AddOp|SubOp|MulOp|DivOp|ModOp|AndOp|OrOp|XorOp|NotOp|ShlOp|AshrOp|NegOp|
+                    EqOp|NeOp|LtOp|GtOp|LeOp|GeOp|UleOp|UltOp|UgtOp|UgeOp
+      defn immutable-field-load? (load:ELoad) -> True|False :
+        attempt :
+          val field = loc(load) as? EField
+          val loc = loc(field) as? EDeref
+          val v = y(loc) as? EVar
+          val t = type(vt, n(v)) as? EOf
+          fail() when not exists?(defstruct-table, n(t))
+          fail() when mutable-field?(defstruct-table, n(t), index(field))
+          true
+      val header-info = block-info[nm!(header(l))]
+      for lbl in seq(nm!, body(l)) do :
+        val info = block-info[lbl]
+        for (i in instructions(block-table[lbl]), off in 0 to false) do :
+          val inv? = match(i) :
+            (i:ELabel) : false
+            (i:ELoad) : loop-invariant-uses?(uses(i)) and immutable-field-load?(i)
+            (i:EObject|EArray|ENewObject) : false ; loop-invariant-uses?(uses(i))
+            (i:EPrim) : pure-prim?(i) and loop-invariant-uses?(uses(i))
+            (i) : false
+          if inv? : 
+            pre-headers? = true
+            add(dels(info), off)
+            val ph = match(pre-header(l)) :
+              (ph:PreHeader) : ph
+              (f:False) :
+                val ph = PreHeader(uniqueid())
+                set-pre-header(header-info, ph)
+                set-pre-header(l, ph)
+                val rep = nm!(header(l)) => id(ph)
+                for last in jumps(l) do :
+                  add(reps(block-info[nm!(last)]), rep)
+                ph
+            add(instructions(ph), i)
+      for lbl in seq(nm!, body(l)) do :
+        for i in instructions(block-table[lbl]) do :
+          for def in filter-by<EVarLoc>(varlocs(i)) do :
+            if not loop-uses[n(def)] :
+              match(i:EObject) :
+                val old-local = locals-table[n(def)]
+                val new-id = uniqueid()
+                val new-local = ELocal(new-id, type(old-local), true, debug-name(old-local))
+                new-locals-table[n(def)] = new-id
+                add(new-locals, new-local)
+                new-instructions[n(old-local)] =
+                  EObject(EVarLoc(n(new-local)), n(i), ys(i), info?(i) as TraceInfo)
+
+    if empty?(new-instructions) and not pre-headers? :
+      bdy
+    else :
+      val buffer = BodyBuffer(bdy)
+      for block in block-table do :
+        val info = block-info[lbl(block)]
+        val n-id =
+          match(pre-header(info)) :
+            (pre-header:PreHeader) :
+              emit(buffer, ELabel(lbl(block)))
+              for i in instructions(pre-header) do :
+                emit(buffer, i)
+              emit(buffer, EGoto(id(pre-header)))
+              id(pre-header)
+            (f:False) : lbl(block)
+        val dels = no-dels when empty?(dels(info)) else to-intset(dels(info))
+        val reps = no-reps when empty?(reps(info)) else to-inttable<Int>(reps(info))
+        defn transform (tab:IntTable<Int>, lbl:Int) -> Int :
+          get?(reps, lbl, lbl)
+        for (i in instructions(block), off in 0 to false) do :
+          if not dels[off] :
+            match(i) :
+              (i:ELive|ECheck) :
+                emit(buffer, i)
+              (i:EIf) :
+                emit(buffer, EIf(transform(reps, n1(i)), transform(reps, n2(i)), op(i), ys(i)))
+              (i:EMatch|EDispatch) :
+                emit(buffer, sub-branches(i, map(fn (b) : sub-n(b, transform(reps, n(b))), branches(i))))
+              (i:EGoto) :
+                emit(buffer, EGoto(transform(reps, n(i))))
+              (i:ELabel) :
+                emit(buffer, ELabel(n-id as Int))
+              (i:EIns) :
+                val i* = let loop (e:ELItem = i) :
+                  match(map(loop, e)) :
+                    (e:EVar) :
+                      match(get?(new-instructions, n(e))) :
+                        (ni:EIns) :
+                          ; println("NEW INS %_" % [ni])
+                          emit(buffer, ni)
+                          EVar(new-locals-table[n(e)])
+                        (ni:False) : e
+                    (e:ELItem) : e
+                emit(buffer, i* as EIns)
+      for l in locals(bdy) do :
+        emit(buffer,l)
+      for nl in new-locals do :
+        emit(buffer,nl)
+      for f in localfns(bdy) do :
+        emit(buffer, f)
+      for obj in localobjs(bdy) do :
+        emit(buffer, obj)
+      to-body(buffer, false, false, false)
+
+  defn hoist-texp (e:ETExp, vt:VarTable) -> ETExp :
+    val top = match(e:EDefmethod|EDefn|EInit) : n(e)
+    defn hoist-bodies (e:ELBigItem) -> ELBigItem :
+      match(map(hoist-bodies,e)) :
+        (e:EBody) : hoist-body(e,vt,top)
+        (e) : e
+    hoist-bodies(e) as ETExp
+
+  map-with-var-table(hoist-texp, gvt, epackage, enabled?)
+
+
+;============================================================
+;==================== CONTROL FOLD ==========================
+;============================================================
+;Inline single control flow instruction blocks into goto's
+;setting up box-unbox of match/if's to fold away overhead
+;Also prune unreachable blocks by walking basic-blocks
+defn control-fold (epackage:EPackage, gvt:VarTable, enabled?:Int -> True|False, changed?:IntSet) -> EPackage :
+  defn fold-body (body:EBody, top:False|Int) -> EBody :
+    val block-table = analyze-basic-blocks(ins(body))
+
+    ;Find blocks with a single control flow instruction
+    val inlineable-blocks = IntTable<List<EIns>>()
+    for block in block-table do :
+      val insts = to-tuple $ for i in instructions(block) filter :
+        i is-not ELive|ECheck ;TODO ECheck's are going to be removed in opt mode
+      if length(insts) == 2 :
+        match(insts[0],insts[1]) :
+          (i0:ELabel,i1:EGoto|EIf|EMatch) :
+            inlineable-blocks[n(i0)] = tail(to-list $ instructions(block))
+          (i0,i1) : false
+
+    val buffer = BodyBuffer(body)
+
+    ;Record all defined variables
+    val defs = IntSet()
+    for block in block-table do :
+      for i in instructions(block) do :
+        for v in varlocs(i) do : add(defs, n(v))
+
+    ;Keep all the locals that are not eliminated.
+    for l in locals(body) do :
+      emit(buffer,l) when defs[n(l)]
+
+    ;Record all the used objects and fns during this sweep.
+    val used-objs-and-fns = IntSet()
+
+    ;Inline single control flow blocks into goto instructions
+    for block in block-table do :
+      for i in instructions(block) do :
+        match(i:EGoto) :
+          if key?(inlineable-blocks, n(i)) :
+            for ib in inlineable-blocks[n(i)] do :
+              add-changed(changed?, top)
+              emit(buffer, ib)
+          else :
+            emit(buffer, i)
+        else :
+          match(i) :
+            (i:ENew) : add(used-objs-and-fns, n(i))
+            (i:EInitClosures) : do(add{used-objs-and-fns, n(_)}, xs(i))
+            (i) : false
+          emit(buffer, i)
+
+    ;Keep only the fns and objects that are not eliminated.
+    for f in localfns(body) do :
+      emit(buffer, f) when used-objs-and-fns[n(f)]
+    for obj in localobjs(body) do :
+      emit(buffer, obj) when used-objs-and-fns[n(obj)]
+    to-body(buffer, false, false, false)
+
+  defn fold-exp (e:ETExp) -> ETExp :    
+    val top = match(e:EDefmethod|EDefn|EInit) : n(e)
+    defn fold-in-bodies (e:ELBigItem) :
+      match(map(fold-in-bodies, e)) :
+        (e:EBody) : fold-body(e, top)
+        (e) : e
+    if (match(top:Int) : enabled?(top)) :
+      fold-in-bodies(e) as ETExp
+    else :
+      e
+
+  val texps* = for e in exps(epackage) map :
+    fold-exp(e) as ETExp
+
+  sub-exps(epackage, texps*)
+
+;============================================================
+;=================== PEEPHOLE-OPTIMIZE ======================
+;============================================================
+
+defn peephole-optimize (epackage:EPackage, gvt:VarTable, enabled?: Int -> True|False, changed?:IntSet) -> EPackage :
+
+  defn merge-in-body (e:EBody, vt:VarTable, top:False|Int) -> EBody :
+    var prev-ins:False|EIns = false
+
+    val buffer = BodyBuffer(e)
+
+    defn cmp-op? (op:False|EOp) -> True|False :
+      op is EqOp|NeOp|LtOp|GtOp|LeOp|GeOp|UleOp|UltOp|UgtOp|UgeOp|IntLtOp|IntGtOp|IntLeOp|IntGeOp
+
+    defn cmp-if? (prev-ins:EPrim, i:EIf) -> True|False :
+      match(op(i), ys(i)[0], x(prev-ins)) :
+        (o:False, arg:EVar, cmp-dst:EVarLoc) : cmp-op?(op(prev-ins)) and n(cmp-dst) == n(arg)
+        (op, arg, cmp-dst) : false
+    
+    defn replace-var (ins:EIns, src:Int, dst:False|EImm) -> EIns|False :
+      match(dst:EImm) :
+        var replaced? = false
+        defn same-var? (src:Int, dst:EImm) : match(dst:EVar) : src == n(dst)
+        defn replace (e:EImm) -> EImm :
+          match(e:EVar) :
+            if n(e) == src and not same-var?(src, dst) :
+              replaced? = true
+              dst
+            else :
+              e
+          else: e
+        val new-ins = map(replace, ins)
+        if replaced? : new-ins as EIns
+
+    for i in ins(e) do :
+      val new-ins = match(prev-ins, i) :
+        (cmp:EPrim, i:EIf) :
+          if cmp-if?(cmp, i) :
+            add-changed(changed?, top)
+            EIf(n1(i), n2(i), op(cmp), ys(cmp))
+          else :
+            i
+        (edef:EDef, i:ELive) :
+          i
+        (edef:EDef, i:EIns) :
+          match(replace-var(i, n(x(edef)), y(edef))) :
+            (ni:EIns) :
+              add-changed(changed?, top)
+              ni
+            (f) :
+              i
+        (pi, i) :
+          i
+      emit(buffer, new-ins)
+      prev-ins = i
+
+    to-body(buffer)
+
+  ;Call merge-in-body for all EBody structures in the
+  ;given top-level expression.
+  defn merge-texp (e:ETExp, vt:VarTable) -> ETExp :
+    val top = match(e:EDefmethod|EDefn|EInit) : n(e)
+    defn merge-bodies (e:ELBigItem) -> ELBigItem :
+      match(map(merge-bodies,e)) :
+        (e:EBody) : merge-in-body(e,vt,top)
+        (e) : e
+    merge-bodies(e) as ETExp
+
+  map-with-var-table(merge-texp, gvt, epackage, enabled?)
+
+
+;============================================================
+;================== CONVERT-LOOP-VARS =======================
+;============================================================
+
+defn convert-loop-vars (epackage:EPackage, gvt:VarTable, loop-vars:IntSet, unboxed-vars:IntSet, enabled?: Int -> True|False, changed?:IntSet) -> EPackage :
+
+  val vars-to-convert = IntTable<ELocal>()
+  val float-n = n(iotable(gvt),CORE-FLOAT-ID)
+  val double-n = n(iotable(gvt),CORE-DOUBLE-ID)
+  val int-n = n(iotable(gvt),CORE-INT-ID)
+  
+  defn prim-type? (e:EType) -> True|False :
+    match(e:EOf) : contains?([float-n, double-n, int-n], n(e))
+
+  defn lo-type (e:EType) -> EType :
+    match(e:EOf) :
+      if n(e) == float-n : EFloat()
+      else if n(e) == double-n : EDouble()
+      else if n(e) == int-n : EInt()
+      else : e
+    else :
+      e
+
+  defn convert-in-body (e:EBody, vt:VarTable, top:False|Int) -> EBody :
+    
+    defn loop-var? (l:ELocal) -> True|False :
+      mutable?(l) and (loop-vars[n(l)] or unboxed-vars[n(l)]) and prim-type?(normalize(type(l)))
+
+    if any?(loop-var?, locals(e)) :
+
+      val new-locals =
+        for l in locals(e) map :
+          if loop-var?(l) :
+            vars-to-convert[n(l)] = l
+            ELocal(n(l), lo-type(normalize(type(l))), true, debug-name(l))
+          else :
+            l
+
+      val extra-locals = Vector<ELocal>()
+      val after-ins = Vector<EIns>()
+      val before-ins = Vector<EIns>()
+      val buffer = BodyBuffer(e)
+
+      for i in ins(e) do :
+        clear(before-ins)
+        clear(after-ins)
+        ;TODO: HACK TO CONVERT STORE TO DEF FOR BOX-SET CONVERTED LOCAL
+        val ins =
+          match(i:EStore) :
+            match(loc(i)) :
+              (l:EVarLoc) :
+                if key?(vars-to-convert, n(l)) :
+                  EDef(l, y(i), false)
+                else :
+                  i
+              (l) : i
+          else :
+            i
+        val new-ins = let loop (e:ELItem = ins) :
+          match(map(loop, e)) :
+            (e:EVar) :
+              if key?(vars-to-convert, n(e)) :
+                val old-local = vars-to-convert[n(e)]
+                val t = normalize(type(old-local)) as EOf
+                val local = ELocal(uniqueid(), t, false, false)
+                add(extra-locals, local)
+                add-changed(changed?, top)
+                add(before-ins, EObject(EVarLoc(n(local)), n(t), [EVar(n(e))], false))
+                EVar(n(local))
+              else :
+                e
+            (e:EVarLoc) :
+              if key?(vars-to-convert, n(e)) :
+                val old-local = vars-to-convert[n(e)]
+                val t = normalize(type(old-local)) as EOf
+                val local = ELocal(uniqueid(), lo-type(t), false, false)
+                add(extra-locals, local)
+                add-changed(changed?, top)
+                add(after-ins, ELoad(EVarLoc(n(e)), lo-type(t), EField(EDeref(EVar(n(local))),n(t),0)))
+                EVarLoc(n(local))
+              else :
+                e
+            (e) :
+              e
+
+        for i in before-ins do :
+          emit(buffer, i)
+        emit(buffer, new-ins as EIns)
+        for i in after-ins do :
+          emit(buffer, i)
+
+      for l in cat(new-locals, extra-locals) do :
+        emit(buffer, l)
+      for l in localobjs(e) do :
+        emit(buffer, l)
+      for l in localfns(e) do :
+        emit(buffer, l)
+
+      to-body(buffer, false, false, false)
+
+    else :
+      e
+
+  ;Call convert-in-body for all EBody structures in the given top-level expression.
+  defn convert-texp (e:ETExp, vt:VarTable) -> ETExp :
+    val top = match(e:EDefmethod|EDefn|EInit) : n(e)
+    defn convert-bodies (e:ELBigItem) -> ELBigItem :
+      match(map(convert-bodies,e)) :
+        (e:EBody) : convert-in-body(e,vt,top)
+        (e) : e
+    convert-bodies(e) as ETExp
+
+  map-with-var-table(convert-texp, gvt, epackage, enabled?)
+
 
 ;============================================================
 ;==================== Beta Reduction ========================
 ;============================================================
 
-;Attempt beta reduction on the epackage.
-;Returns false if no progress was made.
-defn try-beta-reduce (epackage:EPackage, gvt:VarTable) -> EPackage|False :
-  ;Record whether any progress was made.
-  var progress?:True|False = false
-  defn record-progress () : progress? = true
-
+;Beta reduction on the epackage.
+defn beta-reduce (epackage:EPackage, gvt:VarTable, loop-vars:IntSet, enabled?: Int -> True|False, changed?:IntSet) -> EPackage :
   ;If the given location is an immutable global value, then
   ;return its identifier, otherwise return false.
   defn immutable-global-value? (loc:ELoc) -> Int|False :
@@ -3260,7 +3941,7 @@ defn try-beta-reduce (epackage:EPackage, gvt:VarTable) -> EPackage|False :
   ;in place of all beta-reduced variables.
   defn appropriate-beta-reduced-value? (y:EImm, vt:VarTable) -> True|False :
     match(y) :
-      (y:EVar) : key?(vt,n(y)) and not mutable?(vt, n(y))
+      (y:EVar) : key?(vt,n(y)) and ((not mutable?(vt, n(y)))) ;  or loop-vars[n(y)])
       (y:ELiteral) : value(y) is Byte|Int|Long|Float|Double|Char|True|False
       (y:ELSLiteral) : value(y) is Byte|Int|Long|Float|Double|Char|True|False
       (y:ETagof) : true
@@ -3362,16 +4043,16 @@ defn try-beta-reduce (epackage:EPackage, gvt:VarTable) -> EPackage|False :
 
   ;Perform beta-substitution on the given instruction.
   ;Returns the new instruction resulting from beta-substition.
-  defn beta-sub? (e:EIns, local-subtable:IntTable<EImm>, global-subtable:IntTable<EImm>) -> EIns :
+  defn beta-sub? (e:EIns, local-subtable:IntTable<EImm>, global-subtable:IntTable<EImm>, top:False|Int) -> EIns :
     ;Return the substitution for the given immediate.
     defn sub-imm? (e:EImm) -> EImm :
       match(e:EVar) :
         match(get?(local-subtable,n(e)), get?(global-subtable,n(e))) :
           (x:EImm, y) :
-            record-progress()
+            add-changed(changed?, top)
             x
           (x, y:EImm) :
-            record-progress()
+            add-changed(changed?, top)
             y
           (x, y) : e
       else : e
@@ -3389,13 +4070,13 @@ defn try-beta-reduce (epackage:EPackage, gvt:VarTable) -> EPackage|False :
   defn beta-reduce-body (e:ELBigItem,
                          local-subtable:IntTable<EImm>,
                          global-subtable:IntTable<EImm>,
-                         vt:VarTable) -> ELBigItem :
+                         vt:VarTable,
+                         top:False|Int) -> ELBigItem :
     ;Compute updated entry by performing substitutions.
     val e* =
       match(e:EBody) :
         ;Add new entries to the substitution table.
         add-to-sub-table(local-subtable, e, vt)
-
         ;If there are no substitutions to perform, then no substitutions
         ;are necessary
         if empty?(local-subtable) and empty?(global-subtable) :
@@ -3403,54 +4084,23 @@ defn try-beta-reduce (epackage:EPackage, gvt:VarTable) -> EPackage|False :
         ;Otherwise, perform substitution on all instructions.
         else :
           val ins* = for ins in ins(e) map :
-            beta-sub?(ins, local-subtable, global-subtable)
+            beta-sub?(ins, local-subtable, global-subtable, top)
           sub-ins(e, ins*)
       else :
         e
 
     ;Recursively perform substitution on nested definitions.
-    map(beta-reduce-body{_, local-subtable, global-subtable, vt}, e*)
+    map(beta-reduce-body{_, local-subtable, global-subtable, vt, top}, e*)
 
   ;Beta-reduce all bodies in the package.
   defn beta-reduce-texp (e:ETExp, global-subtable:IntTable<EImm>, vt:VarTable) :
+    val top = match(e:EDefmethod|EDefn|EInit) : n(e)
     val local-subtable = IntTable<EImm>()
-    beta-reduce-body(e, local-subtable, global-subtable, vt) as ETExp
+    beta-reduce-body(e, local-subtable, global-subtable, vt, top) as ETExp
 
   ;Launch!
   val global-subtable = compute-sub-table $ collect-global-initial-values()
-  val result = map-with-var-table(beta-reduce-texp{_, global-subtable, _}, gvt, epackage)
-  result when progress?
-
-;Return the original EPackage if no progress was made.
-defn beta-reduce (epackage:EPackage, gvt:VarTable) -> EPackage :
-  match(try-beta-reduce(epackage, gvt)) :
-    (p:EPackage) : p
-    (f:False) : epackage
-
-;============================================================
-;============ Iterative Constant-Beta-Reduction =============
-;============================================================
-
-;Iteratively alternate between constant-folding and beta-reduction until
-;no more progress.
-defn iterative-constant-fold-beta-reduce (epackage:EPackage, gvt:VarTable) -> EPackage :
-  var result:EPackage = epackage
-  within progress = fixpoint() :
-    ;Try constant folding
-    match(try-constant-fold(result, gvt)) :
-      (p:EPackage) :
-        result = p
-        progress()
-      (f:False) :
-        false
-    ;Try beta reduction
-    match(try-beta-reduce(result, gvt)) :
-      (p:EPackage) :
-        result = p
-        progress()
-      (f:False) :
-        false
-  result
+  map-with-var-table(beta-reduce-texp{_, global-subtable, _}, gvt, epackage, enabled?)
 
 ;============================================================
 ;================= Dead Code Elimination ====================
@@ -3496,7 +4146,7 @@ defn max (a:UsageType, b:UsageType) -> UsageType :
 
 ;Removes any pure instructions in the package whose
 ;results are not used at all.
-defn eliminate-dead-code (epackage:EPackage) -> EPackage :
+defn eliminate-dead-code (epackage:EPackage, gvt:VarTable, enabled?:Int -> True|False, changed?:IntSet) -> EPackage :
   ;Collect all uses of variables in the given top-level expression.
   defn collect-defs-and-uses (e:ETExp) -> [IntListTable<EIns>, IntTable<UsageType>] :
     val def-table = IntListTable<EIns>()
@@ -3544,7 +4194,7 @@ defn eliminate-dead-code (epackage:EPackage) -> EPackage :
       else : None()
 
   ;Eliminate dead instructions in the given body.
-  defn eliminate-vars-in-body (e:EBody, elim-vars:IntSet) -> EBody :
+  defn eliminate-vars-in-body (e:EBody, elim-vars:IntSet, top:False|Int) -> EBody :
     ;Gather new instructions in buffer.
     val buffer = BodyBuffer(e)
     ;Keep only the instructions that are not eliminated.
@@ -3563,7 +4213,9 @@ defn eliminate-dead-code (epackage:EPackage) -> EPackage :
         ;it defines is supposed to be eliminated.
         val elim? = for v in varlocs(i) any? :
           elim-vars[n(v)]
-        if not elim? :
+        if elim? :
+          add-changed(changed?, top)
+        else :
           emit(buffer, i)
           ;Since we keep the instruction, record whether
           ;they reference a local function or object.
@@ -3616,19 +4268,23 @@ defn eliminate-dead-code (epackage:EPackage) -> EPackage :
     to-body(buffer)
 
   ;Eliminate dead code in body.
-  defn eliminate-in-item (e:ELBigItem, elim-vars:IntSet) -> ELBigItem :
+  defn eliminate-in-item (e:ELBigItem, elim-vars:IntSet, top:False|Int) -> ELBigItem :
     match(e:EBody) :
       val e* = consolidate-live-vars $
-               eliminate-vars-in-body(e, elim-vars)
-      map(eliminate-in-item{_, elim-vars}, e*)
+               eliminate-vars-in-body(e, elim-vars, top)
+      map(eliminate-in-item{_, elim-vars, top}, e*)
     else :
-      map(eliminate-in-item{_, elim-vars}, e)
+      map(eliminate-in-item{_, elim-vars, top}, e)
 
   ;Launch!
   val texps* = for e in exps(epackage) map :
-    val [defs, uses] = collect-defs-and-uses(e)
-    val elim-vars = vars-to-eliminate(defs, uses)
-    eliminate-in-item(e, elim-vars) as ETExp
+    val top = match(e:EDefmethod|EDefn|EInit) : n(e)
+    if (match(top:Int) : enabled?(top)) :
+      val [defs, uses] = collect-defs-and-uses(e)
+      val elim-vars = vars-to-eliminate(defs, uses)
+      eliminate-in-item(e, elim-vars, top) as ETExp
+    else :
+      e
   sub-exps(epackage, texps*)
 
 ;============================================================
@@ -3669,12 +4325,12 @@ defn union (input-ts:Seqable<EType>) :
 ;accessed locally in a single body, since the ELIR supports
 ;writing to local vars. This permits a number of follow-on
 ;optimizations to trigger as well.
-defn remove-boxes (epackage:EPackage, gvt:VarTable) -> EPackage :
+defn remove-boxes (epackage:EPackage, gvt:VarTable, unboxed-variables:IntSet, enabled?:Int -> True|False, changed?:IntSet) -> EPackage :
 
   ;Translate all local boxes and their accesses to operations
   ;on regular mutable variables.
   ;Assumes that all nested definitions have been analyzed.
-  defn remove-local-boxes-in-body (e:EBody, vt:VarTable) -> EBody :
+  defn remove-local-boxes-in-body (e:EBody, vt:VarTable, top:False|Int) -> EBody :
     ;Compute set of closed-over variables. If a box is closed-over
     ;then we cannot convert it to a local mutable variable.
     val closed-over = IntSet()
@@ -3714,15 +4370,15 @@ defn remove-boxes (epackage:EPackage, gvt:VarTable) -> EPackage :
       match(e) :
         (e:EBox) :
           match(local-box?(n(x(e)))) :
-            (b:EBox) : EDef(x(e), y(b))
+            (b:EBox) : (add-changed(changed?, top) EDef(x(e), y(b)))
             (f:False) : e
         (e:EBoxGet) :
           match(local-box?(n(y(e) as EVar))) :
-            (b:EBox) : EDef(x(e), y(e))
+            (b:EBox) : (add-changed(changed?, top) EDef(x(e), y(e)))
             (f:False) : e
         (e:EBoxSet) :
           match(local-box?(n(y(e) as EVar))) :
-            (b:EBox) : EStore(EVarLoc(n(y(e) as EVar)), z(e), type(b), false)
+            (b:EBox) : (add-changed(changed?, top) EStore(EVarLoc(n(y(e) as EVar)), z(e), type(b), false))
             (f:False) : e
         (e) :
           e
@@ -3732,7 +4388,10 @@ defn remove-boxes (epackage:EPackage, gvt:VarTable) -> EPackage :
     ;the contents of the local box.
     defn convert-local-box-to-var (local:ELocal) -> ELocal :
       match(local-box?(n(local))) :
-        (b:EBox) : ELocal(n(local), type(b), true, debug-name(vt,n(local)))
+        (b:EBox) :
+          val res = ELocal(n(local), type(b), true, debug-name(vt,n(local)))
+          add(unboxed-variables, n(local))
+          res
         (f:False) : local
 
     ;Launch!
@@ -3741,15 +4400,16 @@ defn remove-boxes (epackage:EPackage, gvt:VarTable) -> EPackage :
     sub-locals(sub-ins(e, ins*), locals*)
 
   ;Remove all local boxes in the given item.
-  defn remove-boxes (e:ELBigItem, vt:VarTable) -> ELBigItem :
-    match(map(remove-boxes{_, vt}, e)) :
-      (e:EBody) : remove-local-boxes-in-body(e,vt)
+  defn remove-boxes (e:ELBigItem, vt:VarTable, top:False|Int) -> ELBigItem :
+    match(map(remove-boxes{_, vt, top}, e)) :
+      (e:EBody) : remove-local-boxes-in-body(e,vt,top)
       (e) : e
 
   ;Compute local VarTable and freevars for each
   ;top-level expression and then remove the local boxes.
-  within (texp, vt) = map-with-var-table(gvt, epackage) :
-    remove-boxes(analyze-freevars(texp, vt), vt) as ETExp
+  within (texp, vt) = map-with-var-table(gvt, epackage, enabled?) :
+    val top = match(texp:EDefmethod|EDefn|EInit) : n(texp)
+    remove-boxes(analyze-freevars(texp, vt), vt, top) as ETExp
 
 ;============================================================
 ;==================== BOX-UNBOX-FOLD ========================
@@ -3764,6 +4424,7 @@ deftype DefStructTable
 
 ;Returns true if the 'index' field of struct 'n' is mutable.
 defmulti mutable-field? (t:DefStructTable, n:Int, index:Int) -> True|False
+defmulti exists? (t:DefStructTable, n:Int) -> True|False
 
 defn DefStructTable (epackage:EPackage) -> DefStructTable :
   ;Create table of all structs in package.
@@ -3772,6 +4433,8 @@ defn DefStructTable (epackage:EPackage) -> DefStructTable :
     for e in defstructs seq: n(e) => e
 
   new DefStructTable :
+    defmethod exists? (this, n:Int) :
+      key?(table, n)
     defmethod mutable-field? (this, n:Int, index:Int) :
       val struct = table[n]
       val fields = base(struct)
@@ -3783,19 +4446,29 @@ defn DefStructTable (epackage:EPackage) -> DefStructTable :
 ;-------------------- Analysis ------------------------------
 ;------------------------------------------------------------
 
-defn box-unbox-fold (epackage:EPackage, gvt:VarTable) -> EPackage :
+defn add-changed (changed?:IntSet, top:False|Int) :
+  match(top:Int) : add(changed?, top)
+
+defn box-unbox-fold (epackage:EPackage, gvt:VarTable, loop-vars:IntSet, enabled?:Int -> True|False, changed?:IntSet) -> EPackage :
   ;Compute defstruct table
   val defstruct-table = DefStructTable(epackage)
 
   ;Compute binding table.
   ;Every entry in the binding table, x => e, indicates that
   ;x is defined exactly once by the EObject, ENewObject, EPtr instruction.
-  defn binding-table (e:EBody) -> IntTable<EObject|ENewObject|EPtr> :
+  defn binding-table (e:EBody, top:False|Int) -> IntTable<EObject|ENewObject|EPtr> :
     val table = IntListTable<EObject|ENewObject|EPtr>()
     val remove-set = IntSet()
     for i in ins(e) do :
       match(i:EObject|ENewObject|EPtr) : add(table, n(x(i)), i)
       else : do(add{remove-set, n(_)}, varlocs(i))
+    ; if top == 1670 :
+    ;   println("===")
+    ;   for i in ins(e) do :
+    ;     println(i)    
+    ;   println("===")
+    ;   println("TABLE %_" % [to-tuple $ table])
+    ;   println("REMOVE-SET %_" % [to-tuple $ remove-set])
     to-inttable<EObject|ENewObject|EPtr> $
       for entry in table seq? :
         if remove-set[key(entry)] : None()
@@ -3805,7 +4478,7 @@ defn box-unbox-fold (epackage:EPackage, gvt:VarTable) -> EPackage :
   ;Returns true if the given value represents an immutable
   ;quantity.
   defn immutable? (vt:VarTable, value:EImm) -> True|False :
-    match(value:EVar) : not mutable?(vt,n(value))
+    match(value:EVar) : not mutable?(vt,n(value)) or (loop-vars[n(value)]) ; or unboxed-vars[n(value)])
     else : true
 
   ;If the given ECall expression has type CallPtr, and calls a function
@@ -3823,7 +4496,7 @@ defn box-unbox-fold (epackage:EPackage, gvt:VarTable) -> EPackage :
   ;If the given EObjectGet expression corresponds to retrieval
   ;of a known object field then return the destination and the
   ;field. Calls fail() if not a match.
-  defn unbox-object-get (e:EObjectGet,
+  defn unbox-object-get (trust?:True|False, e:EObjectGet,
                          vt:VarTable,
                          bindings:IntTable<EObject|ENewObject|EPtr>) -> [EVarLoc, EImm] :
     val v = y(e) as? EVar
@@ -3838,67 +4511,98 @@ defn box-unbox-fold (epackage:EPackage, gvt:VarTable) -> EPackage :
     fail() when index(e) >= num-fields
 
     val value = ys(o)[index(e)]
-    fail() when not immutable?(vt,value)
+    fail() when not (trust? or immutable?(vt,value))
     [x(e), value]
 
   ;If the given ELoad expression corresponds to a retrieval
   ;of a known object field then return the destination and the field.
   ;Calls fail() if not a match.
-  defn unbox-load (e:ELoad,
+  defn unbox-load (trust?:True|False, e:ELoad,
                    vt:VarTable,
                    bindings:IntTable<EObject|ENewObject|EPtr>) -> [EVarLoc, EImm] :
     val field = loc(e) as? EField
-    val v = y(loc(field) as? EDeref) as? EVar
-    val o = get?(bindings, n(v)) as? EObject
+    val loc = loc(field) as? EDeref
+    match(y(loc)) :
+      (y:ELiteral) :
+        [x(e), ELSLiteral(value(y))]
+      (v:EVar) :
+        val o = get?(bindings, n(v)) as? EObject
 
-    ;See previous note in unbox-object-get.
-    val num-fields = length(ys(o))
-    fail() when index(field) >= num-fields
-
-    fail() when mutable-field?(defstruct-table, n(o), index(field))
-    val value = ys(o)[index(field)]
-    fail() when not immutable?(vt,value)
-    [x(e), value]
+        ;See previous note in unbox-object-get.
+        val num-fields = length(ys(o))
+        fail() when index(field) >= num-fields
+        fail() when mutable-field?(defstruct-table, n(o), index(field))
+        val value = ys(o)[index(field)]
+        fail() when not (trust? or immutable?(vt,value))
+        [x(e), value]
+      (v) :
+        fail()
 
   ;Perform unboxing folds in the given body.
   ;Assumes that all nested bodies have already been folded.
-  defn fold-in-body (e:EBody, vt:VarTable) -> EBody :
+  defn fold-in-body (e:EBody, vt:VarTable, top:False|Int) -> EBody :
     ;Compute the binding table
-    val bindings = binding-table(e)
+    val bindings = binding-table(e, top)
 
     ;Attempt to fold the given instruction.
-    defn fold? (i:EIns) -> EIns :
+    defn fold? (i:EIns, block-bindings:IntTable<EPtr|EObject|ENewObject>) -> EIns :
       match(i) :
         (i:EObjectGet) :
           attempt :
-            val [x, v] = unbox-object-get(i, vt, bindings)
+            val [x, v] = unbox-object-get(false, i, vt, bindings)
+            add-changed(changed?, top)
             EDef(x, v, false)
-          else : i
+          else : 
+            attempt :
+              val [x, v] = unbox-object-get(true, i, vt, block-bindings)
+              add-changed(changed?, top)
+              EDef(x, v, false)
+            else : i
         (i:ELoad) :
           attempt :
-            val [x, v] = unbox-load(i, vt, bindings)
+            val [x, v] = unbox-load(false, i, vt, bindings)
+            add-changed(changed?, top)
             EDef(x, v, false)
-          else : i
+          else :
+            attempt :
+              val [x, v] = unbox-load(true, i, vt, block-bindings)
+              add-changed(changed?, top)
+              EDef(x, v, false)
+            else : i
         (i:ECall) :
           attempt :
             val f = unbox-call-ptr(i, vt, bindings)
+            add-changed(changed?, top)
             sub-calltype(sub-f(i, f), CallStanza())
           else : i
         (i) : i
 
     ;Attempt to fold all instructions.
-    sub-ins(e, map(fold?, ins(e)))
+    ; sub-ins(e, map(fold?, ins(e)))
+
+    val buffer = BodyBuffer(e)
+    val block-table = analyze-basic-blocks(ins(e))
+    val block-bindings = IntTable<EObject|ENewObject|EPtr>()
+    for block in block-table do :
+      clear(block-bindings)
+      for i in instructions(block) do :
+        match(i:EObject|ENewObject|EPtr) : block-bindings[n(x(i))] = i
+        else : do(remove{block-bindings, n(_)}, varlocs(i))
+        emit(buffer, fold?(i, block-bindings))
+
+    to-body(buffer)
 
   ;Fold all bodies in top-level expression.
   defn fold-texp (e:ETExp, vt:VarTable) -> ETExp :
+    val top = match(e:EDefmethod|EDefn|EInit) : n(e)
     val result = let loop (e:ELBigItem = e) :
       match(map(loop, e)) :
-        (e:EBody) : fold-in-body(e, vt)
+        (e:EBody) : fold-in-body(e, vt, top)
         (e) : e
     result as ETExp
 
   ;Launch!
-  map-with-var-table(fold-texp, gvt, epackage)
+  map-with-var-table(fold-texp, gvt, epackage, enabled?)
 
 ;============================================================
 ;=================== Closure Lifting ========================
@@ -4219,10 +4923,16 @@ defn join-free (fs:Seqable<Free>) :
 ;- gvt: The global VarTable.
 ;- epackage: The package to analyze.
 ;Returns the new analyzed package.
-defn map-with-var-table (f:(ETExp, VarTable) -> ETExp, gvt:VarTable, epackage:EPackage) -> EPackage :
+defn map-with-var-table (f:(ETExp, VarTable) -> ETExp, gvt:VarTable, epackage:EPackage, enabled?:Int -> True|False) -> EPackage :
   val exps* = for e in exps(epackage) map :
-    f(e, LocalVarTable(gvt, e))
+    match(e:EDefn|EDefmethod|EInit) : 
+      f(e, LocalVarTable(gvt, e)) when enabled?(n(e)) else e
+    else :
+      f(e, LocalVarTable(gvt, e))
   sub-exps(epackage, exps*)
+
+defn map-with-var-table (f:(ETExp, VarTable) -> ETExp, gvt:VarTable, epackage:EPackage) -> EPackage :
+  map-with-var-table(f, gvt, epackage, { true })
 
 ;Rename all variables and type variables
 defn rename-vars+tvars<?T> (e:ELItem&?T, table:IntTable<Int>) -> T :

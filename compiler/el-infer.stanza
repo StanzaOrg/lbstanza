@@ -473,8 +473,7 @@ defn analyze-single-block (emit:Ins -> ?,
       (ins:ELetRec) : emit-def(core-type(vt, CORE-FN-ID))
       (ins:EClosureGet|EObjectGet|EBoxGet|EInterpret|ELoad|ETupleGet) : emit-def(ETop())
       (ins:ENewObject) :
-        val defobj = defobject-table[n(ins)]
-        emit-def(parent(defobj))
+        emit-def(EOf(n(ins)))
       (ins:EPrim) :
         val t = op-result-type(op(ins))
         match(t:EType) : emit-def(t)

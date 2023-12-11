@@ -2895,49 +2895,49 @@ public lostanza defn modulo (a:ref<Byte>, b:ref<Byte>) -> ref<Byte> :
 ;====================== Integers ============================
 ;============================================================
 
-public defn shift-left (a:Int, b:Int) -> Int :
-  ($prim shl a b)
+public lostanza defn shift-left (a:ref<Int>, b:ref<Int>) -> ref<Int> :
+  return new Int{a.value << b.value}
 
-public defn shift-right (a:Int, b:Int) -> Int :
-  ($prim shr a b)
+public lostanza defn shift-right (a:ref<Int>, b:ref<Int>) -> ref<Int> :
+  return new Int{a.value >> b.value}
 
-public defn arithmetic-shift-right (a:Int, b:Int) -> Int :
-  ($prim ashr a b)
+public lostanza defn arithmetic-shift-right (a:ref<Int>, b:ref<Int>) -> ref<Int> :
+  return new Int{a.value >>> b.value}
 
-public defn bit-or (a:Int, b:Int) -> Int :
-  ($prim or a b)
+public lostanza defn bit-or (a:ref<Int>, b:ref<Int>) -> ref<Int> :
+  return new Int{a.value | b.value}
 
-public defn bit-and (a:Int, b:Int) -> Int :
-  ($prim and a b)
+public lostanza defn bit-xor (a:ref<Int>, b:ref<Int>) -> ref<Int> :
+  return new Int{a.value ^ b.value}
 
-public defn bit-xor (a:Int, b:Int) -> Int :
-  ($prim xor a b)
+public lostanza defn bit-and (a:ref<Int>, b:ref<Int>) -> ref<Int> :
+  return new Int{a.value & b.value}
 
-public defn bit-not (a:Int) -> Int :
-  ($prim not a)
+public lostanza defn bit-not (a:ref<Int>) -> ref<Int> :
+  return new Int{(~ a.value)}
 
-public defn negate (a:Int) -> Int :
-  ($prim neg a)
+public lostanza defn negate (a:ref<Int>) -> ref<Int> :
+  return new Int{(- a.value)}
 
 public defn abs (a:Int) -> Int :
   (- a) when a < 0 else a
 
-public defn plus (a:Int, b:Int) -> Int :
-  ($prim add a b)
+public lostanza defn plus (a:ref<Int>, b:ref<Int>) -> ref<Int> :
+  return new Int{a.value + b.value}
 
-public defn minus (a:Int, b:Int) -> Int :
-  ($prim sub a b)
+public lostanza defn minus (a:ref<Int>, b:ref<Int>) -> ref<Int> :
+  return new Int{a.value - b.value}
 
-public defn times (a:Int, b:Int) -> Int :
-  ($prim mul a b)
+public lostanza defn times (a:ref<Int>, b:ref<Int>) -> ref<Int> :
+  return new Int{a.value * b.value}
 
-public defn divide (a:Int, b:Int) -> Int :
+public lostanza defn divide (a:ref<Int>, b:ref<Int>) -> ref<Int> :
   ensure-divide-non-zero(b)
-  ($prim div a b)
+  return new Int{a.value / b.value}
 
-public defn modulo (a:Int, b:Int) -> Int :
+public lostanza defn modulo (a:ref<Int>, b:ref<Int>) -> ref<Int> :
   ensure-divide-non-zero(b)
-  ($prim mod a b)
+  return new Int{a.value % b.value}
 
 public lostanza defn bitcount (x0:long) -> int :
   var count:int = 0
@@ -3183,17 +3183,21 @@ defmethod compare (a:Int, b:Int) -> Int :
   else if a > b : 1
   else : 0
 
-defmethod less? (a:Int, b:Int) -> True|False :
-  ($prim lt a b)
+lostanza defmethod less? (a:ref<Int>, b:ref<Int>) -> ref<True|False> :
+  if a.value < b.value : return true
+  else : return false
 
-defmethod less-eq? (a:Int, b:Int) -> True|False :
-  ($prim le a b)
+lostanza defmethod less-eq? (a:ref<Int>, b:ref<Int>) -> ref<True|False> :
+  if a.value <= b.value : return true
+  else : return false
 
-defmethod greater? (a:Int, b:Int) -> True|False :
-  ($prim gt a b)
+lostanza defmethod greater? (a:ref<Int>, b:ref<Int>) -> ref<True|False> :
+  if a.value > b.value : return true
+  else : return false
 
-defmethod greater-eq? (a:Int, b:Int) -> True|False :
-  ($prim ge a b)
+lostanza defmethod greater-eq? (a:ref<Int>, b:ref<Int>) -> ref<True|False> :
+  if a.value >= b.value : return true
+  else : return false
 
 lostanza defmethod compare (a:ref<Long>, b:ref<Long>) -> ref<Int> :
   if a.value < b.value : return new Int{-1}
@@ -3349,8 +3353,12 @@ defmethod equal? (a:Char, b:Char) -> True|False :
 defmethod equal? (a:Byte, b:Byte) -> True|False :
   ($prim identical? a b)
 
-defmethod equal? (a:Int, b:Int) -> True|False :
-  ($prim eq a b)
+lostanza defmethod equal? (a:ref<Int>, b:ref<Int>) -> ref<True|False> :
+  if a.value == b.value : return true
+  else : return false
+
+; defmethod equal? (a:Int, b:Int) -> True|False :
+;   ($prim eq a b)
 
 lostanza defmethod equal? (a:ref<Long>, b:ref<Long>) -> ref<True|False> :
   if a.value == b.value : return true
@@ -7375,16 +7383,19 @@ public deftype Array<T> <: IndexedCollection<T> & Unique
 ;                     Implementation
 ;                     ==============
 
-lostanza deftype RawArray<T> <: Array<T> :
+public lostanza deftype RawArray<T> <: Array<T> :
    length: long
    var items: ref<?> ...
 
-lostanza defn RawArray<T> (n:ref<Int>, x:ref<?>) -> ref<RawArray<T>> :
+public lostanza defn RawArray<T> (n:ref<Int>, x:ref<?>) -> ref<RawArray<T>> :
    val l = n.value
    val a = new RawArray<T>{l}
    for (var i:long = 0, i < l, i = i + 1) :
       a.items[i] = x
    return a
+
+public defn RawArray<T> (n:Int) -> RawArray<T> :
+  RawArray<T>(n, sentinel)
 
 lostanza defmethod get<?T> (a:ref<RawArray<?T>>, i:ref<Int>) -> ref<T> :
   return a.items[i.value]
@@ -8166,7 +8177,9 @@ public defmulti inclusive? (r:Range) -> True|False
 ;                     Constructor
 ;                     ===========
 
-public defn Range (start:Int, end:Int|False, step:Int, inclusive?:True|False) :
+deftype ComplexRange <: Range
+
+public defn ComplexRange (start:Int, end:Int|False, step:Int, inclusive?:True|False) :
    ;Compute the length of the range
    val length = match(end, inclusive?) :
       (end:Int, inc:False) :
@@ -8174,60 +8187,43 @@ public defn Range (start:Int, end:Int|False, step:Int, inclusive?:True|False) :
             if start == end : 0
             else : false
          else if step == 1 :
-            safe-minus(end, start)
+            end - start
          else if step == -1 :
-            safe-minus(start, end)
+            start - end
          else if step > 0 :
-            div?(safe-add(safe-minus(end, start), step - 1), step)
+            (end - start + step - 1) / step
          else :
-            div?(safe-add(safe-minus(end, start), step + 1), step)
+            (end - start + step + 1) / step
       (end:Int, inc:True) :
          if step == 0 :
             false
          else if step == 1 :
-            safe-add(safe-minus(end, start), 1)
+            end - start + 1
          else if step == -1 :
-            safe-add(safe-minus(start, end), 1)
+            start - end + 1
          else :
-            div?(safe-add(safe-minus(end, start), step), step)
+            (end - start + step) / step
       (end:False, inc) :
          false
 
    match(length) :
       (length:Int) :
-         new Range & Lengthable :
+         new ComplexRange & Lengthable :
             defmethod start (this) : start
             defmethod end (this) : end
             defmethod step (this) : step
             defmethod inclusive? (this) : inclusive?
             defmethod length (this) : max(length, 0)
       (length:False) :
-         new Range :
+         new ComplexRange :
             defmethod start (this) : start
             defmethod end (this) : end
             defmethod step (this) : step
             defmethod inclusive? (this) : inclusive?
 
-defn safe-add (x:Int, y:Int) :
-  val z = x + y
-  val sign-x = x >> 31
-  val sign-y = y >> 31
-  val sign-z = z >> 31
-  val c = (sign-x ^ sign-y) | (1 ^ sign-x ^ sign-z)
-  z when c == 1
+public defn Range (start:Int, end:Int|False, step:Int, inclusive?:True|False) :
+  ComplexRange(start, end, step, inclusive?)
 
-defn safe-minus (x:Int, y:Int) :
-  val z = x - y
-  val sign-x = x >> 31
-  val sign-y = y >> 31
-  val sign-z = z >> 31
-  val c = (1 ^ sign-x ^ sign-y) | (1 ^ sign-x ^ sign-z)
-  z when c == 1
-
-defn safe-add (x:False, y:Int) : false
-defn safe-minus (x:False, y:Int) : false
-defn div? (x:Int, y:Int) : x / y
-defn div? (x:False, y:Int) : false
 
 ;                Conversion to Sequence
 ;                ======================
@@ -8278,15 +8274,15 @@ public defn reverse (r:Range) :
 ;             Looping
 ;             =======
 
-defmethod do (f: Int -> ?, r:Range) :
+defmethod do (f: Int -> ?, r:ComplexRange) :
   match(r) :
-    (r:Range&Lengthable) :
+    (r:ComplexRange&Lengthable) :
       val s = step(r)
       let loop (i:Int = start(r), n:Int = length(r)) :
         if n > 0 :
           f(i)
           loop(i + s, n - 1)
-    (r:Range) :
+    (r:ComplexRange) :
       val s = step(r)
       defn* loop (i:Int) -> False :
         f(i)
@@ -8366,7 +8362,10 @@ public defn map<?R> (f: Int -> ?R, r:Range) -> List<R> :
 ;An efficient implementation for the most commonly-used
 ;type of Range: a starting integer, an exclusive ending integer,
 ;and a step of +1. 
-public deftype SimpleRange <: Range
+defstruct SimpleRange <: Range&Lengthable :
+  start : Int with: ( as-method => true )
+  end : Int with: ( as-method => true )
+  length: Int with: ( as-method => true )
 
 ;A SimpleRange always has a step of +1, and has
 ;an exclusive end.
@@ -8376,16 +8375,7 @@ defmethod inclusive? (r:SimpleRange) : false
 ;Constructor for a SimpleRange. The length is computed
 ;as long as the length fits within a 32-bit integer.
 public defn Range (start:Int, end:Int) -> SimpleRange :
-  val len = safe-minus(end, start)
-  match(len:Int) :
-    new SimpleRange&Lengthable :
-      defmethod start (this) : start
-      defmethod end (this) : end
-      defmethod length (this) : len
-  else :
-    new SimpleRange :
-      defmethod start (this) : start
-      defmethod end (this) : end
+  SimpleRange(start, end, end - start)
 
 ;If the end is unknown, then we default the general constructor
 ;for a Range.
@@ -8637,14 +8627,10 @@ public defn to-peek-seq<?T> (xs:Seqable<?T>) -> PeekSeq<T> :
 ;If a new seq is created from 's', then this seq is explicitly
 ;freed before returning the result.
 defn* do-seq<?T,?R> (f: Seq<T> -> ?R, s:Seqable<?T>) -> R :
-  match(s) :
-    (s:Seq<T>) :
-      f(s)
-    (s) :
-      val s-seq = to-seq(s)
-      with-finally(
-        fn* () : f(s-seq)
-        fn* () : free(s-seq))
+  val s-seq = to-seq(s)
+  val res = f(s-seq)
+  free(s-seq)
+  res
 
 ;Calls 'f' with the result of 'to-seq(s)'.
 ;If a new seq is created from 's', then this seq is explicitly

@@ -279,7 +279,7 @@ defserializer PkgSerializer (include-asm?:True|False) :
     EDefStruct: (n:int, parent:opt(etype), base:tuple(efield), items:opt(efield))
     EExternFn: (n:int, lbl:opt(symbol), func:efunction as EFn)
     EExtern: (n:int, lbl:symbol, type:etype)
-    EInit: (body:ebody, lostanza?:bool)
+    EInit: (n:int, body:ebody, lostanza?:bool)
     EDefType: (n:int, parent:opt(etype), children:tuple(int))
     EDefObject: (n:int, parent:etype, ntargs:int, nargs:int, methods:tuple(int))
     EDefTypeObject: (n:int, nargs:int, type:etype)
