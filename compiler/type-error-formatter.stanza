@@ -2,6 +2,7 @@ defpackage stz/type-error-formatter :
   import core
   import collections
   import stz/tl-ir
+  import stz/dl-ir
   import stz/type-errors
   import stz/namemap
   import stz/type-formatter
@@ -501,7 +502,7 @@ public defn TypeErrorFormatter (namemap:NameMap, hier:TypeHierarchy) :
         (e:BadCapture) :
           val ctxt = ctxt(exp(e))
           "%_Could not capture type variables for function '%_'%_." % [
-          info-str(exp(e)), def-name(n(e)), ctxt-description(ctxt as Context)]
+          info-str(exp(e)), def-name(n(e)), ctxt-description(ctxt as Context)]          
 
 ;Helper: Add single-quotes around x.
 defn quotes (x) :
