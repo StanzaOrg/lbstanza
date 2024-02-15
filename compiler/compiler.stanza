@@ -187,7 +187,7 @@ public defn dependencies (settings:BuildSettings) -> DependencyResult :
       (f:False) : OUTPUT-PLATFORM
 
   defn compute-dependencies (proj:ProjFile, settings:BuildSettings) :
-    val params = ProjParams(compiler-flags(), optimize?(settings), debug?(settings), false, disable-cache?(settings))
+    val params = ProjParams(compiler-flags(), optimize?(settings), debug?(settings), false, disable-cache?(settings), pkg-cache-dir(settings))
     val proj-manager = ProjManager(proj, params, AuxFile())
     val macroexpander = StanzaMacroexpander(false, proj-manager, macro-plugins(settings))
     dependencies $ new FrontEndInputs :
@@ -242,9 +242,9 @@ public defn compile (settings:BuildSettings, system:System, verbose?:True|False)
       println("Build target %~ is already up-to-date." % [build-target?(settings*)])
     else :
       setup-system-flags(settings*)
-      val proj-params = ProjParams(compiler-flags(), optimize?(settings*), debug?(settings*), false, disable-cache?(settings))
+      val proj-params = ProjParams(compiler-flags(), optimize?(settings*), debug?(settings*), false, disable-cache?(settings*), pkg-cache-dir(settings*))
       val proj-manager = ProjManager(proj, proj-params, auxfile)
-      val comp-result = compile(proj-manager, auxfile, build-inputs!(settings*), vm-packages(settings*), asm?(settings*), pkg-dir(settings*),
+      val comp-result = compile(proj-manager, auxfile, build-inputs!(settings*), vm-packages(settings*), asm?(settings*), pkg-dir(settings*), pkg-cache-dir(settings*)
                                 backend(platform(settings*) as Symbol), optimize?(settings*), debug?(settings*), verbose?,
                                 macro-plugins(settings*), inputs(settings) is BuildTarget)
       save(auxfile)

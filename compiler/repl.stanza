@@ -309,7 +309,7 @@ public defn REPL (macro-plugins:Tuple<String>,
   defn proj-manager () :
     within log-time(REPL-PROJ-MANAGER) :
       val proj = read-proj-files(proj-files, OUTPUT-PLATFORM, `dynamic, StandardProjEnv())
-      val params = ProjParams(compiler-flags, false, false, true, disable-cache?)
+      val params = ProjParams(compiler-flags, false, false, true, disable-cache?, pkg-cache-dir)
       ProjManager(proj, params, auxfile)
 
   add-all(proj-files, default-proj-files())
