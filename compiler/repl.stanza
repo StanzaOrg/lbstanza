@@ -478,15 +478,13 @@ public defn REPL (macro-plugins:Tuple<String>,
     within log-time(REPL-LOWERING-AND-COMPILATION) :
     
       ;Create the PkgSaver to cache pkg files when appropriate.
-      val cache-dir = match(pkg-cache-dir:String) : pkg-cache-dir
-                      else : /pkg-cache-dir(proj-manager)
       val pkgsaver = PkgSaver(auxfile,
                               pkgstamps(result),
                               false,
                               compiler-flags,
                               false,
                               true,
-                              cache-dir)
+                              /pkg-cache-dir(proj-manager))
 
       ;Compile the EPackages into VMPackages.
       val vmpackages = for p in packages(result) map :
@@ -507,7 +505,7 @@ public defn REPL (macro-plugins:Tuple<String>,
             vmp(p)
 
       ;Save the auxiliary file if caching is enabled.
-      save(auxfile) when cache-dir is String
+      save(auxfile) when /pkg-cache-dir(proj-manager) is String
 
       ;Return the compiled VMPackages.
       vmpackages

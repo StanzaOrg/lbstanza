@@ -154,7 +154,6 @@ public defn compile (proj-manager:ProjManager,
                      supported-vm-packages:Tuple<String|Symbol>,
                      output:False|String,
                      pkg-dir:False|String,
-                     pkg-cache-dir:False|String
                      backend:Backend,
                      optimize?:True|False,
                      debug?:True|False,
@@ -188,11 +187,11 @@ public defn compile (proj-manager:ProjManager,
                             flags,
                             debug?,
                             false,
-                            pkg-cache-dir)
+                            pkg-cache-dir(proj-manager))
 
     ;True if pkgs are written out, either to the pkg directory
     ;or to the cache directory.
-    val write-out-pkgs? = pkg-dir is String or pkg-cache-dir is String
+    val write-out-pkgs? = pkg-dir is String or pkg-cache-dir(proj-manager) is String
 
     ;Save optimized packages if necessary
     if write-out-pkgs? and optimize? :
