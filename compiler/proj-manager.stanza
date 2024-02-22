@@ -277,7 +277,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile) :
 defn pkg-up-to-date? (params:ProjParams, auxfile:AuxFile,
                       name:Symbol, pkg-file:PkgFile, src-path:String) -> True|False :
 
-  if file-exists?(src-path) and not disable-cache?(params) :
+  if file-exists?(src-path) :
 
     vprintln("Check whether package %~ is up-to-date." % [name])
 
