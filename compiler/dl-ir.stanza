@@ -34,6 +34,8 @@ defmethod equal? (p1 : ImportedPackage, p2 : ImportedPackage) :
 public defstruct PackageIO :
   package: Symbol
   imported-packages: Tuple<ImportedPackage> with: (updater => sub-imported-packages)
+  forwarded-imports: Tuple<Symbol>
+  direct-imports: Tuple<Symbol>
   imports: Tuple<Import> with: (updater => sub-imports)
   exports: Tuple<Export> with: (updater => sub-exports)
   documentation?:False|String with: (updater => sub-documentation)
@@ -41,6 +43,8 @@ public defstruct PackageIO :
 public defstruct PackageExports :
   package: Symbol
   imported-packages: Tuple<ImportedPackage>
+  forwarded-imports: Tuple<Symbol>
+  direct-imports: Tuple<Symbol>
   exports: Tuple<Export> with: (updater => sub-exports)
 
 ;============================================================
@@ -442,7 +446,7 @@ public defn match? (x:Rec, y:Rec, types-in-io:HashSet<TypeId>|False) -> True|Fal
 ;============================================================
 
 public defn to-package-exports (io:PackageIO) :
-  PackageExports(package(io), imported-packages(io), exports(io))
+  PackageExports(package(io), imported-packages(io), forwarded-imports(io), direct-imports(io), exports(io))
 
 public defn to-package-exports? (io:PackageIO|False) :
   match(io:PackageIO) :
@@ -603,7 +607,8 @@ defsyntax dl-ir :
                          ?imports:#import ...
                          ?exports:#export ...) :
     ;[TODO] Add doc string reader macro. Defaulted to false for now.
-    PackageIO(name, to-tuple(map({ImportedPackage(_)}, ips)), to-tuple(imports), to-tuple(exports), false)
+    ;[TODO]: is the empty direct-import list OK?
+    PackageIO(name, to-tuple(map({ImportedPackage(_)}, ips)), [], [], to-tuple(imports), to-tuple(exports), false)
 
   defproduction dtype : DType
   defrule dtype = (byte) : DByte()

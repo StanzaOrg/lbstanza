@@ -159,7 +159,7 @@ public defn resolve-il (packages:Tuple<IPackage|PackageExports>, env:Env) -> Res
       add-all(cond-dependencies, ds)
       val ps = new-ipackages(symtables)
       for p in ps do :
-        val p* = resolve-package(p, symtables, package-priority(env), error-accum)
+        val p* = resolve-package(p, symtables, package-priority(env), error-accum, env)
         match(p*:IPackage) :
           add(import-lists*, ImportList(name(p), imports(p)))
           add(ipackages*, p*)
@@ -167,7 +167,7 @@ public defn resolve-il (packages:Tuple<IPackage|PackageExports>, env:Env) -> Res
 
     ;Resolve type dependencies from pkgs
     check-exported-types(symtables, ipackages*, package-exports(symtables), error-accum)
-
+    check-forwarded-imports(symtables, package-exports(symtables), env, error-accum)
 
     ;Compute initialization order
     defn init-order () :
@@ -219,7 +219,8 @@ public defn resolve-il (packages:Tuple<IPackage|PackageExports>, env:Env) -> Res
 defn resolve-package (ipackage:IPackage,
                       symtables:SymbolTables,
                       priority:False|(Symbol -> Int),
-                      error-accum:Vector<ResolveError>) -> IPackage|False :
+                      error-accum:Vector<ResolveError>,
+                      env:Env) -> IPackage|False :
   ;Retrieve symbol table for the package to resolve
   val num-errors = length(error-accum)
   val symtable = symtables[name(ipackage)] as SymbolTable
@@ -228,7 +229,9 @@ defn resolve-package (ipackage:IPackage,
     map(resolve-exp{_, eng}, exps(ipackage))
   val ipackage* = sub-exps(ipackage, exps*)
   if length(error-accum) == num-errors :
-    add-qualified-imports(ipackage*, qualified-imports(eng))
+    ipackage*
+      $> {add-qualified-imports(_, qualified-imports(eng))}
+      $> {record-forwarded-imports(_, env)}
 
 ;<doc>=======================================================
 ;=================== Check Type Dependencies ================
@@ -257,10 +260,38 @@ issue an error if it doesn't.
 ;=======================================================<doc>
 ;+<5218000E>
 
+defn check-forwarded-imports (symtables:SymbolTables, pexs:Tuple<PackageExports>, env:Env, error-accum:Vector<ResolveError>) -> False :
+  ; Overloaded helpers for dealing with IImport or ImportedPackage
+  defn matches? (i:IImport, s:Symbol) : /package(i) == s
+  defn matches? (i:ImportedPackage, s:Symbol) : package-name(i) == s
+  defn get-package (p:Symbol) : imported-package(env, p) as IPackage|PackageExports
+  defn get-package (p:IImport) : get-package(/package(p))
+  defn get-package (p:ImportedPackage) : get-package(package-name(p))
+
+  ; does the transitive closure of package forward a package named p?
+  defn forwards? (p:Symbol, package:PackageExports|IPackage) -> True|False :
+    val forwarded-imports = {filter(forward, _)} $
+        match(package) :
+          (package*:IPackage) : imports(package*)
+          (package*:PackageExports) : imported-packages(package*)
+    if any?({matches?(_, p)}, forwarded-imports) : true
+    else : any?({forwards?(p, get-package(_))}, forwarded-imports)
+
+  ; Check all PackageExports
+  for pex in pexs do :
+    for i in imported-packages(pex) do :
+      ; make sure that any non-directly-imported package is still
+      ;   available via forwarding
+      if contains?(forwarded-imports(pex), package-name(i)) :
+        val direct-imports = to-tuple $ seq(get-package, direct-imports(pex))
+        ; search direct imports for the package
+        if not any?({forwards?(package-name(i), _)}, direct-imports) :
+          add(error-accum, MissingForwardedPackage(package(pex), package-name(i)))
+
 defn check-exported-types (symtables:SymbolTables, pkgs:Collection<IPackage>, pexs:Tuple<PackageExports>, error-accum:Vector<ResolveError>) :
   ;Ensure that all types referenced in exports are defined
   for pex in pexs do :
-    ;Check for existence of typeid
+   ;Check for existence of typeid
     defn check-for-type (e:TypeId) :
       val symtable = symtables[package(e)]
       match(symtable:SymbolTable) :
@@ -686,6 +717,36 @@ defn add-qualified-imports (ipackage:IPackage, imps:Tuple<Symbol>) :
   ;Add imports
   sub-imports(ipackage, to-tuple(imports))
 
+defn record-forwarded-imports (ipackage:IPackage, env:Env) -> IPackage :
+  ; Accumulator
+  val forwarded-set = HashSet<Symbol>()
+
+  ; recursively store all forwarded imports
+  defn get-forwarded-imports (i:IImport|ImportedPackage) :
+    val name =
+      match(i) :
+        (i*:IImport) : package(i*)
+        (i*:ImportedPackage) : package-name(i*)
+    val p = imported-package(env, name) ;get?(package-table, name)
+    match(p) :
+      (p:IPackage) :
+        for i* in imports(p) do :
+          if forward(i*) :
+            add(forwarded-set, package(i*))
+            get-forwarded-imports(i*)
+      (p:PackageExports) :
+        for i* in imported-packages(p) do :
+          if forward(i*) :
+            add(forwarded-set, package-name(i*))
+            get-forwarded-imports(i*)
+      (f:False) : false ; should not happen
+
+  ; Get imports that are forwarded via all top-level imports
+  for i in imports(ipackage) do : get-forwarded-imports(i)
+  ; Update IPackage definition
+  sub-forwarded-imports(ipackage, to-tuple(forwarded-set))
+
+
 ;============================================================
 ;=================== Symbol Tables ==========================
 ;============================================================
@@ -693,7 +754,7 @@ defn add-qualified-imports (ipackage:IPackage, imps:Tuple<Symbol>) :
 deftype SymbolTables
 defmulti get (st:SymbolTables, package:Symbol) -> SymbolTable|False
 defmulti package-exports (st:SymbolTables) -> Tuple<PackageExports>
-defmulti new-ipackages (st:SymbolTables) -> Tuple<IPackage>
+defmulti new-ipackages (st:SymbolTables) -> Tuple<IPackage> ; Note: This can only be called once: it clears the accumulator
 defmulti load-conditional-dependencies (st:SymbolTables) -> Vector<Symbol>
 
 ; Three different import modes:
@@ -955,7 +1016,7 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   val basetable = HashTable<Symbol, List<BaseEntry>>(List())
 
 
-    
+
   ; Update an entry in the basetable
   ; Assumes the resulting entry should be forwarded
   defn forward-base-entry (e:VEntry, f, xs:List<BaseEntry>) -> List<BaseEntry> :
@@ -964,8 +1025,8 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
     else : cons(BaseEntry(f(e), true), xs)
 
   ; Forward symbol table entry to new-package under some prefix by updating its package field
-  ; Concretely: 
-  ;   Search for existing entry e, update package field if found. 
+  ; Concretely:
+  ;   Search for existing entry e, update package field if found.
   ;   If not found, simply update package field in e and add
   defn forward-entry (e:VEntry, new-package:Symbol, prefix:String|False) :
     defn fwd (e) : sub-package(e, new-package) ; Update package field
@@ -986,7 +1047,7 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   ;   already been added
   defn add-unique<?E> (e:?E&Equalable, entries:List<E&Equalable>) -> List<E> :
     if contains?(entries, e) : entries
-    else : cons(e, entries)  
+    else : cons(e, entries)
 
   ; Add a VEntry to the symbol table under its prefix
   defn add-entry (e:VEntry, prefix:String|False) :
@@ -1203,6 +1264,9 @@ public defstruct NotCapVar <: ResolveError :
 public defstruct MissingType <: ResolveError :
   src-package:Symbol
   typeid:TypeId
+public defstruct MissingForwardedPackage <: ResolveError :
+  src-package:Symbol
+  imported-package:Symbol
 public defstruct ForwardingCycle <: ResolveError :
   src-packages:Seq<Symbol>
 
@@ -1213,6 +1277,10 @@ defmethod print (o:OutputStream, ps:ForwardingCycle) :
 defmethod print (o:OutputStream, e:MissingType) :
   val FMT = "Missing type: The %~ package requires the %_/%_ type to be defined."
   print(o, FMT % [src-package(e), package(typeid(e)), name(typeid(e))])
+
+defmethod print (o:OutputStream, e:MissingForwardedPackage) :
+  val FMT = "Missing forwarded package: The %~ package needs the %~ package."
+  print(o, FMT % [src-package(e), imported-package(e)])
 
 defmethod print (o:OutputStream, e:NoResolve) :
   val FMT = "%_Could not resolve %~."

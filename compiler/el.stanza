@@ -262,7 +262,7 @@ defn collapse (epackages:Tuple<EPackage>) -> EPackage :
         for ex in exports(packageio(e)) seq :
           val n* = global-rec-ids[id(rec(ex))]
           sub-n(ex, n*)
-    PackageIO(`prog, [], [], exports*, false)
+    PackageIO(`prog, [], [], [], [], exports*, false)
 
   ;Rename one specific package
   defn renamed-exps (epackage:EPackage) :
