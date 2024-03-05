@@ -617,7 +617,6 @@ static int count_non_null (void** xs){
 // Process metadata struct
 typedef struct ChildProcess {
   pid_t pid;
-  int (*pipe_arr)[NUM_STREAM_SPECS][2];
   FILE* fin;
   FILE* fout;
   FILE* ferr;
@@ -642,11 +641,6 @@ static void cleanup_proc (ChildProcess* c) {
       if(fclose(c->fout) == EOF) exit_with_error();
     if(c->ferr != NULL)
       if(fclose(c->ferr) == EOF) exit_with_error();
-  }
-  // Close pipes
-  for(int i = 0; i<NUM_STREAM_SPECS; i++) {
-    close(*(c->pipe_arr)[i][0]);
-    close(*(c->pipe_arr)[i][1]);
   }
   free(c);
 }
@@ -698,7 +692,6 @@ static int register_proc (
   ChildProcess* child = (ChildProcess*)malloc(sizeof(ChildProcess));
   if(child == NULL) return -1;
   child->pid = pid;
-  child->pipe_arr = pipes;
   child->fin = fin;
   child->fout = fout;
   child->ferr = ferr;
