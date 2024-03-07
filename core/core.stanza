@@ -9923,6 +9923,7 @@ public lostanza deftype Process <: Unique :
   var input: ptr<?>
   var output: ptr<?>
   var error: ptr<?>
+  var status: int
   var input-stream: ref<False|FileOutputStream>
   var output-stream: ref<False|FileInputStream>
   var error-stream: ref<False|FileInputStream>
@@ -10019,7 +10020,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
                          placeholder-ignore:ref<True|False>) -> ref<Process> :
     ensure-valid-env-var-names!(env-vars)
     ensure-valid-stream-specifiers(input, output, error)
-    val proc = new Process{0, null, -1, null, null, null, false, false, false, false}
+    val proc = new Process{0, null, -1, null, null, null, -1, false, false, false, false}
 
     ; Create a command line from the given filename and args (discarding the first argument).
     ; This is necessary because Windows' process API expects a command line (not a list of arguments).
@@ -10102,7 +10103,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     ensure-valid-stream-specifiers(input, output, error)
     val args = to-tuple(args0)
     val stz-proc-id = genid().value
-    val proc = new Process{0, null, stz-proc-id, null, null, null, false, false, false, false}
+    val proc = new Process{0, null, stz-proc-id, null, null, null, -1, false, false, false, false}
     val input_v = value(input).value
     val output_v = value(output).value
     val error_v = value(error).value
@@ -10257,6 +10258,8 @@ public lostanza defn error-stream (p:ref<Process>) -> ref<InputStream> :
     p.error-stream = new FileInputStream{p.error, 0}
   return p.error-stream as ref<FileInputStream>
 
+public lostanza defn pid (p:ref<Process>) -> ref<Int> : return (new Int{p.pid as int})
+
 ;                            State API
 ;                            =========
 lostanza deftype StateStruct :
@@ -10305,6 +10308,9 @@ public lostanza defn state (p:ref<Process>) -> ref<ProcessState> :
         ;ProcessRunning.
         (s:ref<ProcessRunning>) :
           return s
+        ; TODO: should we wait on stopped processes?
+        (s:ref<ProcessStopped>) :
+          return s
         ;If the process has finished, then save its terminating
         ;state before returning it.
         (s:ref<ProcessState>) :
@@ -10317,8 +10323,11 @@ public lostanza defn state (p:ref<Process>) -> ref<ProcessState> :
 
 public defn* wait (p:Process) -> ProcessState :
   val s = retrieve-state(p, true)
-  match(s:ProcessRunning) : wait(p)
+  ; TODO: should we wait on stopped processes?
+  match(s:ProcessRunning|ProcessStopped) : wait(p)
+  ;match(s:ProcessRunning) : wait(p)
   else : s
+
 
 ;                         System Call API
 ;                         ===============
@@ -10327,8 +10336,10 @@ public defn call-system (filename:String,
                          working-dir:String|False,
                          env-vars:Tuple<KeyValue<String,String>>|False) -> Int :
   match(wait(Process(filename, args, working-dir, env-vars, cleanup-files = false))) :
-    (s:ProcessDone) : value(s)
-    (s) : throw(ProcessAbortedError(s))
+    (s:ProcessDone) :
+      value(s)
+    (s) :
+      throw(ProcessAbortedError(s))
 
 public defn call-system (file:String, args:Seqable<String>) -> Int :
   call-system(file, args, false, false)

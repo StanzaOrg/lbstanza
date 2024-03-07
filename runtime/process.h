@@ -10,10 +10,12 @@
 //- in: The standard input stream of the Process.
 //- out: The standard output stream of the Process.
 //- err: The standard error stream of the Process.
+//- status: A pointer to the status code of the Process. Not used on Windows.
 typedef struct {
   stz_long pid;
   void* handle;
   stz_int stz_proc_id;
+  int status;
   FILE* in;
   FILE* out;
   FILE* err;
