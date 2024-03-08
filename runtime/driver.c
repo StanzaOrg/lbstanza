@@ -1343,6 +1343,7 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
     struct sigaction sa;
     sa.sa_handler = sigchld_handler;
     sa.sa_mask = sigchld_mask;
+    sa.sa_flags = SA_RESTART;
     sigaction(SIGCHLD, &sa, NULL);
   #endif
 
