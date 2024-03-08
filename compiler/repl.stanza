@@ -800,6 +800,7 @@ defn REPLEnv () :
     IPackage(gensym(`repl),
              false,
              to-tuple(values(exp-imports)),
+             []
              List(wrap-display-result(exp)),
              info(exp))
 

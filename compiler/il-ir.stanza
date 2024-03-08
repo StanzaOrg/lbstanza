@@ -14,6 +14,7 @@ public defstruct IPackage :
   name: Symbol
   documentation?: IDoc|False
   imports: Tuple<IImport> with: (updater => sub-imports)
+  forwarded-imports: Tuple<Symbol> with: (updater => sub-forwarded-imports)
   exps: List<IExp> with: (updater => sub-exps)
   info: AbsoluteFileInfo|False
   namemap: NameMap with: (default => void, updater => sub-namemap)
