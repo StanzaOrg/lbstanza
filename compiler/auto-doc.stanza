@@ -121,7 +121,7 @@ defn slurp-from (s:InputStream) -> String :
   to-string(buffer)
 
 defn call-plugin (name:String, arguments:Seqable<String>) -> String :
-  val proc = Process(name, cat([name], arguments), PROCESS-IN, PROCESS-OUT, PROCESS-ERR)
+  val proc = Process(name, cat([name], arguments), PROCESS-IN, PROCESS-OUT, PROCESS-ERR, cleanup-files = false)
   val response = trim $ slurp-from(output-stream(proc))
   val state = wait(proc)
   match(state:ProcessDone) :

@@ -9,6 +9,7 @@
 #else
   #include<sys/wait.h>
   #include<sys/mman.h>
+  #include<spawn.h>
 #endif
 #include<stdint.h>
 #include<stdbool.h>
@@ -73,6 +74,11 @@ static void exit_with_error_line_and_func (const char* file, int line){
 #endif
 
 #define exit_with_error() exit_with_error_line_and_func(__FILE__, __LINE__)
+
+static void throw_error (const char * msg) {
+  fprintf(stderr, "%s\n", msg);
+  exit(-1);
+}
 
 //     Stanza Defined Entities
 //     =======================
@@ -591,30 +597,10 @@ void stz_memory_resize (void* p, stz_long old_size, stz_long new_size) {
 #if defined(PLATFORM_OS_X) || defined(PLATFORM_LINUX)
 
 //------------------------------------------------------------
-//------------------- Structures -----------------------------
-//------------------------------------------------------------
-
-//- working_dir: If not null, the working directory of the
-//  new process.
-//- env_vars: If not null, the environment variables to set in the
-//  child process. Each string has format "MYVAR=MYVALUE" and is null-terminated.
-//- argvs: The string arguments that are passed to the C main function.
-typedef struct {
-  stz_byte* pipe;
-  stz_byte* in_pipe;
-  stz_byte* out_pipe;
-  stz_byte* err_pipe;
-  stz_byte* file;
-  stz_byte* working_dir;
-  stz_byte** env_vars;
-  stz_byte** argvs;
-} EvalArg;
-
-#define RETURN_NEG(x) {int r=(x); if(r < 0) return -1;}
-
-//------------------------------------------------------------
 //-------------------- Utilities -----------------------------
 //------------------------------------------------------------
+
+#define RETURN_NEG(x) {int r=(x); if(r < 0) return -1;}
 
 static int count_non_null (void** xs){
   int n=0;
@@ -623,26 +609,152 @@ static int count_non_null (void** xs){
   return n;
 }
 
-static char* string_join (const char* a, const char* b){
-  int len = strlen(a) + strlen(b);
-  char* buffer = (char*)stz_malloc(len + 1);
-  sprintf(buffer, "%s%s", a, b);
-  return buffer;
+
+//------------------------------------------------------------
+//---------- Managing process resources and state ------------
+//------------------------------------------------------------
+
+// Process metadata struct
+typedef struct ChildProcess {
+  pid_t pid;
+  stz_int stz_proc_id;
+  FILE* fin;
+  FILE* fout;
+  FILE* ferr;
+  int* status;
+  bool auto_cleanup;
+} ChildProcess;
+
+// Linked lists of process metadata
+typedef struct ProcessNode {
+  ChildProcess* proc;
+  struct ProcessNode* next;
+} ProcessNode;
+
+
+// Free everything allocated by ChildProcess
+static void cleanup_proc (ChildProcess* c) {
+  // Close files
+  if(c->auto_cleanup) {
+    if(c->fin != NULL)
+      if(fclose(c->fin) == EOF) exit_with_error();
+    if(c->fout != NULL)
+      if(fclose(c->fout) == EOF) exit_with_error();
+    if(c->ferr != NULL)
+      if(fclose(c->ferr) == EOF) exit_with_error();
+  }
+  free(c);
 }
 
-//Opening a named pipe
-static int open_pipe (const char* prefix, const char* suffix, int options){
-  char* name = string_join(prefix, suffix);
-  int fd = open(name, options);
-  stz_free(name);
-  return fd;
+// Process status struct
+typedef struct ProcessStatus {
+  stz_int stz_proc_id;
+  int* status;
+} ProcessStatus;
+
+// Linked list of live processes
+ProcessNode* proc_head = NULL;
+
+// flag to update process statuses
+sig_atomic_t proc_dirty = 0;
+
+// Record process metadata
+static int register_proc (
+    pid_t pid,
+    stz_int stz_proc_id,
+    int (*pipes)[NUM_STREAM_SPECS][2],
+    FILE* fin,
+    FILE* fout,
+    FILE* ferr,
+    int* status,
+    bool auto_cleanup) {
+
+  // Init ChildProcess struct
+  ChildProcess* child = (ChildProcess*)malloc(sizeof(ChildProcess));
+  if(child == NULL) return -1;
+  child->pid = pid;
+  child->stz_proc_id = stz_proc_id;
+  child->fin = fin;
+  child->fout = fout;
+  child->ferr = ferr;
+  child->status = status;
+  *(child->status) = -1; // TODO: is this OK?
+  child->auto_cleanup = auto_cleanup;
+  // Store child in ProcessNode
+  ProcessNode* new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
+  if(new_node == NULL) return -1;
+  new_node->proc = child;
+  new_node->next = proc_head;
+  proc_head = new_node;
+
+  return 0;
 }
 
-//Creating a named pipe
-static int make_pipe (char* prefix, char* suffix){
-  char* name = string_join(prefix, suffix);
-  return mkfifo(name, S_IRUSR|S_IWUSR);
+
+// Retrieve process state
+// TODO: just get rid of this
+static int get_status (Process* process, int* status) {
+  *status = process->status;
+  return 0;
 }
+
+// Cleanup all resources for process pid
+static void cleanup_child (pid_t pid) {
+
+  ProcessNode* curr = proc_head; //find_child(pid);
+  ProcessNode* prev = NULL;
+  // Find matching Node
+  while(curr != NULL && curr->proc->pid != pid) {
+    prev = curr;
+    curr = curr->next;
+  }
+  if(curr != NULL) {
+    // Remove node from list of alive processes
+    if(prev == NULL) {
+      proc_head = curr->next;
+    } else {
+      prev->next = curr->next;
+    }
+    // Cleanup resources
+    cleanup_proc(curr->proc);
+  }
+}
+
+// Update a process' status code
+static void update_status (pid_t pid, int status) {
+  ProcessNode* curr = proc_head;
+
+  // Find matching Node
+  while(curr != NULL && curr->proc->pid != pid) {
+    //prev = curr;
+    curr = curr->next;
+  }
+  if(curr != NULL) {
+    //printf("    found node for %d, updating (%d)\n", pid, getpid());
+    *(curr->proc->status) = status;
+  } 
+}
+
+// If needed, wait on any un-waited processes and update their statuses
+// Precondition: SIGCHLD is blocked
+int update_all_statuses () {
+  int status;
+  pid_t pid;
+  while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
+    update_status(pid, status);
+    if(WIFEXITED(status) || WIFSIGNALED(status))
+      cleanup_child(pid);
+  }
+  if(pid < 0 && errno != ECHILD) exit_with_error();
+  return 0;
+}
+
+// SIGCHLD handler: cleanup dead processes, record status change
+void sigchld_handler(int sig) {
+  //proc_dirty = 1;
+  update_all_statuses(); // Safe because sigaction blocks SIGCHLD
+}
+
 #endif
 
 //------------------------------------------------------------
@@ -681,18 +793,7 @@ static void write_optional_strings (FILE* f, stz_byte** s){
   }else{
     write_int(f, 1);
     write_strings(f, s);
-  }     
-}
-
-static void write_earg (FILE* f, EvalArg* earg){
-  write_string(f, earg->pipe);
-  write_string(f, earg->in_pipe);
-  write_string(f, earg->out_pipe);
-  write_string(f, earg->err_pipe);
-  write_string(f, earg->file);
-  write_string(f, earg->working_dir);
-  write_optional_strings(f, earg->env_vars);
-  write_strings(f, earg->argvs);
+  }
 }
 
 static void write_process_state (FILE* f, ProcessState* s){
@@ -753,18 +854,6 @@ static stz_byte** read_optional_strings (FILE* f){
   }
 }
 
-static EvalArg* read_earg (FILE* f){
-  EvalArg* earg = (EvalArg*)stz_malloc(sizeof(EvalArg));
-  earg->pipe = read_string(f);
-  earg->in_pipe = read_string(f);
-  earg->out_pipe = read_string(f);
-  earg->err_pipe = read_string(f);
-  earg->file = read_string(f);
-  earg->working_dir = read_string(f);
-  earg->env_vars = read_optional_strings(f);
-  earg->argvs = read_strings(f);
-  return earg;
-}
 static void read_process_state (FILE* f, ProcessState* s){
   s->state = read_int(f);
   s->code = read_int(f);
@@ -777,62 +866,9 @@ static void free_strings (stz_byte** ss){
   stz_free(ss);
 }
 
-static void free_earg (EvalArg* arg){
-  stz_free(arg->pipe);
-  if(arg->in_pipe != NULL) stz_free(arg->in_pipe);
-  if(arg->out_pipe != NULL) stz_free(arg->out_pipe);
-  if(arg->err_pipe != NULL) stz_free(arg->err_pipe);
-  stz_free(arg->file);
-  if(arg->working_dir != NULL) stz_free(arg->working_dir);
-  if(arg->env_vars != NULL) free_strings(arg->env_vars);
-  free_strings(arg->argvs);
-  stz_free(arg);
-}
-
-//------------------------------------------------------------
-//-------------------- Process Queries -----------------------
-//------------------------------------------------------------
-
-static void get_process_state (stz_long pid, ProcessState* s, int wait_for_termination){
-  int status;
-  int ret = waitpid((pid_t)pid, &status, wait_for_termination? 0 : WNOHANG);
-
-  if(ret == 0)
-    *s = (ProcessState){PROCESS_RUNNING, 0};
-  else if(WIFEXITED(status))
-    *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
-  else if(WIFSIGNALED(status))
-    *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
-  else if(WIFSTOPPED(status))
-    *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
-  else
-    *s = (ProcessState){PROCESS_RUNNING, 0};
-}
-
-//------------------------------------------------------------
-//----------------------- Execvpe ----------------------------
-//------------------------------------------------------------
-//The 'execvpe' frontend to 'execvp' does not exist in OS-X.
-//So implement a quick version of it.
-
-#ifdef PLATFORM_OS_X
-extern char **environ;
-int execvpe(const char *program, char **argv, char **envp){
-  char **saved = environ;
-  environ = envp;
-  int rc = execvp(program, argv);
-  environ = saved;
-  return rc;
-}
-#endif
-
 //------------------------------------------------------------
 //---------------------- Launcher Main -----------------------
 //------------------------------------------------------------
-
-#define LAUNCH_COMMAND 0
-#define STATE_COMMAND 1
-#define WAIT_COMMAND 2
 
 static void write_error_and_exit (int fd){
   int code = errno;
@@ -841,198 +877,58 @@ static void write_error_and_exit (int fd){
   exit(-1);
 }
 
-static void disable_ctrl_c () {
-  #ifdef PLATFORM_WINDOWS
-    SetConsoleCtrlHandler(NULL, TRUE);
-  #else
-    signal(SIGINT, SIG_IGN);
-  #endif
-}
-
-static void launcher_main (FILE* lin, FILE* lout){
-  disable_ctrl_c();
-  while(1){
-    //Read in command
-    int comm = fgetc(lin);
-    if(feof(lin)) exit(0);
-
-    //Interpret launch process command
-    if(comm == LAUNCH_COMMAND){
-      //Read in evaluation arguments
-      EvalArg* earg = read_earg(lin);
-      if(feof(lin)) exit(0);
-
-      //Create error-code pipe
-      int READ = 0;
-      int WRITE = 1;
-      int exec_error[2];
-      if(pipe(exec_error) < 0) exit_with_error();
-
-      //Fork a new child
-      stz_long pid = (stz_long)fork();
-      if(pid < 0) exit_with_error();
-
-      if(pid > 0){
-        //Read from error-code pipe
-        int exec_code;
-        close(exec_error[WRITE]);
-        int exec_r = read(exec_error[READ], &exec_code, sizeof(int));
-        close(exec_error[READ]);
-
-        if(exec_r == 0){
-          //Exec evaluated successfully
-          //Return new process id
-          write_long(lout, pid);
-          fflush(lout);
-        }
-        else if(exec_r == sizeof(int)){
-          //Exec evaluated unsuccessfully
-          //Return error code as negative long
-          write_long(lout, (stz_long)-exec_code);
-          fflush(lout);
-        }
-        else{
-          fprintf(stderr, "Unreachable code.");
-          exit(-1);
-        }
-      }else{
-        //Close exec pipe read, and close write end on successful exec
-        close(exec_error[READ]);
-        fcntl(exec_error[WRITE], F_SETFD, FD_CLOEXEC);
-
-        //Open named pipes
-        if(earg->in_pipe != NULL){
-          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->in_pipe), O_RDONLY);
-          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
-          dup2(fd, 0);
-        }
-        if(earg->out_pipe != NULL){
-          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->out_pipe), O_WRONLY);
-          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
-          dup2(fd, 1);
-        }
-        if(earg->err_pipe != NULL){
-          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->err_pipe), O_WRONLY);
-          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
-          dup2(fd, 2);
-        }
-
-        //Set the working directory of the child process if explicitly
-        //requested.
-        if (earg->working_dir) {
-          if (chdir(C_CSTR(earg->working_dir)) == -1) {
-            write_error_and_exit(exec_error[WRITE]);
-          }
-        }
-
-        //Launch child process.
-        //If an environment is supplied then call execvpe, otherwise call execvp.
-        if(earg->env_vars == NULL)
-          execvp(C_CSTR(earg->file), (char**)earg->argvs);
-        else
-          execvpe(C_CSTR(earg->file), (char**)earg->argvs, (char**)earg->env_vars);
-
-        //Unsuccessful exec, write error number
-        write_error_and_exit(exec_error[WRITE]);
-      }
-    }
-    //Interpret state retrieval command
-    else if(comm == STATE_COMMAND || comm == WAIT_COMMAND){
-      //Read in process id
-      stz_long pid = read_long(lin);
-
-      //Retrieve state
-      ProcessState s; get_process_state(pid, &s, comm == WAIT_COMMAND);
-      write_process_state(lout, &s);
-      fflush(lout);
-    }
-    //Unrecognized command
-    else{
-      fprintf(stderr, "Illegal command: %d\n", comm);
-      exit(-1);
-    }
-  }
-}
-
-static stz_long launcher_pid = -1;
-static FILE* launcher_in = NULL;
-static FILE* launcher_out = NULL;
-void initialize_launcher_process (){
-  if(launcher_pid < 0){
-    //Create pipes
-    int READ = 0;
-    int WRITE = 1;
-    int lin[2];
-    int lout[2];
-    if(pipe(lin) < 0) exit_with_error();
-    if(pipe(lout) < 0) exit_with_error();
-
-    //Fork
-    stz_long pid = (stz_long)fork();
-    if(pid < 0) exit_with_error();
-
-    if(pid > 0){
-      //Parent
-      launcher_pid = pid;
-      close(lin[READ]);
-      close(lout[WRITE]);
-      launcher_in = fdopen(lin[WRITE], "w");
-      if(launcher_in == NULL) exit_with_error();
-      launcher_out = fdopen(lout[READ], "r");
-      if(launcher_out == NULL) exit_with_error();
-    }
-    else{
-      //Child
-      close(lin[WRITE]);
-      close(lout[READ]);
-      FILE* fin = fdopen(lin[READ], "r");
-      if(fin == NULL) exit_with_error();
-      FILE* fout = fdopen(lout[WRITE], "w");
-      if(fout == NULL) exit_with_error();
-      launcher_main(fin, fout);
-    }
-  }
-}
-
-static void make_pipe_name (char* pipe_name, int pipeid) {
-  sprintf(pipe_name, "/tmp/stanza_exec_pipe_%ld_%ld", (long)getpid(), (long)pipeid);
-}
-
-static int delete_process_pipe (FILE* fd, char* pipe_name, char* suffix) {
+static int delete_process_pipe (FILE* fd) {
   if (fd != NULL) {
     int close_res = fclose(fd);
     if (close_res == EOF) return -1;
-    char my_pipe_name[80];
-    sprintf(my_pipe_name, "%s%s", pipe_name, suffix);
-    int rm_res = remove(my_pipe_name);
-    if (rm_res < 0) return -1;
   }
   return 0;
 }
 
-stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error, stz_int pipeid) {
-  char pipe_name[80];
-  make_pipe_name(pipe_name, (int)pipeid);
-  if (delete_process_pipe(input,  pipe_name, "_in") < 0)
+stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error) {
+  if (delete_process_pipe(input) < 0)
     return -1;
-  if (delete_process_pipe(output, pipe_name, "_out") < 0)
+  if (delete_process_pipe(output) < 0)
     return -1;
-  if (delete_process_pipe(error,  pipe_name, "_err") < 0)
+  if (delete_process_pipe(error) < 0)
     return -1;
   return 0;
 }
 
+// SIGCHLD block/unblock utilities
+static sigset_t block () {
+  sigset_t sigchld_mask, old_mask;
+  sigemptyset(&sigchld_mask);
+  sigaddset(&sigchld_mask, SIGCHLD);
+
+  if(sigprocmask(SIG_BLOCK, &sigchld_mask, &old_mask))
+    exit_with_error();
+  
+  return old_mask;
+}
+
+static void restore (sigset_t* old_mask)  {
+  if(sigprocmask(SIG_SETMASK, old_mask, NULL)) exit_with_error();
+}
+
+// Useful for testing linux implementation on OSX
+//#ifdef PLATFORM_OS_X
+//extern char **environ;
+//int execvpe(const char *program, char **argv, char **envp){
+//  char **saved = environ;
+//  environ = envp;
+//  int rc = execvp(program, argv);
+//  environ = saved;
+//  return rc;
+//}
+//#endif
+
+#ifdef PLATFORM_LINUX
+//#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int pipeid,
+                       stz_int output, stz_int error, stz_int stz_proc_id, stz_int cleanup_files,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
-  //Initialize launcher if necessary
-  initialize_launcher_process();
-
-  //Figure out unique pipe name
-  char pipe_name[80];
-  make_pipe_name(pipe_name, (int)pipeid);
-
-  //Compute pipe sources
+  //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
   for(int i=0; i<NUM_STREAM_SPECS; i++)
     pipe_sources[i] = -1;
@@ -1040,83 +936,284 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   pipe_sources[output] = 1;
   pipe_sources[error] = 2;
 
-  //Create pipes to child
-  if(pipe_sources[PROCESS_IN] >= 0)
-    RETURN_NEG(make_pipe(pipe_name, "_in"))
-  if(pipe_sources[PROCESS_OUT] >= 0)
-    RETURN_NEG(make_pipe(pipe_name, "_out"))
-  if(pipe_sources[PROCESS_ERR] >= 0)
-    RETURN_NEG(make_pipe(pipe_name, "_err"))
+  //Generate array of pipes per-input-source
+  int pipes[NUM_STREAM_SPECS][2];
+  for(int i=0; i<NUM_STREAM_SPECS; i++) {
+    if(pipe(pipes[i])) return -1;
+  }
 
-  //Write in command and evaluation arguments
-  EvalArg earg = {STZ_STR(pipe_name), NULL, NULL, NULL, file, working_dir, env_vars, argvs};
-  if(input == PROCESS_IN) earg.in_pipe = STZ_STR("_in");
-  if(output == PROCESS_OUT) earg.out_pipe = STZ_STR("_out");
-  if(output == PROCESS_ERR) earg.out_pipe = STZ_STR("_err");
-  if(error == PROCESS_OUT) earg.err_pipe = STZ_STR("_out");
-  if(error == PROCESS_ERR) earg.err_pipe = STZ_STR("_err");
-  int r = fputc(LAUNCH_COMMAND, launcher_in);
-  if(r == EOF) return -1;
-  write_earg(launcher_in, &earg);
-  fflush(launcher_in);
+  //Create error-code pipe
+  int READ = 0;
+  int WRITE = 1;
+  int exec_error[2];
+  if(pipe(exec_error) < 0) exit_with_error();
 
-  //Open pipes to child
+  // Fork child process
+  stz_long pid = (stz_long)vfork();
+
+  if(pid < 0) return -1;
+  // Parent: if exec succeeded, open files, register with signal handler
+  if(pid > 0) {
+  
+    // Block SIGCHLD until setup is finished
+    sigset_t old_mask = block(); //sigchld_mask, old_mask;
+
+    //Read from error-code pipe
+    int exec_code;
+    close(exec_error[WRITE]);
+    int exec_r = read(exec_error[READ], &exec_code, sizeof(int));
+    close(exec_error[READ]);
+
+    if(exec_r == 0) {
+      FILE* fin = NULL;
+      if(pipe_sources[PROCESS_IN] >= 0) {
+        close(pipes[PROCESS_IN][0]);
+        fin = fdopen(pipes[PROCESS_IN][1], "w");
+        if(fin == NULL) return -1;
+      }
+      FILE* fout = NULL;
+      if(pipe_sources[PROCESS_OUT] >= 0) {
+        close(pipes[PROCESS_OUT][1]);
+        fout = fdopen(pipes[PROCESS_OUT][0], "r");
+        if(fout == NULL) return -1;
+      }
+      FILE* ferr = NULL;
+      if(pipe_sources[PROCESS_ERR] >= 0) {
+        close(pipes[PROCESS_ERR][1]);
+        ferr = fdopen(pipes[PROCESS_ERR][0], "r");
+        if(ferr == NULL) return -1;
+      }
+
+      process->pid = pid;
+      process->stz_proc_id = stz_proc_id;
+      process->in = fin;
+      process->out = fout;
+      process->err = ferr;
+
+      int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0);
+
+      restore(&old_mask);
+      // Unblock SIGCHLD
+      //if(sigprocmask(SIG_SETMASK, &old_mask, NULL)) exit_with_error();
+      if(r < 0) return -1;
+      return 0;
+    } else if(exec_r == sizeof(int)) {
+      errno = exec_code;
+      return -1;
+    } else {
+      fprintf(stderr, "Unreachable code.");
+      exit(-1);
+    }
+  }
+  // Child: setup pipes, exec
+  else {
+    //Close exec pipe read, and close write end on successful exec
+    close(exec_error[READ]);
+    fcntl(exec_error[WRITE], F_SETFD, FD_CLOEXEC);
+
+    //Setup input pipe if used
+    if(pipe_sources[PROCESS_IN] >= 0) {
+      if(close(pipes[PROCESS_IN][1]) < 0)
+        write_error_and_exit(exec_error[WRITE]);
+      if(dup2(pipes[PROCESS_IN][0], STDIN_FILENO) < 0)
+        write_error_and_exit(exec_error[WRITE]);
+      if(close(pipes[PROCESS_IN][0]) < 0)
+        write_error_and_exit(exec_error[WRITE]);
+    }
+    //Setup output pipe if used
+    if(pipe_sources[PROCESS_OUT] >= 0) {
+      if(close(pipes[PROCESS_OUT][0]) < 0)
+        write_error_and_exit(exec_error[WRITE]);
+      if(dup2(pipes[PROCESS_OUT][1], STDOUT_FILENO) < 0)
+        write_error_and_exit(exec_error[WRITE]);
+      if(close(pipes[PROCESS_OUT][1]) < 0)
+        write_error_and_exit(exec_error[WRITE]);
+    }
+    //Setup error pipe if used
+    if(pipe_sources[PROCESS_ERR] >= 0) {
+      if(close(pipes[PROCESS_ERR][0]) < 0)
+        write_error_and_exit(exec_error[WRITE]);
+      if(dup2(pipes[PROCESS_ERR][1], STDERR_FILENO) < 0)
+        write_error_and_exit(exec_error[WRITE]);
+      if(close(pipes[PROCESS_ERR][1]) < 0)
+        write_error_and_exit(exec_error[WRITE]);
+    }
+    //Setup working directory
+    if(working_dir) {
+      if(chdir(C_CSTR(working_dir)) < 0)
+        write_error_and_exit(exec_error[WRITE]);
+    }
+
+    //Launch child process.
+    //If an environment is supplied then call execvpe, otherwise call execvp.
+    if(env_vars == NULL)
+      execvp(C_CSTR(file), (char**)argvs);
+    else
+      execvpe(C_CSTR(file), (char**)argvs, (char**)env_vars);
+    write_error_and_exit(exec_error[WRITE]);
+  }
+  return 0;
+}
+#endif
+
+
+#ifdef PLATFORM_OS_X
+stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
+                       stz_int output, stz_int error, stz_int stz_proc_id, stz_int cleanup_files,
+                       stz_byte* working_dir, stz_byte** env_vars, Process* process) {
+  //block sigchld
+  sigset_t old_mask = block();
+  //Compute pipe sources:
+  int pipe_sources[NUM_STREAM_SPECS];
+  for(int i=0; i<NUM_STREAM_SPECS; i++)
+    pipe_sources[i] = -1;
+  pipe_sources[input] = 0;
+  pipe_sources[output] = 1;
+  pipe_sources[error] = 2;
+
+  //Generate array of pipes per-input-source
+  int pipes[NUM_STREAM_SPECS][2];
+  for(int i=0; i<NUM_STREAM_SPECS; i++) {
+    if(pipe(pipes[i])) return -1;
+  }
+
+  //Setup file actions
+  posix_spawn_file_actions_t actions;
+  posix_spawn_file_actions_init(&actions);
+
+  int posix_ret;
+  //Setup input pipe if used
+  if(pipe_sources[PROCESS_IN] >= 0) {
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][1])))
+      return -1;
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_IN][0], STDIN_FILENO)))
+      return -1;
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][0])))
+      return -1;
+  }
+  //Setup output pipe if used
+  if(pipe_sources[PROCESS_OUT] >= 0) {
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][0])))
+      return -1;
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDOUT_FILENO)))
+      return -1;
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][1])))
+      return -1;
+  }
+  //Setup error pipe if used
+  if(pipe_sources[PROCESS_ERR] >= 0) {
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][0])))
+      return -1;
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDERR_FILENO)))
+      return -1;
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][1])))
+      return -1;
+  }
+
+  //Setup working directory
+  if(working_dir) {
+    if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, C_CSTR(working_dir))))
+      return -1;
+  }
+
+  // Spawn child process
+  pid_t pid = -1;
+  int spawn_ret;
+  sleep(1);
+  // printf("LAUNCHING %s (%d)\n", file, getpid());
+  if((spawn_ret = posix_spawnp(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars)) == 0) {
+    // success
+  } else {
+    errno = spawn_ret; // might not want to do this manually?
+    return -1;
+  }
+  // Cleanup
+  posix_spawn_file_actions_destroy(&actions);
+
+  //Parent:
+  //Close pipes, setup files
   FILE* fin = NULL;
-  if(pipe_sources[PROCESS_IN] >= 0){
-    int fd = open_pipe(pipe_name, "_in", O_WRONLY);
-    RETURN_NEG(fd)
-    fin = fdopen(fd, "w");
+  if(pipe_sources[PROCESS_IN] >= 0) {
+    close(pipes[PROCESS_IN][0]);
+    fin = fdopen(pipes[PROCESS_IN][1], "w");
     if(fin == NULL) return -1;
   }
   FILE* fout = NULL;
-  if(pipe_sources[PROCESS_OUT] >= 0){
-    int fd = open_pipe(pipe_name, "_out", O_RDONLY);
-    RETURN_NEG(fd)
-    fout = fdopen(fd, "r");
+  if(pipe_sources[PROCESS_OUT] >= 0) {
+    close(pipes[PROCESS_OUT][1]);
+    fout = fdopen(pipes[PROCESS_OUT][0], "r");
     if(fout == NULL) return -1;
   }
   FILE* ferr = NULL;
-  if(pipe_sources[PROCESS_ERR] >= 0){
-    int fd = open_pipe(pipe_name, "_err", O_RDONLY);
-    RETURN_NEG(fd)
-    ferr = fdopen(fd, "r");
+  if(pipe_sources[PROCESS_ERR] >= 0) {
+    close(pipes[PROCESS_ERR][1]);
+    ferr = fdopen(pipes[PROCESS_ERR][0], "r");
     if(ferr == NULL) return -1;
   }
 
-  //Read back process id, and set errno if failed
-  stz_long pid = read_long(launcher_out);
-  if(pid < 0){
-    errno = (int)(- pid);
-    return -1;
-  }
-
-  //Return process structure
   process->pid = pid;
+  process->stz_proc_id = stz_proc_id;
   process->in = fin;
   process->out = fout;
   process->err = ferr;
+
+  int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0);
+
+  // Unblock SIGCHLD
+  restore(&old_mask);
+
+  if(r < 0) return -1;
   return 0;
 }
+#endif
+
+
 
 int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
-  stz_int pid = process->pid;
-  
-  //Check whether launcher has been initialized
-  if(launcher_pid < 0){
-    fprintf(stderr, "Launcher not initialized.\n");
-    exit(-1);
+
+  // block SIGCHLD
+  sigset_t old_mask = block();
+
+  int status;
+
+  bool state_unknown = true;
+
+  while(state_unknown) {
+
+    if(get_status(process, &status) == 0) {
+      if(WIFEXITED(status))
+        *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
+      else if(WIFSIGNALED(status))
+        *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
+      else if(WIFSTOPPED(status))
+        *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
+      else
+        *s = (ProcessState){PROCESS_RUNNING, 0};
+      state_unknown = false;
+    } else {
+      return -1; // process not found
+    }
+    if(wait_for_termination && !(WIFSIGNALED(status) || WIFEXITED(status))) {
+      int st;
+      // TODO: Should I unblock SIGCHLD?
+      if(waitpid(process->pid, &st, WUNTRACED)) {
+        update_status(process->pid, st);
+        if(WIFEXITED(st) || WIFSIGNALED(st))
+          cleanup_child(process->pid);
+      }
+      state_unknown = true;
+    }
+    else if(!wait_for_termination) {
+      // do not loop if we don't need the process to terminate
+      state_unknown = false;
+    }
   }
-
-  //Send command
-  int r = fputc(wait_for_termination? WAIT_COMMAND : STATE_COMMAND, launcher_in);
-  if(r == EOF) exit_with_error();
-  write_long(launcher_in, pid);
-  fflush(launcher_in);
-
-  //Read back process state
-  read_process_state(launcher_out, s);
+  // Reset to old_mask
+  restore(&old_mask);
   return 0;
 }
+
+
 #else
 #include "process-win32.c"
 //============================================================
@@ -1237,6 +1334,19 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
 
   //Initialize trackers to empty list.
   init.trackers = NULL;
+
+  #if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
+    //Setup SIGCHLD handler
+    sigset_t sigchld_mask;
+    sigemptyset(&sigchld_mask);
+    sigaddset(&sigchld_mask, SIGCHLD);
+    struct sigaction sa;
+    sa.sa_handler = sigchld_handler;
+    sa.sa_mask = sigchld_mask;
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGCHLD, &sa, NULL);
+  #endif
+
 
   //Call Stanza entry
   stanza_entry(&init);
