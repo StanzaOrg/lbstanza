@@ -274,7 +274,7 @@ defn ensure-proper-verbose-level! (cmd-args:CommandArgs) :
     val setting:Maybe<String> = cmd-args["verbose"]
     if not empty?(setting) :
       match(to-int(value!(setting))) :
-        (v:Int) : 
+        (v:Int) :
           if v < 1 or v > 10 :
             throw(ArgParseError("The '-verbose' flag requires an integer between 1 and 10."))
         (f:False) :
@@ -947,7 +947,7 @@ defn analyze-dependencies-command () :
     Flag("graphviz", OneFlag, OptionalFlag,
       "If given, outputs the dependencies using the GraphViz format to the given file.")
     Flag("build-target", ZeroFlag, OptionalFlag,
-      "If given, then the argument is interpreted to be the name of a build target instead of a Stanza package.")    
+      "If given, then the argument is interpreted to be the name of a build target instead of a Stanza package.")
     Flag("pkg", ZeroOrOneFlag, OptionalFlag,
       "If provided, search the given folder for .pkg files.")]
 
