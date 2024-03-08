@@ -742,8 +742,8 @@ int update_all_statuses () {
   pid_t pid;
   while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
     update_status(pid, status);
-    //if(WIFEXITED(status) || WIFSIGNALED(status))
-    //  cleanup_child(pid);
+    if(WIFEXITED(status) || WIFSIGNALED(status))
+      cleanup_child(pid);
   }
   if(pid < 0 && errno != ECHILD) exit_with_error();
   return 0;
@@ -895,19 +895,7 @@ stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error) {
   return 0;
 }
 
-// Useful for testing linux implementation on OSX
-//#ifdef PLATFORM_OS_X
-//extern char **environ;
-//int execvpe(const char *program, char **argv, char **envp){
-//  char **saved = environ;
-//  environ = envp;
-//  int rc = execvp(program, argv);
-//  environ = saved;
-//  return rc;
-//}
-//#endif
-
-// block/unblock utilities
+// SIGCHLD block/unblock utilities
 static sigset_t block () {
   sigset_t sigchld_mask, old_mask;
   sigemptyset(&sigchld_mask);
@@ -923,7 +911,17 @@ static void restore (sigset_t* old_mask)  {
   if(sigprocmask(SIG_SETMASK, old_mask, NULL)) exit_with_error();
 }
 
-
+// Useful for testing linux implementation on OSX
+//#ifdef PLATFORM_OS_X
+//extern char **environ;
+//int execvpe(const char *program, char **argv, char **envp){
+//  char **saved = environ;
+//  environ = envp;
+//  int rc = execvp(program, argv);
+//  environ = saved;
+//  return rc;
+//}
+//#endif
 
 #ifdef PLATFORM_LINUX
 //#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
@@ -959,11 +957,6 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   
     // Block SIGCHLD until setup is finished
     sigset_t old_mask = block(); //sigchld_mask, old_mask;
-    //sigemptyset(&sigchld_mask);
-    //sigaddset(&sigchld_mask, SIGCHLD);
-
-    //if(sigprocmask(SIG_BLOCK, &sigchld_mask, &old_mask))
-    //  exit_with_error();
 
     //Read from error-code pipe
     int exec_code;
@@ -997,7 +990,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
       process->out = fout;
       process->err = ferr;
 
-      int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0)
+      int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0);
 
       restore(&old_mask);
       // Unblock SIGCHLD
@@ -1168,7 +1161,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
   // Unblock SIGCHLD
   restore(&old_mask);
-  //if(sigprocmask(SIG_SETMASK, &old_mask, NULL)) exit_with_error();
+
   if(r < 0) return -1;
   return 0;
 }
@@ -1178,7 +1171,6 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
 int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
 
-  // printf("Getting state of %lld (%d)\n", process->pid, getpid());
   // block SIGCHLD
   sigset_t old_mask = block();
 
@@ -1188,9 +1180,6 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
 
   while(state_unknown) {
 
-    // update_all_statuses(); // Safe because SIGCHLD is blocked above
-
-    // printf("  checking status of %lld (%d)\n", process->pid, getpid());
     if(get_status(process, &status) == 0) {
       if(WIFEXITED(status))
         *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
@@ -1200,34 +1189,19 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
         *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
       else
         *s = (ProcessState){PROCESS_RUNNING, 0};
-      // printf("  STATE OF %lld: signaled? %d, exited? %d, stopped? %d (%d)\n", process->pid, WIFSIGNALED(status), WIFEXITED(status), WIFSTOPPED(status), getpid());
       state_unknown = false;
     } else {
       return -1; // process not found
     }
     if(wait_for_termination && !(WIFSIGNALED(status) || WIFEXITED(status))) {
-      // Allow SIGCHLD during sigsuspend
-      sigset_t allow_sigchld;
-      // This is overkill, but ensures SIGCHLD is allowed
-      sigfillset(&allow_sigchld);
-      // SIGCHLD is unmasked
-      sigdelset(&allow_sigchld, SIGCHLD);
-  
-      // no file descriptors or timeout; just wait indefinitely for an interrupt
-      //if(pselect(0, NULL, NULL, NULL, NULL, &old_mask) < 0) {
-      if(sigsuspend(&allow_sigchld) < 0) {
-        if(errno == EINTR) {
-          // printf("  interruped (%d)\n", getpid());
-          //update_all_statuses()
-          // interrupt: try again
-          //proc_dirty = 1;
-          state_unknown = true;
-        } else {
-          // non-interrupt error: impossible
-          exit_with_error();
-        }
+      int st;
+      // TODO: Should I unblock SIGCHLD?
+      if(waitpid(process->pid, &st, WUNTRACED)) {
+        update_status(process->pid, st);
+        if(WIFEXITED(st) || WIFSIGNALED(st))
+          cleanup_child(process->pid);
       }
-
+      state_unknown = true;
     }
     else if(!wait_for_termination) {
       // do not loop if we don't need the process to terminate
@@ -1376,9 +1350,6 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
   //Call Stanza entry
   stanza_entry(&init);
 
-  //#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
-  //  free_processes();
-  //#endif
   //Heap and freespace are disposed by OS at process termination
   return 0;
 }
