@@ -628,7 +628,7 @@ typedef struct ChildProcess {
 // Linked lists of process metadata
 typedef struct ProcessNode {
   ChildProcess* proc;
-  volatile struct ProcessNode* next;
+  volatile struct ProcessNode * volatile next;
 } ProcessNode;
 
 
@@ -653,7 +653,7 @@ typedef struct ProcessStatus {
 } ProcessStatus;
 
 // Linked list of live processes
-volatile ProcessNode* proc_head = NULL;
+volatile ProcessNode * volatile proc_head = NULL;
 
 // flag to update process statuses
 sig_atomic_t proc_dirty = 0;
@@ -681,7 +681,7 @@ static int register_proc (
   *(child->status) = -1; // TODO: is this OK?
   child->auto_cleanup = auto_cleanup;
   // Store child in ProcessNode
-  volatile ProcessNode* new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
+  volatile ProcessNode * volatile new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
   if(new_node == NULL) return -1;
   new_node->proc = child;
   new_node->next = proc_head;
@@ -701,8 +701,8 @@ static int get_status (Process* process, int* status) {
 // Cleanup all resources for process pid
 static void cleanup_child (pid_t pid) {
 
-  volatile ProcessNode* curr = proc_head; //find_child(pid);
-  volatile ProcessNode* prev = NULL;
+  volatile ProcessNode * volatile curr = proc_head; //find_child(pid);
+  volatile ProcessNode * volatile prev = NULL;
   // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
     prev = curr;
@@ -722,7 +722,7 @@ static void cleanup_child (pid_t pid) {
 
 // Update a process' status code
 static void update_status (pid_t pid, int status) {
-  volatile ProcessNode* curr = proc_head;
+  volatile ProcessNode * volatile curr = proc_head;
 
   // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
@@ -732,7 +732,9 @@ static void update_status (pid_t pid, int status) {
   if(curr != NULL) {
     //printf("    found node for %d, updating (%d)\n", pid, getpid());
     *(curr->proc->status) = status;
-  } 
+  } else {
+    //printf("    proc_head = NULL for %d (%d)\n", pid, getpid());
+  }
 }
 
 // If needed, wait on any un-waited processes and update their statuses
@@ -1127,7 +1129,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   pid_t pid = -1;
   int spawn_ret;
   sleep(1);
-  // printf("LAUNCHING %s (%d)\n", file, getpid());
+  //printf("LAUNCHING %s (%d)\n", file, getpid());
   if((spawn_ret = posix_spawnp(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars)) == 0) {
     // success
   } else {
@@ -1178,7 +1180,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
 int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
 
-  // printf("Getting state of %lld (%d)\n", process->pid, getpid());
+  //printf("Getting state of %lld (%d)\n", process->pid, getpid());
   // block SIGCHLD
   sigset_t old_mask = block();
 
