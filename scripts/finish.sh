@@ -1,4 +1,4 @@
-scripts/make-asmjit.sh os-x
+# scripts/make-asmjit.sh os-x
 gcc -std=gnu99 -c core/sha256.c -O3 -o build/sha256.o -I include
 gcc -std=gnu99 -c compiler/cvm.c -O3 -o build/cvm.o -I include
 gcc -c runtime/linenoise-ng/linenoise.cpp -O3 -o build/linenoise.o -I include -I runtime/linenoise-ng

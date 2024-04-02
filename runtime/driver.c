@@ -628,7 +628,7 @@ typedef struct ChildProcess {
 // Linked lists of process metadata
 typedef struct ProcessNode {
   ChildProcess* proc;
-  struct ProcessNode* next;
+  volatile struct ProcessNode* next;
 } ProcessNode;
 
 
@@ -653,7 +653,7 @@ typedef struct ProcessStatus {
 } ProcessStatus;
 
 // Linked list of live processes
-ProcessNode* proc_head = NULL;
+volatile ProcessNode* proc_head = NULL;
 
 // flag to update process statuses
 sig_atomic_t proc_dirty = 0;
@@ -681,7 +681,7 @@ static int register_proc (
   *(child->status) = -1; // TODO: is this OK?
   child->auto_cleanup = auto_cleanup;
   // Store child in ProcessNode
-  ProcessNode* new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
+  volatile ProcessNode* new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
   if(new_node == NULL) return -1;
   new_node->proc = child;
   new_node->next = proc_head;
@@ -701,8 +701,8 @@ static int get_status (Process* process, int* status) {
 // Cleanup all resources for process pid
 static void cleanup_child (pid_t pid) {
 
-  ProcessNode* curr = proc_head; //find_child(pid);
-  ProcessNode* prev = NULL;
+  volatile ProcessNode* curr = proc_head; //find_child(pid);
+  volatile ProcessNode* prev = NULL;
   // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
     prev = curr;
@@ -722,7 +722,7 @@ static void cleanup_child (pid_t pid) {
 
 // Update a process' status code
 static void update_status (pid_t pid, int status) {
-  ProcessNode* curr = proc_head;
+  volatile ProcessNode* curr = proc_head;
 
   // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
@@ -997,7 +997,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
       process->out = fout;
       process->err = ferr;
 
-      int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0)
+      int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0);
 
       restore(&old_mask);
       // Unblock SIGCHLD
@@ -1366,9 +1366,10 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
     sigset_t sigchld_mask;
     sigemptyset(&sigchld_mask);
     sigaddset(&sigchld_mask, SIGCHLD);
-    struct sigaction sa;
-    sa.sa_handler = sigchld_handler;
-    sa.sa_mask = sigchld_mask;
+    struct sigaction sa = {
+      .sa_handler = sigchld_handler,
+      .sa_mask = sigchld_mask,
+    };
     sigaction(SIGCHLD, &sa, NULL);
   #endif
 
