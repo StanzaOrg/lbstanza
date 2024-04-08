@@ -654,6 +654,7 @@ typedef struct ProcessStatus {
 
 // Linked list of live processes
 volatile ProcessNode * volatile proc_head = NULL;
+struct sigaction oldact;
 
 // flag to update process statuses
 sig_atomic_t proc_dirty = 0;
@@ -720,41 +721,62 @@ static void cleanup_child (pid_t pid) {
   }
 }
 
-// Update a process' status code
-static void update_status (pid_t pid, int status) {
+// is process p registered to this handler?
+static bool pid_is_registered (pid_t pid) {
   volatile ProcessNode * volatile curr = proc_head;
-
   // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
-    //prev = curr;
+    curr = curr->next;
+  }
+  return (curr != NULL);
+}
+
+// Update a process' status code
+// Precondition: SIGCHLD is blocked
+static void update_status (pid_t pid, int status) {
+  volatile ProcessNode * volatile curr = proc_head;
+  // Find matching Node
+  while(curr != NULL && curr->proc->pid != pid) {
     curr = curr->next;
   }
   if(curr != NULL) {
-    //printf("    found node for %d, updating (%d)\n", pid, getpid());
     *(curr->proc->status) = status;
   } else {
-    //printf("    proc_head = NULL for %d (%d)\n", pid, getpid());
   }
 }
 
-// If needed, wait on any un-waited processes and update their statuses
 // Precondition: SIGCHLD is blocked
-int update_all_statuses () {
+int wait_and_update (pid_t pid) {
   int status;
-  pid_t pid;
-  while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
+  if(waitpid(pid, &status, WNOHANG | WUNTRACED | WCONTINUED) > 0) {
     update_status(pid, status);
-    //if(WIFEXITED(status) || WIFSIGNALED(status))
-    //  cleanup_child(pid);
+    // TODO: cleanup if finished?
   }
-  if(pid < 0 && errno != ECHILD) exit_with_error();
   return 0;
 }
 
-// SIGCHLD handler: cleanup dead processes, record status change
-void sigchld_handler(int sig) {
-  //proc_dirty = 1;
-  update_all_statuses(); // Safe because sigaction blocks SIGCHLD
+void sigchld_action(int sig, siginfo_t* info, void* ctx) {
+  if(pid_is_registered(info->si_pid)) {
+    wait_and_update(info->si_pid);
+  } else {
+    oldact.sa_sigaction(sig, info, ctx);
+  }
+}
+
+// Register SIGCHLD handler
+void register_handler () {
+  #if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
+    //Setup SIGCHLD handler
+    sigset_t sigchld_mask;
+    sigemptyset(&sigchld_mask);
+    sigaddset(&sigchld_mask, SIGCHLD);
+    struct sigaction sa = {
+      .sa_sigaction = sigchld_action,
+      .sa_mask = sigchld_mask,
+      .sa_flags = SA_RESTART | SA_SIGINFO
+    };
+    sigaction(SIGCHLD, &sa, &oldact);
+  #endif
 }
 
 #endif
@@ -1128,8 +1150,6 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   // Spawn child process
   pid_t pid = -1;
   int spawn_ret;
-  sleep(1);
-  //printf("LAUNCHING %s (%d)\n", file, getpid());
   if((spawn_ret = posix_spawnp(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars)) == 0) {
     // success
   } else {
@@ -1179,8 +1199,6 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
 
 int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
-
-  //printf("Getting state of %lld (%d)\n", process->pid, getpid());
   // block SIGCHLD
   sigset_t old_mask = block();
 
@@ -1190,9 +1208,6 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
 
   while(state_unknown) {
 
-    // update_all_statuses(); // Safe because SIGCHLD is blocked above
-
-    // printf("  checking status of %lld (%d)\n", process->pid, getpid());
     if(get_status(process, &status) == 0) {
       if(WIFEXITED(status))
         *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
@@ -1202,7 +1217,6 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
         *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
       else
         *s = (ProcessState){PROCESS_RUNNING, 0};
-      // printf("  STATE OF %lld: signaled? %d, exited? %d, stopped? %d (%d)\n", process->pid, WIFSIGNALED(status), WIFEXITED(status), WIFSTOPPED(status), getpid());
       state_unknown = false;
     } else {
       return -1; // process not found
@@ -1216,13 +1230,8 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
       sigdelset(&allow_sigchld, SIGCHLD);
   
       // no file descriptors or timeout; just wait indefinitely for an interrupt
-      //if(pselect(0, NULL, NULL, NULL, NULL, &old_mask) < 0) {
       if(sigsuspend(&allow_sigchld) < 0) {
         if(errno == EINTR) {
-          // printf("  interruped (%d)\n", getpid());
-          //update_all_statuses()
-          // interrupt: try again
-          //proc_dirty = 1;
           state_unknown = true;
         } else {
           // non-interrupt error: impossible
@@ -1363,22 +1372,12 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
   //Initialize trackers to empty list.
   init.trackers = NULL;
 
-  #if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
-    //Setup SIGCHLD handler
-    sigset_t sigchld_mask;
-    sigemptyset(&sigchld_mask);
-    sigaddset(&sigchld_mask, SIGCHLD);
-    struct sigaction sa = {
-      .sa_handler = sigchld_handler,
-      .sa_mask = sigchld_mask,
-    };
-    sigaction(SIGCHLD, &sa, NULL);
-  #endif
-
+  register_handler();
 
   //Call Stanza entry
   stanza_entry(&init);
 
+  // TODO: cleanup
   //#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
   //  free_processes();
   //#endif
