@@ -653,7 +653,6 @@ typedef struct ProcessStatus {
 } ProcessStatus;
 
 // Linked list of live processes
-// TODO: volatility annotations
 volatile ProcessNode * volatile proc_head = NULL;
 struct sigaction oldact;
 
@@ -680,7 +679,7 @@ static int register_proc (
   child->fout = fout;
   child->ferr = ferr;
   child->status = status;
-  *(child->status) = -1; // TODO: is this OK?
+  *(child->status) = -1;
   child->auto_cleanup = auto_cleanup;
   // Store child in ProcessNode
   volatile ProcessNode * new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
@@ -689,14 +688,6 @@ static int register_proc (
   new_node->next = proc_head;
   proc_head = new_node;
 
-  return 0;
-}
-
-
-// Retrieve process state
-// TODO: just get rid of this
-static int get_status (Process* process, int* status) {
-  *status = process->status;
   return 0;
 }
 
@@ -959,6 +950,10 @@ static void restore (sigset_t* old_mask)  {
   if(sigprocmask(SIG_SETMASK, old_mask, NULL)) exit_with_error();
 }
 
+static int restore_and_err (sigset_t* old_mask) {
+  restore(old_mask);
+  return -1;
+}
 
 
 #ifdef PLATFORM_LINUX
@@ -1111,7 +1106,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   //Generate array of pipes per-input-source
   int pipes[NUM_STREAM_SPECS][2];
   for(int i=0; i<NUM_STREAM_SPECS; i++) {
-    if(pipe(pipes[i])) return -1;
+    if(pipe(pipes[i])) restore_and_err(&old_mask);
   }
 
   //Setup file actions
@@ -1122,35 +1117,35 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   //Setup input pipe if used
   if(pipe_sources[PROCESS_IN] >= 0) {
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][1])))
-      return -1;
+      restore_and_err(&old_mask);
     if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_IN][0], STDIN_FILENO)))
-      return -1;
+      restore_and_err(&old_mask);
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][0])))
-      return -1;
+      restore_and_err(&old_mask);
   }
   //Setup output pipe if used
   if(pipe_sources[PROCESS_OUT] >= 0) {
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][0])))
-      return -1;
+      restore_and_err(&old_mask);
     if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDOUT_FILENO)))
-      return -1;
+      restore_and_err(&old_mask);
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][1])))
-      return -1;
+      restore_and_err(&old_mask);
   }
   //Setup error pipe if used
   if(pipe_sources[PROCESS_ERR] >= 0) {
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][0])))
-      return -1;
+      restore_and_err(&old_mask);
     if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDERR_FILENO)))
-      return -1;
+      restore_and_err(&old_mask);
     if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][1])))
-      return -1;
+      restore_and_err(&old_mask);
   }
 
   //Setup working directory
   if(working_dir) {
     if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, C_CSTR(working_dir))))
-      return -1;
+      restore_and_err(&old_mask);
   }
 
   // Spawn child process
@@ -1160,7 +1155,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     // success
   } else {
     errno = spawn_ret; // might not want to do this manually?
-    return -1;
+    restore_and_err(&old_mask);
   }
   // Cleanup
   posix_spawn_file_actions_destroy(&actions);
@@ -1172,18 +1167,19 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     close(pipes[PROCESS_IN][0]);
     fin = fdopen(pipes[PROCESS_IN][1], "w");
     if(fin == NULL) return -1;
+      restore_and_err(&old_mask);
   }
   FILE* fout = NULL;
   if(pipe_sources[PROCESS_OUT] >= 0) {
     close(pipes[PROCESS_OUT][1]);
     fout = fdopen(pipes[PROCESS_OUT][0], "r");
-    if(fout == NULL) return -1;
+    if(fout == NULL) restore_and_err(&old_mask);
   }
   FILE* ferr = NULL;
   if(pipe_sources[PROCESS_ERR] >= 0) {
     close(pipes[PROCESS_ERR][1]);
     ferr = fdopen(pipes[PROCESS_ERR][0], "r");
-    if(ferr == NULL) return -1;
+    if(ferr == NULL) restore_and_err(&old_mask);
   }
 
   process->pid = pid;
@@ -1211,45 +1207,36 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
   bool state_unknown = true;
 
   while(state_unknown) {
-
-    if(get_status(process, &status) == 0) {
-      if(WIFEXITED(status))
-        *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
-      else if(WIFSIGNALED(status))
-        *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
-      else if(WIFSTOPPED(status))
-        *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
-      else
-        *s = (ProcessState){PROCESS_RUNNING, 0};
-      state_unknown = false;
-    } else {
-      return -1; // process not found
-    }
+    status = process->status;
+    if(WIFEXITED(status))
+      *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
+    else if(WIFSIGNALED(status))
+      *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
+    else if(WIFSTOPPED(status))
+      *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
+    else
+      *s = (ProcessState){PROCESS_RUNNING, 0};
+    state_unknown = false;
     if(wait_for_termination && !dead_status(status)) {
-      // Allow SIGCHLD during sigsuspend
+      // We allow SICHLD during sigsuspend
       sigset_t allow_sigchld;
-      // This is overkill, but ensures SIGCHLD is allowed
       sigfillset(&allow_sigchld);
-      // SIGCHLD is unmasked
       sigdelset(&allow_sigchld, SIGCHLD);
   
-      // no file descriptors or timeout; just wait indefinitely for an interrupt
       if(sigsuspend(&allow_sigchld) < 0) {
         if(errno == EINTR) {
           state_unknown = true;
         } else {
-          // non-interrupt error: impossible
-          exit_with_error();
+          exit_with_error(); // non-interrupt error: impossible
         }
       }
 
     }
+    // do not loop if we don't need the process to terminate
     else if(!wait_for_termination) {
-      // do not loop if we don't need the process to terminate
       state_unknown = false;
     }
   }
-  // Reset to old_mask
   restore(&old_mask);
   return 0;
 }
@@ -1381,10 +1368,6 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
   //Call Stanza entry
   stanza_entry(&init);
 
-  // TODO: cleanup?
-  //#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
-  //  free_processes();
-  //#endif
   //Heap and freespace are disposed by OS at process termination
   return 0;
 }
