@@ -722,25 +722,13 @@ static void cleanup_child (pid_t pid) {
   }
 }
 
-// is process p registered to this handler?
-static bool pid_is_registered (pid_t pid) {
-  volatile ProcessNode * curr = proc_head;
-  // Find matching Node
-  while(curr != NULL && curr->proc->pid != pid) {
-    curr = curr->next;
-  }
-  return (curr != NULL);
-}
-
 static bool dead_status (int st) {
   return WIFSIGNALED(st) || WIFEXITED(st);
 }
 
 // Update a process' status code
-// Precondition: SIGCHLD is blocked
 static void update_status (pid_t pid, int status) {
   volatile ProcessNode * curr = proc_head;
-  // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
     curr = curr->next;
   }
@@ -749,7 +737,6 @@ static void update_status (pid_t pid, int status) {
   } 
 }
 
-// Precondition: SIGCHLD is blocked
 static int wait_and_update (pid_t pid) {
   int status;
   if(waitpid(pid, &status, WNOHANG | WUNTRACED | WCONTINUED) > 0) {
@@ -760,23 +747,30 @@ static int wait_and_update (pid_t pid) {
   return 0;
 }
 
-// waitpid on all live process
-static void waitpid_all () {
+static void waitpid_all_registered () {
   volatile ProcessNode * curr = proc_head;
-  // Find matching Node
   while(curr != NULL) {
     wait_and_update(curr->proc->pid);
     curr = curr->next;
   }
 }
 
+static void waitpid_global () {
+  int status;
+  pid_t pid;
+  while((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
+    update_status(pid, status);
+    if(dead_status(status)) cleanup_child(pid);
+  }
+}
+
 void sigchld_handler(int sig) {
-  waitpid_all();
-  // TODO: check if I should run sigaction or sighandler
   if(!(oldact.sa_flags & SA_SIGINFO)) {
-    if(oldact.sa_handler != SIG_IGN && oldact.sa_handler != SIG_DFL) {
-      // TODO: why does this work without dereferencing pointer?
-      oldact.sa_handler(sig);
+    if(oldact.sa_handler != SIG_DFL) {
+      waitpid_all_registered(); // wait for all registered children
+      oldact.sa_handler(sig);   // defer to prior handler for unregistered pids
+    } else {                    // no existing handler: waitpid for any child
+      waitpid_global();
     }
   }
 }
@@ -949,7 +943,7 @@ stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error) {
 //}
 //#endif
 
-// block/unblock utilities
+// block SIGCHLD
 static sigset_t block () {
   sigset_t sigchld_mask, old_mask;
   sigemptyset(&sigchld_mask);
