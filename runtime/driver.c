@@ -653,6 +653,7 @@ typedef struct ProcessStatus {
 } ProcessStatus;
 
 // Linked list of live processes
+// TODO: volatility annotations
 volatile ProcessNode * volatile proc_head = NULL;
 struct sigaction oldact;
 
@@ -682,7 +683,7 @@ static int register_proc (
   *(child->status) = -1; // TODO: is this OK?
   child->auto_cleanup = auto_cleanup;
   // Store child in ProcessNode
-  volatile ProcessNode * volatile new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
+  volatile ProcessNode * new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
   if(new_node == NULL) return -1;
   new_node->proc = child;
   new_node->next = proc_head;
@@ -702,8 +703,8 @@ static int get_status (Process* process, int* status) {
 // Cleanup all resources for process pid
 static void cleanup_child (pid_t pid) {
 
-  volatile ProcessNode * volatile curr = proc_head; //find_child(pid);
-  volatile ProcessNode * volatile prev = NULL;
+  volatile ProcessNode * curr = proc_head;
+  volatile ProcessNode * prev = NULL;
   // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
     prev = curr;
@@ -723,7 +724,7 @@ static void cleanup_child (pid_t pid) {
 
 // is process p registered to this handler?
 static bool pid_is_registered (pid_t pid) {
-  volatile ProcessNode * volatile curr = proc_head;
+  volatile ProcessNode * curr = proc_head;
   // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
     curr = curr->next;
@@ -731,35 +732,52 @@ static bool pid_is_registered (pid_t pid) {
   return (curr != NULL);
 }
 
+static bool dead_status (int st) {
+  return WIFSIGNALED(st) || WIFEXITED(st);
+}
+
 // Update a process' status code
 // Precondition: SIGCHLD is blocked
 static void update_status (pid_t pid, int status) {
-  volatile ProcessNode * volatile curr = proc_head;
+  volatile ProcessNode * curr = proc_head;
   // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
     curr = curr->next;
   }
   if(curr != NULL) {
     *(curr->proc->status) = status;
-  } else {
-  }
+  } 
 }
 
 // Precondition: SIGCHLD is blocked
-int wait_and_update (pid_t pid) {
+static int wait_and_update (pid_t pid) {
   int status;
   if(waitpid(pid, &status, WNOHANG | WUNTRACED | WCONTINUED) > 0) {
     update_status(pid, status);
-    // TODO: cleanup if finished?
+    // remove metadata if dead
+    if(dead_status(status)) cleanup_child(pid);
   }
   return 0;
 }
 
-void sigchld_action(int sig, siginfo_t* info, void* ctx) {
-  if(pid_is_registered(info->si_pid)) {
-    wait_and_update(info->si_pid);
-  } else {
-    oldact.sa_sigaction(sig, info, ctx);
+// waitpid on all live process
+static void waitpid_all () {
+  volatile ProcessNode * curr = proc_head;
+  // Find matching Node
+  while(curr != NULL) {
+    wait_and_update(curr->proc->pid);
+    curr = curr->next;
+  }
+}
+
+void sigchld_handler(int sig) {
+  waitpid_all();
+  // TODO: check if I should run sigaction or sighandler
+  if(!(oldact.sa_flags & SA_SIGINFO)) {
+    if(oldact.sa_handler != SIG_IGN && oldact.sa_handler != SIG_DFL) {
+      // TODO: why does this work without dereferencing pointer?
+      oldact.sa_handler(sig);
+    }
   }
 }
 
@@ -771,9 +789,9 @@ void register_handler () {
     sigemptyset(&sigchld_mask);
     sigaddset(&sigchld_mask, SIGCHLD);
     struct sigaction sa = {
-      .sa_sigaction = sigchld_action,
+      .sa_handler = sigchld_handler,
       .sa_mask = sigchld_mask,
-      .sa_flags = SA_RESTART | SA_SIGINFO
+      .sa_flags = SA_RESTART
     };
     sigaction(SIGCHLD, &sa, &oldact);
   #endif
@@ -982,12 +1000,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   if(pid > 0) {
   
     // Block SIGCHLD until setup is finished
-    sigset_t old_mask = block(); //sigchld_mask, old_mask;
-    //sigemptyset(&sigchld_mask);
-    //sigaddset(&sigchld_mask, SIGCHLD);
-
-    //if(sigprocmask(SIG_BLOCK, &sigchld_mask, &old_mask))
-    //  exit_with_error();
+    sigset_t old_mask = block();
 
     //Read from error-code pipe
     int exec_code;
@@ -1025,7 +1038,6 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
       restore(&old_mask);
       // Unblock SIGCHLD
-      //if(sigprocmask(SIG_SETMASK, &old_mask, NULL)) exit_with_error();
       if(r < 0) return -1;
       return 0;
     } else if(exec_r == sizeof(int)) {
@@ -1190,7 +1202,6 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
   // Unblock SIGCHLD
   restore(&old_mask);
-  //if(sigprocmask(SIG_SETMASK, &old_mask, NULL)) exit_with_error();
   if(r < 0) return -1;
   return 0;
 }
@@ -1201,7 +1212,6 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
   // block SIGCHLD
   sigset_t old_mask = block();
-
   int status;
 
   bool state_unknown = true;
@@ -1221,7 +1231,7 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
     } else {
       return -1; // process not found
     }
-    if(wait_for_termination && !(WIFSIGNALED(status) || WIFEXITED(status))) {
+    if(wait_for_termination && !dead_status(status)) {
       // Allow SIGCHLD during sigsuspend
       sigset_t allow_sigchld;
       // This is overkill, but ensures SIGCHLD is allowed
@@ -1377,7 +1387,7 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
   //Call Stanza entry
   stanza_entry(&init);
 
-  // TODO: cleanup
+  // TODO: cleanup?
   //#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
   //  free_processes();
   //#endif
