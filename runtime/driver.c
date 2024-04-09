@@ -725,7 +725,7 @@ static void update_status (pid_t pid, int status) {
   }
   if(curr != NULL) {
     *(curr->proc->status) = status;
-  } 
+  }
 }
 
 static int wait_and_update (pid_t pid) {
@@ -942,7 +942,7 @@ static sigset_t block () {
 
   if(sigprocmask(SIG_BLOCK, &sigchld_mask, &old_mask))
     exit_with_error();
-  
+
   return old_mask;
 }
 
@@ -975,105 +975,71 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     if(pipe(pipes[i])) return -1;
   }
 
-  //Create error-code pipe
-  int READ = 0;
-  int WRITE = 1;
-  int exec_error[2];
-  if(pipe(exec_error) < 0) exit_with_error();
-
   // Fork child process
   stz_long pid = (stz_long)vfork();
 
   if(pid < 0) return -1;
   // Parent: if exec succeeded, open files, register with signal handler
   if(pid > 0) {
-  
+
     // Block SIGCHLD until setup is finished
     sigset_t old_mask = block();
 
-    //Read from error-code pipe
-    int exec_code;
-    close(exec_error[WRITE]);
-    int exec_r = read(exec_error[READ], &exec_code, sizeof(int));
-    close(exec_error[READ]);
-
-    if(exec_r == 0) {
-      FILE* fin = NULL;
-      if(pipe_sources[PROCESS_IN] >= 0) {
-        close(pipes[PROCESS_IN][0]);
-        fin = fdopen(pipes[PROCESS_IN][1], "w");
-        if(fin == NULL) return -1;
-      }
-      FILE* fout = NULL;
-      if(pipe_sources[PROCESS_OUT] >= 0) {
-        close(pipes[PROCESS_OUT][1]);
-        fout = fdopen(pipes[PROCESS_OUT][0], "r");
-        if(fout == NULL) return -1;
-      }
-      FILE* ferr = NULL;
-      if(pipe_sources[PROCESS_ERR] >= 0) {
-        close(pipes[PROCESS_ERR][1]);
-        ferr = fdopen(pipes[PROCESS_ERR][0], "r");
-        if(ferr == NULL) return -1;
-      }
-
-      process->pid = pid;
-      process->stz_proc_id = stz_proc_id;
-      process->in = fin;
-      process->out = fout;
-      process->err = ferr;
-
-      int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0);
-
-      restore(&old_mask);
-      // Unblock SIGCHLD
-      if(r < 0) return -1;
-      return 0;
-    } else if(exec_r == sizeof(int)) {
-      errno = exec_code;
-      return -1;
-    } else {
-      fprintf(stderr, "Unreachable code.");
-      exit(-1);
+    FILE* fin = NULL;
+    if(pipe_sources[PROCESS_IN] >= 0) {
+      close(pipes[PROCESS_IN][0]);
+      fin = fdopen(pipes[PROCESS_IN][1], "w");
+      if(fin == NULL) return -1;
     }
+    FILE* fout = NULL;
+    if(pipe_sources[PROCESS_OUT] >= 0) {
+      close(pipes[PROCESS_OUT][1]);
+      fout = fdopen(pipes[PROCESS_OUT][0], "r");
+      if(fout == NULL) return -1;
+    }
+    FILE* ferr = NULL;
+    if(pipe_sources[PROCESS_ERR] >= 0) {
+      close(pipes[PROCESS_ERR][1]);
+      ferr = fdopen(pipes[PROCESS_ERR][0], "r");
+      if(ferr == NULL) return -1;
+    }
+
+    process->pid = pid;
+    process->stz_proc_id = stz_proc_id;
+    process->in = fin;
+    process->out = fout;
+    process->err = ferr;
+
+    int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0);
+
+    // Unblock SIGCHLD
+    restore(&old_mask);
+    if(r < 0) return -1;
+    return 0;
   }
   // Child: setup pipes, exec
   else {
-    //Close exec pipe read, and close write end on successful exec
-    close(exec_error[READ]);
-    fcntl(exec_error[WRITE], F_SETFD, FD_CLOEXEC);
-
     //Setup input pipe if used
     if(pipe_sources[PROCESS_IN] >= 0) {
-      if(close(pipes[PROCESS_IN][1]) < 0)
-        write_error_and_exit(exec_error[WRITE]);
-      if(dup2(pipes[PROCESS_IN][0], STDIN_FILENO) < 0)
-        write_error_and_exit(exec_error[WRITE]);
-      if(close(pipes[PROCESS_IN][0]) < 0)
-        write_error_and_exit(exec_error[WRITE]);
+      if(close(pipes[PROCESS_IN][1]) < 0) exit(-1);
+      if(dup2(pipes[PROCESS_IN][0], STDIN_FILENO) < 0) exit(-1);
+      if(close(pipes[PROCESS_IN][0]) < 0) exit(-1);
     }
     //Setup output pipe if used
     if(pipe_sources[PROCESS_OUT] >= 0) {
-      if(close(pipes[PROCESS_OUT][0]) < 0)
-        write_error_and_exit(exec_error[WRITE]);
-      if(dup2(pipes[PROCESS_OUT][1], STDOUT_FILENO) < 0)
-        write_error_and_exit(exec_error[WRITE]);
-      if(close(pipes[PROCESS_OUT][1]) < 0)
-        write_error_and_exit(exec_error[WRITE]);
+      if(close(pipes[PROCESS_OUT][0]) < 0) exit(-1);
+      if(dup2(pipes[PROCESS_OUT][1], STDOUT_FILENO) < 0) exit(-1);
+      if(close(pipes[PROCESS_OUT][1]) < 0) exit(-1);
     }
     //Setup error pipe if used
     if(pipe_sources[PROCESS_ERR] >= 0) {
-      if(close(pipes[PROCESS_ERR][0]) < 0)
-        write_error_and_exit(exec_error[WRITE]);
-      if(dup2(pipes[PROCESS_ERR][1], STDERR_FILENO) < 0)
-        write_error_and_exit(exec_error[WRITE]);
-      if(close(pipes[PROCESS_ERR][1]) < 0)
-        write_error_and_exit(exec_error[WRITE]);
+      if(close(pipes[PROCESS_ERR][0]) < 0) exit(-1);
+      if(dup2(pipes[PROCESS_ERR][1], STDERR_FILENO) < 0) exit(-1);
+      if(close(pipes[PROCESS_ERR][1]) < 0) exit(-1);
     }
     //Setup working directory
     if(working_dir) {
-      if(chdir(C_CSTR(working_dir)) < 0)
-        write_error_and_exit(exec_error[WRITE]);
+      if(chdir(C_CSTR(working_dir)) < 0) exit(-1);
     }
 
     //Launch child process.
@@ -1082,7 +1048,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
       execvp(C_CSTR(file), (char**)argvs);
     else
       execvpe(C_CSTR(file), (char**)argvs, (char**)env_vars);
-    write_error_and_exit(exec_error[WRITE]);
+    exit(-1);
   }
   return 0;
 }
@@ -1222,7 +1188,7 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
       sigset_t allow_sigchld;
       sigfillset(&allow_sigchld);
       sigdelset(&allow_sigchld, SIGCHLD);
-  
+
       if(sigsuspend(&allow_sigchld) < 0) {
         if(errno == EINTR) {
           state_unknown = true;
