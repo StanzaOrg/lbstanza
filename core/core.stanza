@@ -10018,8 +10018,9 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
                          output:ref<StreamSpecifier>,
                          error:ref<StreamSpecifier>,
                          working-dir:ref<String|False>,
-                         env-vars:ref<Tuple<KeyValue<String,String>>|False>
-                         env-var-mode:ref<EnvVarMode>) -> ref<Process> :
+                         env-vars:ref<Tuple<KeyValue<String,String>>|False>,
+                         env-var-mode:ref<EnvVarMode>,
+                         placeholder-ignore:ref<True|False>) -> ref<Process> :
     ensure-valid-env-var-names!(env-vars)
     ensure-valid-stream-specifiers(input, output, error)
     val proc = new Process{0, null, -1, null, null, null, -1, false, false, false, false}
