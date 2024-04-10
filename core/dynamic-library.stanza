@@ -64,8 +64,7 @@ public lostanza defn name (dl:ref<DynamicLibrary>) -> ref<String> :
   public lostanza defn dynamic-library-open (name: ref<String>) -> ref<DynamicLibrary>:
     #if-defined(PLATFORM-OS-X) :
       val RTLD_NOW = 0x2
-      val RTLD_LOCAL = 0x4
-      val dlflags = RTLD_NOW | RTLD_LOCAL
+      val dlflags = RTLD_NOW
     #if-defined(PLATFORM-LINUX) :
       val RTLD_NOW = 0x2
       val RTLD_DEEPBIND = 0x8
