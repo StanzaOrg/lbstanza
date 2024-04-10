@@ -622,7 +622,6 @@ typedef struct ChildProcess {
   FILE* fout;
   FILE* ferr;
   int* status;
-  bool auto_cleanup;
 } ChildProcess;
 
 // Linked lists of process metadata
@@ -630,21 +629,6 @@ typedef struct ProcessNode {
   ChildProcess* proc;
   volatile struct ProcessNode * volatile next;
 } ProcessNode;
-
-
-// Free everything allocated by ChildProcess
-static void cleanup_proc (ChildProcess* c) {
-  // Close files
-  if(c->auto_cleanup) {
-    if(c->fin != NULL)
-      if(fclose(c->fin) == EOF) exit_with_error();
-    if(c->fout != NULL)
-      if(fclose(c->fout) == EOF) exit_with_error();
-    if(c->ferr != NULL)
-      if(fclose(c->ferr) == EOF) exit_with_error();
-  }
-  free(c);
-}
 
 // Process status struct
 typedef struct ProcessStatus {
@@ -667,8 +651,7 @@ static int register_proc (
     FILE* fin,
     FILE* fout,
     FILE* ferr,
-    int* status,
-    bool auto_cleanup) {
+    int* status) {
 
   // Init ChildProcess struct
   ChildProcess* child = (ChildProcess*)malloc(sizeof(ChildProcess));
@@ -680,7 +663,6 @@ static int register_proc (
   child->ferr = ferr;
   child->status = status;
   *(child->status) = -1;
-  child->auto_cleanup = auto_cleanup;
   // Store child in ProcessNode
   volatile ProcessNode * new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
   if(new_node == NULL) return -1;
@@ -693,7 +675,6 @@ static int register_proc (
 
 // Cleanup all resources for process pid
 static void cleanup_child (pid_t pid) {
-
   volatile ProcessNode * curr = proc_head;
   volatile ProcessNode * prev = NULL;
   // Find matching Node
@@ -708,8 +689,7 @@ static void cleanup_child (pid_t pid) {
     } else {
       prev->next = curr->next;
     }
-    // Cleanup resources
-    cleanup_proc(curr->proc);
+    free((void*) curr); // Cast to remove volatile qualifier and avoid warning
   }
 }
 
@@ -897,31 +877,6 @@ static void free_strings (stz_byte** ss){
 //---------------------- Launcher Main -----------------------
 //------------------------------------------------------------
 
-static void write_error_and_exit (int fd){
-  int code = errno;
-  write(fd, &code, sizeof(int));
-  close(fd);
-  exit(-1);
-}
-
-static int delete_process_pipe (FILE* fd) {
-  if (fd != NULL) {
-    int close_res = fclose(fd);
-    if (close_res == EOF) return -1;
-  }
-  return 0;
-}
-
-stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error) {
-  if (delete_process_pipe(input) < 0)
-    return -1;
-  if (delete_process_pipe(output) < 0)
-    return -1;
-  if (delete_process_pipe(error) < 0)
-    return -1;
-  return 0;
-}
-
 // Useful for testing linux implementation on OSX
 //#ifdef PLATFORM_OS_X
 //extern char **environ;
@@ -959,7 +914,7 @@ static int restore_and_err (sigset_t* old_mask) {
 #ifdef PLATFORM_LINUX
 //#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int stz_proc_id, stz_int cleanup_files,
+                       stz_int output, stz_int error, stz_int stz_proc_id,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
@@ -1010,7 +965,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     process->out = fout;
     process->err = ferr;
 
-    int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0);
+    int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status));
 
     // Unblock SIGCHLD
     restore(&old_mask);
@@ -1057,7 +1012,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
 #ifdef PLATFORM_OS_X
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int stz_proc_id, stz_int cleanup_files,
+                       stz_int output, stz_int error, stz_int stz_proc_id,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //block sigchld
   sigset_t old_mask = block();
@@ -1154,7 +1109,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   process->out = fout;
   process->err = ferr;
 
-  int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0);
+  int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status));
 
   // Unblock SIGCHLD
   restore(&old_mask);

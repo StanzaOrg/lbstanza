@@ -31,7 +31,7 @@ public defn package-manager-system () -> System :
       match(redirect-output:String) :
         val out = FileOutputStream(redirect-output)
         try :
-          val proc = Process(prog, args, STANDARD-IN, PROCESS-OUT, PROCESS-OUT, workdir, env-vars, cleanup-files = false)
+          val proc = Process(prog, args, STANDARD-IN, PROCESS-OUT, PROCESS-OUT, workdir, env-vars)
           val proc-out = output-stream(proc)
           let loop () :
             val c = get-char(proc-out)
