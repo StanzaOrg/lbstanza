@@ -6150,6 +6150,9 @@ public lostanza defn unset-env (name:ref<String>) -> ref<False> :
 public defstruct NoEnvVarError <: Exception :
   name: String
 
+defmethod print (o:OutputStream, e:NoEnvVarError) :
+  print(o, "No environment variable with name '%_' found" % [name(e)])
+
 public defstruct SetEnvException <: Exception :
   name: String
   value: String
