@@ -45,7 +45,7 @@ public defn PkgSaver (auxfile:AuxFile,
                       flags:Tuple<Symbol>,
                       debug?:True|False,
                       repl?:True|False,
-                      cache-dir:String|False) :
+                      cache-dir:String) :
 
   ;Table of PackageStamps for easy retrieval.
   val pkgstamp-table = to-hashtable(package, package-stamps)
@@ -99,7 +99,7 @@ public defn PkgSaver (auxfile:AuxFile,
     defmethod cache (this, pkg:Pkg) :
       if origin(pkg) != FromSource :
         fatal("Cannot cache a .pkg that did not originate from source file.")
-      val params = CacheParams(flags, cache-dir as String, repl?, debug?, pkg-source(pkg))
+      val params = CacheParams(flags, cache-dir, repl?, debug?, pkg-source(pkg))
       val filename = save-package-to-cache(params, pkg)
       val filestamp = filestamp(filename)
       save-aux-record(pkg, filestamp)
@@ -107,7 +107,7 @@ public defn PkgSaver (auxfile:AuxFile,
     ;Save the given pkg to the appropriate places.
     defmethod save-when-appropriate (this, pkg:Pkg) :
       ;Save to cache if pkg was compiled from source.
-      if cache-dir is String and origin(pkg) == FromSource :
+      if origin(pkg) == FromSource :
         cache(this, pkg)
       ;Save to pkgdir if pkg was not from explicit pkg.
       if dir is String and origin(pkg) != FromPkg :

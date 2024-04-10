@@ -83,7 +83,7 @@ public defmulti find-macro-build-target (l:ProjManager, filename:String) -> Symb
 public defmulti dynamic-libraries (l:ProjManager, packages:Tuple<Symbol>) -> RequiredLibraries
 
 ;Return the pkg cache directory if one is supplied.
-public defmulti pkg-cache-dir (l:ProjManager) -> String|False
+public defmulti pkg-cache-dir (l:ProjManager) -> String
 
 ;Represents the required libraries and folders for a set of Stanza packages.
 public defstruct RequiredLibraries :
@@ -140,15 +140,14 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile) :
   ;Unless the cache is explicitly disabled, the pkg-cache
   ;directory is found in the .proj file if one is given,
   ;or in the system installation folder by default.
-  val pkg-cache-dir =
-    if not disable-cache?(params) :
-      ; First priority: command-line arg
-      match(cache-dir(params):String) : cache-dir(params)
-      else :
-        ; Second priority: .proj file
-        match(pkg-cache-dir(proj):String) : pkg-cache-dir(proj)
-        ; Third priority: default system directory
-        else : system-filepath(StanzaPkgCacheDir)
+  val cache-dir:String =
+    ; First priority: command-line arg
+    match(cache-dir(params):String) : cache-dir(params) as String
+    else :
+      ; Second priority: .proj file
+      match(pkg-cache-dir(proj):String) : pkg-cache-dir(proj) as String
+      ; Third priority: default system directory
+      else : system-filepath(StanzaPkgCacheDir)
 
   ;Find the source file that contains the package.
   defn source-file? (name:Symbol) -> String|False :
@@ -174,8 +173,8 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile) :
     ;Load the pkg file for the package.
     ;Note: If there is no source file present, then we skip looking in the cache
     ;entirely.
-    val cache-params = match(pkg-cache-dir:String, src-path:String) :
-      CacheParams(flags(params), pkg-cache-dir, in-repl?(params), debug?(params), src-path)
+    val cache-params = match(src-path:String) :
+      CacheParams(flags(params), cache-dir, in-repl?(params), debug?(params), src-path)
     val pkg-file = find-pkg(name, optimize?(params), cache-params = cache-params)
 
     ;Determine whether the pkg is up-to-date and should be read from.
@@ -265,7 +264,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile) :
       ;Return bundled result
       RequiredLibraries(package-libs, folders)
 
-    defmethod pkg-cache-dir (this) : pkg-cache-dir
+    defmethod pkg-cache-dir (this) : cache-dir
 
 ;============================================================
 ;================ Pkg file Up-to-date =======================
@@ -277,7 +276,8 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile) :
 defn pkg-up-to-date? (params:ProjParams, auxfile:AuxFile,
                       name:Symbol, pkg-file:PkgFile, src-path:String) -> True|False :
 
-  if file-exists?(src-path) :
+  if build-from-source?(params) : false ; Always consider .pkg dirty
+  else if file-exists?(src-path) :
 
     vprintln("Check whether package %~ is up-to-date." % [name])
 
@@ -312,8 +312,8 @@ public defstruct ProjParams :
   optimize?: True|False
   debug?: True|False
   in-repl?: True|False
-  disable-cache? : True|False
-  cache-dir:String|False
+  build-from-source?: True|False
+  cache-dir: String|False
 
 ;============================================================
 ;===================== Package Tree =========================

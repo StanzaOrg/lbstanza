@@ -191,7 +191,7 @@ public defn compile (proj-manager:ProjManager,
 
     ;True if pkgs are written out, either to the pkg directory
     ;or to the cache directory.
-    val write-out-pkgs? = pkg-dir is String or pkg-cache-dir(proj-manager) is String
+    val write-out-pkgs? = pkg-dir is String
 
     ;Save optimized packages if necessary
     if write-out-pkgs? and optimize? :
