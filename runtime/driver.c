@@ -746,6 +746,8 @@ void sigchld_handler(int sig) {
   }
 }
 
+#endif
+
 // Register SIGCHLD handler
 void register_handler () {
   #if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
@@ -761,8 +763,6 @@ void register_handler () {
     sigaction(SIGCHLD, &sa, &oldact);
   #endif
 }
-
-#endif
 
 //------------------------------------------------------------
 //----------------------- Serialization ----------------------
