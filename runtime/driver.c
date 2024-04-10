@@ -689,7 +689,8 @@ static void cleanup_child (pid_t pid) {
     } else {
       prev->next = curr->next;
     }
-    free((void*) curr); // Cast to remove volatile qualifier and avoid warning
+    free(curr->proc);
+    //free((void*) curr); // Cast to remove volatile qualifier and avoid warning
   }
 }
 
