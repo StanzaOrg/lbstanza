@@ -5732,8 +5732,9 @@ public defn SymLinkError (target:String, linkpath:String, msg:String) :
 
 public defn copy-file (old-path:String, new-path:String) :
   val old-file = RandomAccessFile(old-path, false)
-  val new-file = RandomAccessFile(new-path, true)
+  val new-file = RandomAccessFile(new-path, true)  
   try :
+    set-length(new-file, 0L)
     val buffer = ByteArray(1042 * 1024)
     val end = length(old-file)
     while position(old-file) < end :
