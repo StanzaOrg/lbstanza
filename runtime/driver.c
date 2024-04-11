@@ -621,8 +621,7 @@ typedef struct ChildProcess {
   FILE* fin;
   FILE* fout;
   FILE* ferr;
-  int* status;
-  bool auto_cleanup;
+  stz_int* status;
 } ChildProcess;
 
 // Linked lists of process metadata
@@ -631,35 +630,12 @@ typedef struct ProcessNode {
   volatile struct ProcessNode * volatile next;
 } ProcessNode;
 
-
-// Free everything allocated by ChildProcess
-static void cleanup_proc (ChildProcess* c) {
-  // Close files
-  if(c->auto_cleanup) {
-    if(c->fin != NULL)
-      if(fclose(c->fin) == EOF) exit_with_error();
-    if(c->fout != NULL)
-      if(fclose(c->fout) == EOF) exit_with_error();
-    if(c->ferr != NULL)
-      if(fclose(c->ferr) == EOF) exit_with_error();
-  }
-  free(c);
-}
-
-// Process status struct
-typedef struct ProcessStatus {
-  stz_int stz_proc_id;
-  int* status;
-} ProcessStatus;
-
 // Linked list of live processes
 volatile ProcessNode * volatile proc_head = NULL;
 struct sigaction oldact;
 
-// flag to update process statuses
-sig_atomic_t proc_dirty = 0;
-
 // Record process metadata
+// Precondition: SIGCHLD is blocked
 static int register_proc (
     pid_t pid,
     stz_int stz_proc_id,
@@ -667,9 +643,12 @@ static int register_proc (
     FILE* fin,
     FILE* fout,
     FILE* ferr,
-    int* status,
-    bool auto_cleanup) {
+    ProcessStatus** status) {
 
+  // Init and save ProcessStatus struct
+  ProcessStatus* st = (ProcessStatus*)malloc(sizeof(ProcessStatus));
+  st->val = -1;
+  *status = st;
   // Init ChildProcess struct
   ChildProcess* child = (ChildProcess*)malloc(sizeof(ChildProcess));
   if(child == NULL) return -1;
@@ -678,11 +657,9 @@ static int register_proc (
   child->fin = fin;
   child->fout = fout;
   child->ferr = ferr;
-  child->status = status;
-  *(child->status) = -1;
-  child->auto_cleanup = auto_cleanup;
+  child->status = &(st->val);
   // Store child in ProcessNode
-  volatile ProcessNode * new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
+  volatile ProcessNode * volatile new_node = (ProcessNode*)malloc(sizeof(ProcessNode));
   if(new_node == NULL) return -1;
   new_node->proc = child;
   new_node->next = proc_head;
@@ -691,35 +668,36 @@ static int register_proc (
   return 0;
 }
 
+static bool dead_status (int st) {
+  return WIFSIGNALED(st) || WIFEXITED(st);
+}
+
 // Cleanup all resources for process pid
+// Precondition: SIGCHLD is blocked
 static void cleanup_child (pid_t pid) {
 
-  volatile ProcessNode * curr = proc_head;
-  volatile ProcessNode * prev = NULL;
+  volatile ProcessNode * volatile curr = proc_head;
+  volatile ProcessNode * volatile prev = NULL;
   // Find matching Node
   while(curr != NULL && curr->proc->pid != pid) {
     prev = curr;
     curr = curr->next;
   }
+  // Remove node from list of processes, free memory
   if(curr != NULL) {
-    // Remove node from list of alive processes
     if(prev == NULL) {
       proc_head = curr->next;
     } else {
       prev->next = curr->next;
     }
-    // Cleanup resources
-    cleanup_proc(curr->proc);
+    free((void*) curr);
   }
 }
 
-static bool dead_status (int st) {
-  return WIFSIGNALED(st) || WIFEXITED(st);
-}
-
 // Update a process' status code
+// Precondition: SIGCHLD is blocked
 static void update_status (pid_t pid, int status) {
-  volatile ProcessNode * curr = proc_head;
+  volatile ProcessNode * volatile curr = proc_head;
   while(curr != NULL && curr->proc->pid != pid) {
     curr = curr->next;
   }
@@ -728,6 +706,7 @@ static void update_status (pid_t pid, int status) {
   }
 }
 
+// Precondition: SIGCHLD is blocked
 static int wait_and_update (pid_t pid) {
   int status;
   if(waitpid(pid, &status, WNOHANG | WUNTRACED | WCONTINUED) > 0) {
@@ -738,14 +717,16 @@ static int wait_and_update (pid_t pid) {
   return 0;
 }
 
+// Precondition: SIGCHLD is blocked
 static void waitpid_all_registered () {
-  volatile ProcessNode * curr = proc_head;
+  volatile ProcessNode * volatile curr = proc_head;
   while(curr != NULL) {
     wait_and_update(curr->proc->pid);
     curr = curr->next;
   }
 }
 
+// Precondition: SIGCHLD is blocked
 static void waitpid_global () {
   int status;
   pid_t pid;
@@ -755,6 +736,7 @@ static void waitpid_global () {
   }
 }
 
+// Precondition: SIGCHLD is blocked
 void sigchld_handler(int sig) {
   if(!(oldact.sa_flags & SA_SIGINFO)) {
     if(oldact.sa_handler != SIG_DFL) {
@@ -897,31 +879,6 @@ static void free_strings (stz_byte** ss){
 //---------------------- Launcher Main -----------------------
 //------------------------------------------------------------
 
-static void write_error_and_exit (int fd){
-  int code = errno;
-  write(fd, &code, sizeof(int));
-  close(fd);
-  exit(-1);
-}
-
-static int delete_process_pipe (FILE* fd) {
-  if (fd != NULL) {
-    int close_res = fclose(fd);
-    if (close_res == EOF) return -1;
-  }
-  return 0;
-}
-
-stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error) {
-  if (delete_process_pipe(input) < 0)
-    return -1;
-  if (delete_process_pipe(output) < 0)
-    return -1;
-  if (delete_process_pipe(error) < 0)
-    return -1;
-  return 0;
-}
-
 // Useful for testing linux implementation on OSX
 //#ifdef PLATFORM_OS_X
 //extern char **environ;
@@ -950,16 +907,10 @@ static void restore (sigset_t* old_mask)  {
   if(sigprocmask(SIG_SETMASK, old_mask, NULL)) exit_with_error();
 }
 
-static int restore_and_err (sigset_t* old_mask) {
-  restore(old_mask);
-  return -1;
-}
-
-
 #ifdef PLATFORM_LINUX
 //#if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int stz_proc_id, stz_int cleanup_files,
+                       stz_int output, stz_int error, stz_int stz_proc_id,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Compute pipe sources:
   int pipe_sources[NUM_STREAM_SPECS];
@@ -1010,7 +961,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     process->out = fout;
     process->err = ferr;
 
-    int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0);
+    int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status));
 
     // Unblock SIGCHLD
     restore(&old_mask);
@@ -1057,7 +1008,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
 #ifdef PLATFORM_OS_X
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int stz_proc_id, stz_int cleanup_files,
+                       stz_int output, stz_int error, stz_int stz_proc_id,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //block sigchld
   sigset_t old_mask = block();
@@ -1072,7 +1023,10 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   //Generate array of pipes per-input-source
   int pipes[NUM_STREAM_SPECS][2];
   for(int i=0; i<NUM_STREAM_SPECS; i++) {
-    if(pipe(pipes[i])) restore_and_err(&old_mask);
+    if(pipe(pipes[i])) {
+      restore(&old_mask);
+      return -1;
+    }
   }
 
   //Setup file actions
@@ -1082,36 +1036,56 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   int posix_ret;
   //Setup input pipe if used
   if(pipe_sources[PROCESS_IN] >= 0) {
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][1])))
-      restore_and_err(&old_mask);
-    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_IN][0], STDIN_FILENO)))
-      restore_and_err(&old_mask);
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][0])))
-      restore_and_err(&old_mask);
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][1]))) {
+      restore(&old_mask);
+      return -1;
+    }
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_IN][0], STDIN_FILENO))) {
+      restore(&old_mask);
+      return -1;
+    }
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][0]))) {
+      restore(&old_mask);
+      return -1;
+    }
   }
   //Setup output pipe if used
   if(pipe_sources[PROCESS_OUT] >= 0) {
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][0])))
-      restore_and_err(&old_mask);
-    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDOUT_FILENO)))
-      restore_and_err(&old_mask);
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][1])))
-      restore_and_err(&old_mask);
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][0]))) {
+      restore(&old_mask);
+      return -1;
+    }
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDOUT_FILENO))) {
+      restore(&old_mask);
+      return -1;
+    }
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][1]))) {
+      restore(&old_mask);
+      return -1;
+    }
   }
   //Setup error pipe if used
   if(pipe_sources[PROCESS_ERR] >= 0) {
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][0])))
-      restore_and_err(&old_mask);
-    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDERR_FILENO)))
-      restore_and_err(&old_mask);
-    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][1])))
-      restore_and_err(&old_mask);
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][0]))) {
+      restore(&old_mask);
+      return -1;
+    }
+    if((posix_ret = posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDERR_FILENO))) {
+      restore(&old_mask);
+      return -1;
+    }
+    if((posix_ret = posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][1]))) {
+      restore(&old_mask);
+      return -1;
+    }
   }
 
   //Setup working directory
   if(working_dir) {
-    if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, C_CSTR(working_dir))))
-      restore_and_err(&old_mask);
+    if((posix_ret = posix_spawn_file_actions_addchdir_np(&actions, C_CSTR(working_dir)))) {
+      restore(&old_mask);
+      return -1;
+    }
   }
 
   // Spawn child process
@@ -1120,8 +1094,9 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   if((spawn_ret = posix_spawnp(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars)) == 0) {
     // success
   } else {
-    errno = spawn_ret; // might not want to do this manually?
-    restore_and_err(&old_mask);
+    errno = spawn_ret;
+    restore(&old_mask);
+    return -1;
   }
   // Cleanup
   posix_spawn_file_actions_destroy(&actions);
@@ -1132,20 +1107,28 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   if(pipe_sources[PROCESS_IN] >= 0) {
     close(pipes[PROCESS_IN][0]);
     fin = fdopen(pipes[PROCESS_IN][1], "w");
-    if(fin == NULL) return -1;
-      restore_and_err(&old_mask);
+    if(fin == NULL) {
+      restore(&old_mask);
+      return -1;
+    }
   }
   FILE* fout = NULL;
   if(pipe_sources[PROCESS_OUT] >= 0) {
     close(pipes[PROCESS_OUT][1]);
     fout = fdopen(pipes[PROCESS_OUT][0], "r");
-    if(fout == NULL) restore_and_err(&old_mask);
+    if(fout == NULL) {
+      restore(&old_mask);
+      return -1;
+    }
   }
   FILE* ferr = NULL;
   if(pipe_sources[PROCESS_ERR] >= 0) {
     close(pipes[PROCESS_ERR][1]);
     ferr = fdopen(pipes[PROCESS_ERR][0], "r");
-    if(ferr == NULL) restore_and_err(&old_mask);
+    if(ferr == NULL) {
+      restore(&old_mask);
+      return -1;
+    }
   }
 
   process->pid = pid;
@@ -1154,7 +1137,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   process->out = fout;
   process->err = ferr;
 
-  int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status), cleanup_files > 0);
+  int r = register_proc(pid, stz_proc_id, &pipes, fin, fout, ferr, &(process->status));
 
   // Unblock SIGCHLD
   restore(&old_mask);
@@ -1165,7 +1148,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
 
 
-int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
+stz_int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
   // block SIGCHLD
   sigset_t old_mask = block();
   int status;
@@ -1173,7 +1156,7 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
   bool state_unknown = true;
 
   while(state_unknown) {
-    status = process->status;
+    status = process->status->val;
     if(WIFEXITED(status))
       *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
     else if(WIFSIGNALED(status))
@@ -1184,7 +1167,7 @@ int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_
       *s = (ProcessState){PROCESS_RUNNING, 0};
     state_unknown = false;
     if(wait_for_termination && !dead_status(status)) {
-      // We allow SICHLD during sigsuspend
+      // We allow SIGCHLD during sigsuspend
       sigset_t allow_sigchld;
       sigfillset(&allow_sigchld);
       sigdelset(&allow_sigchld, SIGCHLD);

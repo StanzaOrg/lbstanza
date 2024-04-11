@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <stanza/types.h>
 
+// Process status struct
+typedef struct ProcessStatus {
+  stz_int val;
+} ProcessStatus;
+
 //Represents the Process, and the channels for
 //communicating with it.
 //- pid: The id of the process. 
@@ -15,10 +20,10 @@ typedef struct {
   stz_long pid;
   void* handle;
   stz_int stz_proc_id;
-  int status;
   FILE* in;
   FILE* out;
   FILE* err;
+  ProcessStatus* status;
 } Process;
 
 //Represents the state of the process.

@@ -85,8 +85,7 @@ protected extern stz_memory_resize: (ptr<?>, long, long) -> int
   protected extern launch_process: (ptr<byte>, int, int, int, ptr<byte>, ptr<byte>, ptr<?>) -> int
   protected extern close_process_handle: (ptr<byte>) -> int
 #else:
-  protected extern launch_process: (ptr<byte>, ptr<ptr<byte>>, int, int, int, int, int, ptr<byte>, ptr<ptr<byte>>, ptr<?>) -> int
-  protected extern delete_process_pipes: (ptr<?>, ptr<?>, ptr<?>) -> int
+  protected extern launch_process: (ptr<byte>, ptr<ptr<byte>>, int, int, int, int, ptr<byte>, ptr<ptr<byte>>, ptr<?>) -> int
 protected extern retrieve_process_state: (ptr<?>, ptr<?>, int) -> int
 
 
@@ -9926,7 +9925,7 @@ public lostanza deftype Process <: Unique :
   var input: ptr<?>
   var output: ptr<?>
   var error: ptr<?>
-  var status: int
+  var status: ptr<?>
   var input-stream: ref<False|FileOutputStream>
   var output-stream: ref<False|FileInputStream>
   var error-stream: ref<False|FileInputStream>
@@ -10019,11 +10018,10 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
                          error:ref<StreamSpecifier>,
                          working-dir:ref<String|False>,
                          env-vars:ref<Tuple<KeyValue<String,String>>|False>,
-                         env-var-mode:ref<EnvVarMode>,
-                         placeholder-ignore:ref<True|False>) -> ref<Process> :
+                         env-var-mode:ref<EnvVarMode>) -> ref<Process> :
     ensure-valid-env-var-names!(env-vars)
     ensure-valid-stream-specifiers(input, output, error)
-    val proc = new Process{0, null, -1, null, null, null, -1, false, false, false, false}
+    val proc = new Process{0, null, -1, null, null, null, null, false, false, false, false}
 
     ; Create a command line from the given filename and args (discarding the first argument).
     ; This is necessary because Windows' process API expects a command line (not a list of arguments).
@@ -10100,13 +10098,12 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
                          error:ref<StreamSpecifier>,
                          working-dir:ref<String|False>
                          env-vars:ref<Tuple<KeyValue<String,String>>|False>
-                         env-var-mode:ref<EnvVarMode>,
-                         cleanup-files:ref<True|False>) -> ref<Process> :
+                         env-var-mode:ref<EnvVarMode>) -> ref<Process> :
     ensure-valid-env-var-names!(env-vars)
     ensure-valid-stream-specifiers(input, output, error)
     val args = to-tuple(args0)
     val stz-proc-id = genid().value
-    val proc = new Process{0, null, stz-proc-id, null, null, null, -1, false, false, false, false}
+    val proc = new Process{0, null, stz-proc-id, null, null, null, null, false, false, false, false}
     val input_v = value(input).value
     val output_v = value(output).value
     val error_v = value(error).value
@@ -10128,7 +10125,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
 
     ;Launch the process
     val launch_succ = call-c clib/launch_process(addr!(filename.chars), argvs,
-      input_v, output_v, error_v, stz-proc-id, 0, working-dir-chars, env-var-string, addr!([proc]))
+      input_v, output_v, error_v, stz-proc-id, working-dir-chars, env-var-string, addr!([proc]))
 
     ;Free the memory created using malloc.
     free-linux-env-var-string(env-var-string)
@@ -10224,24 +10221,20 @@ public defn Process (filename:String,
                      output:StreamSpecifier,
                      error:StreamSpecifier,
                      working-dir:String|False,
-                     env-vars:Tuple<KeyValue<String,String>>|False
-                     -- cleanup-files:True|False = true) -> Process :
-  Process(filename, args, input, output, error, working-dir, env-vars, AddEnvVars, cleanup-files)
+                     env-vars:Tuple<KeyValue<String,String>>|False) -> Process :
+  Process(filename, args, input, output, error, working-dir, env-vars, AddEnvVars)
 
 ;Default working-dir is false. Default env-vars is false.
 public defn Process (filename:String, args:Seqable<String>,
-                     input:StreamSpecifier, output:StreamSpecifier, error:StreamSpecifier,
-                     -- cleanup-files:True|False = true) -> Process :
-  Process(filename, args, input, output, error, false, false, cleanup-files = cleanup-files)
+                     input:StreamSpecifier, output:StreamSpecifier, error:StreamSpecifier) -> Process :
+  Process(filename, args, input, output, error, false, false)
 
 public defn Process (filename:String, args:Seqable<String>,
-                     working-dir:String|False, env:Tuple<KeyValue<String,String>>|False,
-                     -- cleanup-files:True|False = true) -> Process :
-  Process(filename, args, STANDARD-IN, STANDARD-OUT, STANDARD-ERR, working-dir, env, cleanup-files = cleanup-files)
+                     working-dir:String|False, env:Tuple<KeyValue<String,String>>|False) -> Process :
+  Process(filename, args, STANDARD-IN, STANDARD-OUT, STANDARD-ERR, working-dir, env)
 
-public defn Process (filename:String, args:Seqable<String>,
-                     -- cleanup-files:True|False = true) :
-  Process(filename, args, STANDARD-IN, STANDARD-OUT, STANDARD-ERR, false, false, cleanup-files = cleanup-files)
+public defn Process (filename:String, args:Seqable<String>) :
+  Process(filename, args, STANDARD-IN, STANDARD-OUT, STANDARD-ERR, false, false)
 
 ;                            Stream API
 ;                            ==========
@@ -10280,12 +10273,6 @@ lostanza defn retrieve-state (p:ref<Process>, wait-for-termination?:ref<True|Fal
   val TERMINATED = 2
   val STOPPED = 3
 
-  #if-not-defined(PLATFORM-WINDOWS):
-    if (s.state == DONE) or (s.state == TERMINATED) :
-      val res = call-c clib/delete_process_pipes(p.input, p.output, p.error)
-      if res < 0 :
-        throw(SystemCallException(linux-error-msg()))
-
   ;Translation
   if s.state == RUNNING :
     return ProcessRunning()
@@ -10311,7 +10298,6 @@ public lostanza defn state (p:ref<Process>) -> ref<ProcessState> :
         ;ProcessRunning.
         (s:ref<ProcessRunning>) :
           return s
-        ; TODO: should we wait on stopped processes?
         (s:ref<ProcessStopped>) :
           return s
         ;If the process has finished, then save its terminating
@@ -10326,9 +10312,7 @@ public lostanza defn state (p:ref<Process>) -> ref<ProcessState> :
 
 public defn* wait (p:Process) -> ProcessState :
   val s = retrieve-state(p, true)
-  ; TODO: should we wait on stopped processes?
   match(s:ProcessRunning|ProcessStopped) : wait(p)
-  ;match(s:ProcessRunning) : wait(p)
   else : s
 
 
@@ -10338,7 +10322,7 @@ public defn call-system (filename:String,
                          args:Seqable<String>,
                          working-dir:String|False,
                          env-vars:Tuple<KeyValue<String,String>>|False) -> Int :
-  match(wait(Process(filename, args, working-dir, env-vars, cleanup-files = false))) :
+  match(wait(Process(filename, args, working-dir, env-vars))) :
     (s:ProcessDone) :
       value(s)
     (s) :
@@ -10368,7 +10352,7 @@ public defn call-system-and-get-output (file:String,
                                         working-dir:String|False,
                                         env-vars:Tuple<KeyValue<String,String>>|False) -> String :
   val buffer = StringBuffer()
-  val proc = Process(file, args, STANDARD-IN, PROCESS-OUT, PROCESS-OUT, working-dir, env-vars, cleanup-files = false)
+  val proc = Process(file, args, STANDARD-IN, PROCESS-OUT, PROCESS-OUT, working-dir, env-vars)
   val proc-out = output-stream(proc)
   let loop () :
     val c = get-char(proc-out)
