@@ -281,7 +281,7 @@ defmulti shutdown (repl:REPL) -> False
 
 public defn REPL (macro-plugins:Tuple<String>,
                   pkg-cache-dir:String|False,
-                  disable-cache?:True|False) :
+                  build-from-source?:True|False) :
   ;============================================================
   ;===================== REPL State ===========================
   ;============================================================
@@ -309,7 +309,7 @@ public defn REPL (macro-plugins:Tuple<String>,
   defn proj-manager () :
     within log-time(REPL-PROJ-MANAGER) :
       val proj = read-proj-files(proj-files, OUTPUT-PLATFORM, `dynamic, StandardProjEnv())
-      val params = ProjParams(compiler-flags, false, false, true, disable-cache?)
+      val params = ProjParams(compiler-flags, false, false, true, build-from-source?, pkg-cache-dir)
       ProjManager(proj, params, auxfile)
 
   add-all(proj-files, default-proj-files())
@@ -478,15 +478,13 @@ public defn REPL (macro-plugins:Tuple<String>,
     within log-time(REPL-LOWERING-AND-COMPILATION) :
     
       ;Create the PkgSaver to cache pkg files when appropriate.
-      val cache-dir = match(pkg-cache-dir:String) : pkg-cache-dir
-                      else : /pkg-cache-dir(proj-manager)
       val pkgsaver = PkgSaver(auxfile,
                               pkgstamps(result),
                               false,
                               compiler-flags,
                               false,
                               true,
-                              cache-dir)
+                              /pkg-cache-dir(proj-manager))
 
       ;Compile the EPackages into VMPackages.
       val vmpackages = for p in packages(result) map :
@@ -506,8 +504,7 @@ public defn REPL (macro-plugins:Tuple<String>,
             vprintln("REPL: Skipping VMPackage compilation of %_. Loaded directly from .pkg." % [name(p)])
             vmp(p)
 
-      ;Save the auxiliary file if caching is enabled.
-      save(auxfile) when cache-dir is String
+      save(auxfile)
 
       ;Return the compiled VMPackages.
       vmpackages
@@ -1008,8 +1005,8 @@ public defn repl (args:Tuple<String>,
                   style:TerminalStyle,
                   macro-plugins:Tuple<String>,
                   pkg-cache-dir:String|False,
-                  disable-cache?:True|False) :
-  val repl = REPL(macro-plugins, pkg-cache-dir, disable-cache?)
+                  build-from-source?:True|False) :
+  val repl = REPL(macro-plugins, pkg-cache-dir, build-from-source?)
 
   ;Create a LoadExp expression out of the command line
   ;arguments. And execute them in the REPL.
@@ -1069,9 +1066,9 @@ public defn repl () :
 public defn run-in-repl (args:Tuple<String>,
                          macro-plugins:Tuple<String>,
                          pkg-cache-dir:String|False,
-                         disable-cache?:True|False) :
+                         build-from-source?:True|False) :
   val repl = within log-time(REPL-CREATION) :
-    REPL(macro-plugins, pkg-cache-dir, disable-cache?)
+    REPL(macro-plugins, pkg-cache-dir, build-from-source?)
   try:
     within log-time(REPL-EXP-EVALUATION) :
       eval-exp(repl, make-load-exp(args, false))

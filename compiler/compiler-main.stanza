@@ -180,19 +180,18 @@ public defn compile (proj-manager:ProjManager,
       defmethod verbose? (this) : verbose?
       defmethod macroexpander (this) : macroexpander
 
-    ;Create pkg saver for saving output .pgk files.
-    val cache-dir = pkg-cache-dir(proj-manager)
+    ;Create pkg saver for saving output .pkg files.
     val pkgsaver = PkgSaver(auxfile,
                             pkgstamps(result),
                             pkg-dir,
                             flags,
                             debug?,
                             false,
-                            cache-dir)
-    
+                            pkg-cache-dir(proj-manager))
+
     ;True if pkgs are written out, either to the pkg directory
     ;or to the cache directory.
-    val write-out-pkgs? = pkg-dir is String or cache-dir is String    
+    val write-out-pkgs? = pkg-dir is String
 
     ;Save optimized packages if necessary
     if write-out-pkgs? and optimize? :
@@ -249,7 +248,7 @@ public defn compile (proj-manager:ProjManager,
     compile(lower-optimized(epackages), debug?)
 
   ;- pkgsaver: False if we not need to write out any .pkg files to disk (either
-  ;  to pkg dir or to pkg cache.). 
+  ;  to pkg dir or to pkg cache.).
   defn compile-vmpackages (pkgsaver:PkgSaver|False,
                            packages:Tuple<VMPackage|StdPkg>,
                            bindings:Bindings|False,

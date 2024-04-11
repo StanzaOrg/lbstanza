@@ -8,7 +8,7 @@ defpackage stz/compiler-build-settings :
 
 ;Represents the full set of input options for starting
 ;a Stanza compilation job.
-;- disable-cache?: If true, then the compilation should
+;- build-from-source?: If true, then the compilation should
 ;  avoid loading packages from .pkg files as much as possible.
 public defstruct BuildSettings :
   inputs: BuildInputs with: (updater => sub-inputs)
@@ -19,7 +19,7 @@ public defstruct BuildSettings :
   external-dependencies: String|False
   pkg-dir: String|False
   pkg-cache-dir: String|False with: (updater => sub-pkg-cache-dir)
-  disable-cache?: True|False
+  build-from-source?: True|False
   optimize?: True|False
   debug?: True|False
   ccfiles: Tuple<String>
