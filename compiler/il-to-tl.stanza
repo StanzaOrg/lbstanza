@@ -169,11 +169,12 @@ defn to-imported-package (i:IImport) -> ImportedPackage :
 ;The imported/exported entries will be populated
 ;after type inference.
 defn to-packageio (ipackage:IPackage) -> PackageIO :
+  val direct-imports = to-tuple(seq(package, imports(ipackage)))
   val imports = to-tuple(seq(to-imported-package, imports(ipackage)))
   val doc? = match(documentation?(ipackage)) :
     (d:IDoc) : value(string(d) as ILiteral) as String
     (f:False) : false
-  PackageIO(name(ipackage), imports, [], [], doc?)
+  PackageIO(name(ipackage), imports, forwarded-imports(ipackage), direct-imports, [], [], doc?)
 
 ;============================================================
 ;=============== Conversion Functions =======================

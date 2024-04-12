@@ -540,11 +540,12 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
     val resolved = resolve-packages(package-names, errorlist)
     val new-inputs = HashTable<Symbol,PackageInFile>()
     for e in errorlist do :
-      match(e:MissingType) :
+      match(e:MissingType|MissingForwardedPackage) :
         match(source-file?(src-package(e))) :
           (file:String) : new-inputs[src-package(e)] = PackageInFile(src-package(e), file)
           (file:False) : throw(FrontEndErrors(errorlist))
-      else : throw(FrontEndErrors(errorlist))
+      else :
+        throw(FrontEndErrors(errorlist))
     [resolved, to-tuple(values(new-inputs))]
 
   defn resolve-packages! (package-names:Tuple<Symbol>) -> ResolverResult :

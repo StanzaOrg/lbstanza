@@ -10,10 +10,17 @@ defpackage stz/il-ir :
 ;General Multis for IExp
 public defmulti info (e:IExp) -> False|AbsoluteFileInfo
 
+;- imports: Corresponds one-to-one with the user's 'import' statements
+;  nested under 'defpackage'. 
+;- forwarded-imports: If package A imports B, and B forwards C,
+;  then we say that C is imported into A via forwarding (assuming
+;  that C is not already directly imported into A).
+;  This field stores all packages that are imported via forwarding.
 public defstruct IPackage :
   name: Symbol
   documentation?: IDoc|False
   imports: Tuple<IImport> with: (updater => sub-imports)
+  forwarded-imports: Tuple<Symbol> with: (updater => sub-forwarded-imports)
   exps: List<IExp> with: (updater => sub-exps)
   info: AbsoluteFileInfo|False
   namemap: NameMap with: (default => void, updater => sub-namemap)

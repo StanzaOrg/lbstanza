@@ -1309,6 +1309,8 @@ defn analyze-imports (p:EPackage, export-table:ExportTable, transient-package?:T
     add-all(pset, seq(ImportedPackage{package(id(rec(_)))}, new-imports))
   val io* = PackageIO(name(p),
                       new-imported-packages,
+                      forwarded-imports(io)
+                      direct-imports(io),
                       to-tuple(new-imports),
                       exports(io),
                       documentation?(io))
