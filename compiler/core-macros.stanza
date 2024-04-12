@@ -1297,12 +1297,17 @@ defsyntax core :
      
    ;Represents the entire defn header.
    defproduction defnheader:DefnHeader
-   defrule defnheader = ((?args:#fnargbinding! ...) ?a2:#return-type?) :
+   defrule defnheader = ((#do? ?args:#fnargbinding! ...) ?a2:#return-type?) :
      DefnHeader(closest-info(), to-tuple(args), a2)
+
+   ;Represents an optional @do so that users can optionally
+   ;omit the space.
+   defproduction do?: False
+   defrule do? = (@do) : false
+   defrule do? = () : false
 
    ;Error production
    defproduction defnheader!:DefnHeader
-   fail-if defnheader! = ((@do _ ...)) : CSE(closest-info(), BAD-ARGLIST-MSG)
    defrule defnheader! = (?x:#defnheader)
    fail-if defnheader! = () : CSE(closest-info(), "Invalid syntax for function arguments.")
 
@@ -1332,12 +1337,11 @@ defsyntax core :
      
    ;Represents the entire defn header.
    defproduction lsdefnheader:DefnHeader
-   defrule lsdefnheader = ((?args:#lsfnargbinding! ...) #->! ?a2:#ls-type!) :
+   defrule lsdefnheader = ((#do? ?args:#lsfnargbinding! ...) #->! ?a2:#ls-type!) :
      DefnHeader(closest-info(), to-tuple(args), One(a2))
 
    ;Error production
    defproduction lsdefnheader!:DefnHeader
-   fail-if lsdefnheader! = ((@do _ ...)) : CSE(closest-info(), BAD-ARGLIST-MSG)
    defrule lsdefnheader! = (?x:#lsdefnheader)
    fail-if lsdefnheader! = () : CSE(closest-info(), "Invalid syntax for function arguments.")
    
@@ -1363,13 +1367,11 @@ defsyntax core :
    defrule arglist = ((?xs:#argbinding ...)) : [map(key, xs), map(value, xs)]
 
    defproduction fnheader! : [List List ?]
-   fail-if fnheader! = ((@do _ ...)) : 
-      CSE(closest-info(), BAD-ARGLIST-MSG)
-   defrule fnheader! = (?args:#arglist -> ?a2:#type!) :
-      val [xs, a1] = args
+   defrule fnheader! = ((#do? ?args:#argbinding ...) -> ?a2:#type!) :
+      val [xs, a1] = [map(key, args), map(value, args)]
       [xs, a1, a2]
-   defrule fnheader! = (?args:#arglist) :
-      val [xs, a1] = args
+   defrule fnheader! = ((#do? ?args:#argbinding ...)) :
+      val [xs, a1] = [map(key, args), map(value, args)]
       [xs, a1, `($none)]
    fail-if fnheader! = () :
       CSE(closest-info(), "Expected argument list here.")
@@ -2936,6 +2938,5 @@ defsyntax core :
 
 
 ;============== Error Messages ============================
-val BAD-ARGLIST-MSG = "Incorrect syntax for argument list. Did you forget to put a space between the function name and the argument list?"
 val BAD-MATCH-MSG = "Incorrect syntax for match expression. Is there an extra space between match and the argument list?"
 val BAD-FOR-MSG = "Missing operating function in for expression. Did you forget to put a do after the bindings?"
