@@ -1761,10 +1761,12 @@ defsyntax core :
    defproduction in-bindings! : List<KeyValue>
    defrule in-bindings! = ((?b0:#in-binding ?bn:#in-binding! ...)) : cons(b0, bn)
    defrule in-bindings! = (?b:#in-binding!) : List(b)
+
+   defproduction operator-exp!
+   defrule operator-exp! = (:) : `core/do
+   defrule operator-exp! = (?f:#exp! #:!) : f
    
-   fail-if exp4 = (for #in-binding :) :
-      CSE(closest-info(), BAD-FOR-MSG)         
-   defrule exp4 = (for ?bs:#in-bindings! ?f:#exp! #:! ?body:#exp!) :
+   defrule exp4 = (for ?bs:#in-bindings! ?f:#operator-exp! ?body:#exp!) :
       val template = `(f(fn xs : body, ys))
       parse-syntax[core / #exp](
          fill-template(template, [
@@ -2939,4 +2941,3 @@ defsyntax core :
 
 ;============== Error Messages ============================
 val BAD-MATCH-MSG = "Incorrect syntax for match expression. Is there an extra space between match and the argument list?"
-val BAD-FOR-MSG = "Missing operating function in for expression. Did you forget to put a do after the bindings?"
