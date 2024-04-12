@@ -70,9 +70,6 @@ with:
          IVisibility :
             exp: IExp
             visibility: Visibility
-         ILoadPackage :
-            filename: String
-            pkg: ? ;TGPackage|KPackage
 
          ;=== Doc Form ===
          IDoc :
@@ -407,8 +404,6 @@ with:
                (v:Public) : "$public"
                (v:Protected) : "$protected"
                (v:Private) : "$private"}
-      ILoadPackage :
-         ($loadpackage filename pkg)
 
       IDoc :
          ($doc string)
@@ -602,7 +597,6 @@ with:
 public defn name! (e:IExp) -> Symbol :
    match(e) :
       (e:IVar|LetPackage) : name(e)
-      (e:ILoadPackage) : name(pkg(e))
       (e:IDefType) : name!(class(e))
       (e:IDefPackage|IDefChild|IDef|IDefVar|IDefn|IDefmulti|
          ISet|ICap|ILSField|ILSTagof|ILSLabeledBlock|
