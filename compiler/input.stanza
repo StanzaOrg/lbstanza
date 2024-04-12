@@ -522,7 +522,6 @@ defn to-iimport (e:IImportExp) -> IImport :
          IDefPackage:
             {name:v imports:(imp ...)}
             custom{ensure-unique-imports(e)}
-         ILoadPackage: ()
          IBegin: {exps:(pe ...)}
          + te
 
