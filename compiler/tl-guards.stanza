@@ -248,17 +248,15 @@ defmethod guard! (item:TLItem, phase:SolvedTL) -> False :
 
     (item:TDo) :
       guard-subitems!()
-      do(ensure-exp-ctxt!{type(_)}, args(item))
-      
-      if ctxt(func(item)) is-not CallCtxt :
-        fatal("Function is expected to have CallCtxt.")
+      match(ctxt(func(item))) :
+        (fctxt:CallCtxt) : do(ensure-type!, check-args(fctxt))
+        (fctxt) : fatal("Function is expected to have CallCtxt.")
 
     (item:LSDo|LSCallC) :
       guard-subitems!()
-      do(ensure-exp-ctxt!{type(_)}, args(item))
-
-      if ctxt(func(item)) is-not LSCallCtxt :
-        fatal("Function is expected to have CallCtxt.")
+      match(ctxt(func(item))) :
+        (fctxt:LSCallCtxt) : do(ensure-type!, check-args(fctxt))
+        (fctxt) : fatal("Function is expected to have CallCtxt.")        
 
     (item:LSNew) :
       guard-subitems!()
@@ -291,14 +289,6 @@ defmethod guard! (item:TLItem, phase:SolvedTL) -> False :
         
     (item) :
       guard-subitems!()
-
-;Ensure expression is in expression context.
-defn ensure-exp-ctxt! (e:TExp) :
-  if ctxt(e) is-not ExpCtxt :
-    fatal("Expression expected to have LSExpCtxt.")
-  val type = expected(ctxt(e) as ExpCtxt)
-  if not resolved-type?(type) :
-    fatal("Context does not have resolved type.")
 
 ;Ensure expression is in expression context.
 defn ensure-exp-ctxt! (e:LSExp) :
