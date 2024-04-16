@@ -10021,7 +10021,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
                          env-var-mode:ref<EnvVarMode>) -> ref<Process> :
     ensure-valid-env-var-names!(env-vars)
     ensure-valid-stream-specifiers(input, output, error)
-    val proc = new Process{0, null, -1, null, null, null, null, false, false, false, false}
+    val proc = new Process{0, null, null, null, null, null, false, false, false, false}
 
     ; Create a command line from the given filename and args (discarding the first argument).
     ; This is necessary because Windows' process API expects a command line (not a list of arguments).
