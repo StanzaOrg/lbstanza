@@ -319,26 +319,24 @@ stz_int retrieve_process_state (Process* process,
 //  return rc;
 //}
 
-stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, 
+stz_int launch_process(stz_byte* file, stz_byte** argvs,
+                       stz_int input, stz_int output, stz_int error, 
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //block sigchld
   sigset_t old_signal_mask = block_sigchild();
   
-  //Compute pipe sources. Examples of entries:
-  //  pipe_sources[PROCESS_IN] = 0, indicates that
-  //  the input pipe to the process is served by POSIX file descriptor 0 (stdin).
-  //  pipe_sources[PROCESS_IN] = -1, indicates that
-  //  no input pipe to the process should be created.
-  //  pipe_sources[STANDARD_ERR] = 1, indicates that
-  //  the process standard error stream should be served by POSIX file descriptor 1 (stdout),
-  //  which means child writes to its error stream should automatically go to stdout.
-  int pipe_sources[NUM_STREAM_SPECS];
+  //Compute which pipes to create for the process.
+  //has_pipes[PROCESS_IN] = 1, indicates that a process input pipe
+  //needs to be created.
+  int has_pipes[NUM_STREAM_SPECS];
   for(int i=0; i<NUM_STREAM_SPECS; i++)
-    pipe_sources[i] = -1;
-  pipe_sources[input] = STDIN_FILENO;
-  pipe_sources[output] = STDOUT_FILENO;
-  pipe_sources[error] = STDERR_FILENO;
+    has_pipes[i] = 0;
+  has_pipes[input] = 1;
+  has_pipes[output] = 1;
+  has_pipes[error] = 1;
+  has_pipes[STANDARD_IN] = 0;
+  has_pipes[STANDARD_OUT] = 0;
+  has_pipes[STANDARD_ERR] = 0;
 
   //Setup file actions.
   //Will be deleted on clean up.
@@ -347,64 +345,44 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
   //Generate pipes for PROCESS_IN, PROCESS_OUT, PROCESS_ERR.
   int pipes[NUM_STREAM_SPECS][2];
-  int process_io[] = {PROCESS_IN, PROCESS_OUT, PROCESS_ERR};
-  for(int i=0; i<3; i++)
-    if(pipe_sources[process_io[i]] >= 0)
-      if(pipe(pipes[process_io[i]]))
-        goto return_error;
+  for(int i=0; i<NUM_STREAM_SPECS; i++)
+    if(has_pipes[i])
+      if(pipe(pipes[i])) goto return_error;
 
-  //Redirect stdout if necessary.
-  {
-    int i = STANDARD_OUT;
-    if(pipe_sources[i] >= 0 && pipe_sources[i] != STDOUT_FILENO){
-      if(posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, pipe_sources[i]))
-        goto return_error;    
-    }
+  //Connect process input pipe if necessary.
+  if(has_pipes[PROCESS_IN]){
+    if(posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][1]))
+      goto return_error;
+    if(posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_IN][0], STDIN_FILENO))
+      goto return_error;
+    if(posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_IN][0]))
+      goto return_error;
   }
-  //Redirect stderr if necessary.
-  {
-    int i = STANDARD_ERR;
-    if(pipe_sources[i] >= 0 && pipe_sources[i] != STDERR_FILENO){
-      if(posix_spawn_file_actions_adddup2(&actions, STDERR_FILENO, pipe_sources[i]))
-        goto return_error;    
-    }
+  //Connect process output pipe if necessary.
+  if(has_pipes[PROCESS_OUT]){
+    if(posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][0]))
+      goto return_error;
+    if(output == PROCESS_OUT)
+      if(posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDOUT_FILENO))
+        goto return_error;
+    if(error == PROCESS_OUT)
+      if(posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDERR_FILENO))
+        goto return_error;      
+    if(posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][1]))
+      goto return_error;    
   }
-
-  //Redirect stdin to process input pipe if necessary.
-  {
-    int i = PROCESS_IN;
-    if(pipe_sources[i] >= 0) {
-      if(posix_spawn_file_actions_addclose(&actions, pipes[i][1]))
+  //Connect process error pipe if necessary.
+  if(has_pipes[PROCESS_ERR]){
+    if(posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][0]))
+      goto return_error;
+    if(error == PROCESS_ERR)
+      if(posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDERR_FILENO))
         goto return_error;
-      if(posix_spawn_file_actions_adddup2(&actions, pipes[i][0], pipe_sources[i]))
+    if(output == PROCESS_ERR)
+      if(posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDOUT_FILENO))
         goto return_error;
-      if(posix_spawn_file_actions_addclose(&actions, pipes[i][0]))
-        goto return_error;
-    }
-  }
-
-  //Redirect stdout/stderr to process output pipe if necessary.
-  {
-    int i = PROCESS_OUT;
-    if(pipe_sources[i] >= 0) {
-      if(posix_spawn_file_actions_addclose(&actions, pipes[i][0]))
-        goto return_error;
-      if(posix_spawn_file_actions_adddup2(&actions, pipes[i][1], pipe_sources[i]))
-        goto return_error;
-      if(posix_spawn_file_actions_addclose(&actions, pipes[i][1]))
-        goto return_error;
-    }
-  }
-  {
-    int i = PROCESS_ERR;
-    if(pipe_sources[i] >= 0) {
-      if(posix_spawn_file_actions_addclose(&actions, pipes[i][0]))
-        goto return_error;
-      if(posix_spawn_file_actions_adddup2(&actions, pipes[i][1], pipe_sources[i]))
-        goto return_error;
-      if(posix_spawn_file_actions_addclose(&actions, pipes[i][1]))
-        goto return_error;
-    }
+    if(posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][1]))
+      goto return_error;        
   }
 
   //Setup working directory
@@ -415,24 +393,27 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
   //Spawn the child process.
   pid_t pid = -1;
-  if(posix_spawnp(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars))
+  int spawn_ret = posix_spawnp(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars);
+  if(spawn_ret){
+    errno = spawn_ret;
     goto return_error;
+  }
 
   //Set up the pipes in the parent process.
   FILE* fin = NULL;
-  if(pipe_sources[PROCESS_IN] >= 0) {
+  if(has_pipes[PROCESS_IN]) {
     close(pipes[PROCESS_IN][0]);
     fin = fdopen(pipes[PROCESS_IN][1], "w");
     if(fin == NULL) goto return_error;
   }
   FILE* fout = NULL;
-  if(pipe_sources[PROCESS_OUT] >= 0) {
+  if(has_pipes[PROCESS_OUT]) {
     close(pipes[PROCESS_OUT][1]);
     fout = fdopen(pipes[PROCESS_OUT][0], "r");
     if(fout == NULL) goto return_error;
   }
   FILE* ferr = NULL;
-  if(pipe_sources[PROCESS_ERR] >= 0) {
+  if(has_pipes[PROCESS_ERR]) {
     close(pipes[PROCESS_ERR][1]);
     ferr = fdopen(pipes[PROCESS_ERR][0], "r");
     if(ferr == NULL) goto return_error;
