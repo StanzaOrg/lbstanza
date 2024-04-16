@@ -50,7 +50,8 @@ static ChildProcess* get_child_process (pid_t pid){
   volatile ChildProcessList * volatile curr = child_processes;
   while(curr != NULL && curr->proc->pid != pid)
     curr = curr->next;
-  return curr->proc;
+  if(curr == NULL) return NULL;
+  else return curr->proc;
 }
 
 // Remove the ChildProcess with the given process id from the
