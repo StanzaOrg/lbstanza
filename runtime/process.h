@@ -14,7 +14,6 @@ typedef struct ProcessStatus {
 //communicating with it.
 //- pid: The id of the process. 
 //- handle: The Windows handle to the process. Not used by other platforms.
-//- stz_proc_id: A unique integer for identifying this process.
 //- in: The standard input stream of the Process.
 //- out: The standard output stream of the Process.
 //- err: The standard error stream of the Process.
@@ -22,7 +21,6 @@ typedef struct ProcessStatus {
 typedef struct {
   stz_long pid;
   void* handle;
-  stz_int stz_proc_id;
   FILE* in;
   FILE* out;
   FILE* err;

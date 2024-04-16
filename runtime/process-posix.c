@@ -10,14 +10,12 @@
 
 // Holds all metadata for a spawned child process.
 // - pid: The process id of the child process itself. 
-// - stz_proc_id: A unique id for identifying this spawned child.
 // - fin/fout/ferr: The stdin/stdout/stderr streams for communicating with the child.
 //   NULL if child uses stdin/stdout/stderr directly.
 // - status: Pointer to location to write status code when child is terminated.
 //   Used by signal handler.
 typedef struct ChildProcess {
   pid_t pid;
-  stz_int stz_proc_id;
   FILE* fin;
   FILE* fout;
   FILE* ferr;
@@ -89,7 +87,6 @@ static void remove_child_process (pid_t pid) {
 //   is written to the provided pointer.
 static void register_child_process (
               pid_t pid,
-              stz_int stz_proc_id,
               FILE* fin,
               FILE* fout,
               FILE* ferr,
@@ -103,7 +100,6 @@ static void register_child_process (
   // Initialize ChildProcess struct.
   ChildProcess* child = (ChildProcess*)malloc(sizeof(ChildProcess));
   child->pid = pid;
-  child->stz_proc_id = stz_proc_id;
   child->fin = fin;
   child->fout = fout;
   child->ferr = ferr;
@@ -315,7 +311,7 @@ stz_int retrieve_process_state (Process* process,
 //}
 
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int stz_proc_id,
+                       stz_int output, stz_int error, 
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //block sigchld
   sigset_t old_signal_mask = block_sigchild();
@@ -438,14 +434,13 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
   //Store the process details in the process structure.
   process->pid = pid;
-  process->stz_proc_id = stz_proc_id;
   process->in = fin;
   process->out = fout;
   process->err = ferr;
 
   //Register the child process so that it is automatically
   //reaped by the autoreap handler.
-  register_child_process(pid, stz_proc_id, fin, fout, ferr, &(process->status));
+  register_child_process(pid, fin, fout, ferr, &(process->status));
 
   //Process spawn was successful.
   goto return_success;
@@ -473,7 +468,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 #ifdef PLATFORM_LINUX
 
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int stz_proc_id,
+                       stz_int output, stz_int error, 
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   
   //Compute pipe sources. Examples of entries:
@@ -531,14 +526,13 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
     //Store the process details in the process structure.
     process->pid = pid;
-    process->stz_proc_id = stz_proc_id;
     process->in = fin;
     process->out = fout;
     process->err = ferr;
 
     //Register the child process so that it is automatically
     //repeated by the autoreap handler.
-    register_child_process(pid, stz_proc_id, fin, fout, ferr, &(process->status));
+    register_child_process(pid, fin, fout, ferr, &(process->status));
 
     //Perform cleanup and return -1 to indicate error.
     return_error: {
