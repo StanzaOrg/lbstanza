@@ -155,7 +155,7 @@ static void update_all_child_statuses () {
     //NOTE: curr->next is retrieved preemptively because
     //update_child_status may call free() on curr, and make
     //curr->next inaccessible.
-    ChildProcessList* next = curr->next;
+    volatile ChildProcessList* next = curr->next;
     update_child_status(curr->proc->pid);
     curr = next;
   }
@@ -458,28 +458,24 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
                        stz_int output, stz_int error, 
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   
-  //Compute pipe sources. Examples of entries:
-  //  pipe_sources[PROCESS_IN] = 0, indicates that
-  //  the input pipe to the process is served by POSIX file descriptor 0 (stdin).
-  //  pipe_sources[PROCESS_IN] = -1, indicates that
-  //  no input pipe to the process should be created.
-  //  pipe_sources[STANDARD_ERR] = 1, indicates that
-  //  the process standard error stream should be served by POSIX file descriptor 1 (stdout),
-  //  which means child writes to its error stream should automatically go to stdout.
-  int pipe_sources[NUM_STREAM_SPECS];
+  //Compute which pipes to create for the process.
+  //has_pipes[PROCESS_IN] = 1, indicates that a process input pipe
+  //needs to be created.
+  int has_pipes[NUM_STREAM_SPECS];
   for(int i=0; i<NUM_STREAM_SPECS; i++)
-    pipe_sources[i] = -1;
-  pipe_sources[input] = 0;
-  pipe_sources[output] = 1;
-  pipe_sources[error] = 2;
+    has_pipes[i] = 0;
+  has_pipes[input] = 1;
+  has_pipes[output] = 1;
+  has_pipes[error] = 1;
+  has_pipes[STANDARD_IN] = 0;
+  has_pipes[STANDARD_OUT] = 0;
+  has_pipes[STANDARD_ERR] = 0;
 
   //Generate pipes for PROCESS_IN, PROCESS_OUT, PROCESS_ERR.
   int pipes[NUM_STREAM_SPECS][2];
-  int process_io[] = {PROCESS_IN, PROCESS_OUT, PROCESS_ERR};
-  for(int i=0; i<3; i++)
-    if(pipe_sources[process_io[i]] >= 0)
-      if(pipe(pipes[process_io[i]]))
-        return -1;
+  for(int i=0; i<NUM_STREAM_SPECS; i++)
+    if(has_pipes[i])
+      if(pipe(pipes[i])) return -1;
 
   // Fork child process
   stz_long pid = (stz_long)vfork();
@@ -493,19 +489,19 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
     //Set up the pipes in the parent process.
     FILE* fin = NULL;
-    if(pipe_sources[PROCESS_IN] >= 0) {
+    if(has_pipes[PROCESS_IN]) {
       close(pipes[PROCESS_IN][0]);
       fin = fdopen(pipes[PROCESS_IN][1], "w");
       if(fin == NULL) goto return_error;
     }
     FILE* fout = NULL;
-    if(pipe_sources[PROCESS_OUT] >= 0) {
+    if(has_pipes[PROCESS_OUT]) {
       close(pipes[PROCESS_OUT][1]);
       fout = fdopen(pipes[PROCESS_OUT][0], "r");
       if(fout == NULL) goto return_error;
     }
     FILE* ferr = NULL;
-    if(pipe_sources[PROCESS_ERR] >= 0) {
+    if(has_pipes[PROCESS_ERR]) {
       close(pipes[PROCESS_ERR][1]);
       ferr = fdopen(pipes[PROCESS_ERR][0], "r");
       if(ferr == NULL) goto return_error;
@@ -521,6 +517,9 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     //repeated by the autoreap handler.
     register_child_process(pid, fin, fout, ferr, &(process->status));
 
+    //Child process successfully launched and registered.
+    goto return_success;
+
     //Perform cleanup and return -1 to indicate error.
     return_error: {
       restore_signal_mask(&old_signal_mask);
@@ -528,7 +527,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     }
     
     //Perform cleanup and return 0 to indicate success.
-    return_success:{
+    return_success: {
       restore_signal_mask(&old_signal_mask);
       return 0;
     }
@@ -536,44 +535,29 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   
   // Child: setup pipes, exec
   else {
-    //Redirect stdout if necessary
-    {
-      int i = STANDARD_OUT;
-      if(pipe_sources[i] >= 0 && pipe_sources[i] != STDOUT_FILENO)
-        if(dup2(STDOUT_FILENO, pipe_sources[i]) < 0) exit(-1);
+    //Connect process input pipe if necessary.
+    if(has_pipes[PROCESS_IN]){
+      if(close(pipes[PROCESS_IN][1]) < 0) exit(-1);
+      if(dup2(pipes[PROCESS_IN][0], STDIN_FILENO) < 0) exit(-1);
+      if(close(pipes[PROCESS_IN][0]) < 0) exit(-1);
     }
-    //Redirect stderr if necessary
-    {
-      int i = STANDARD_ERR;
-      if(pipe_sources[i] >= 0 && pipe_sources[i] != STDERR_FILENO)
-        if(dup2(STDERR_FILENO, pipe_sources[i]) < 0) exit(-1);
+    //Connect process output pipe if necessary.
+    if(has_pipes[PROCESS_OUT]){
+      if(close(pipes[PROCESS_OUT][0]) < 0) exit(-1);
+      if(output == PROCESS_OUT)
+        if(dup2(pipes[PROCESS_OUT][1], STDOUT_FILENO) < 0) exit(-1);
+      if(error == PROCESS_OUT)
+        if(dup2(pipes[PROCESS_OUT][1], STDERR_FILENO) < 0) exit(-1);
+      if(close(pipes[PROCESS_OUT][1]) < 0) exit(-1);
     }
-    //Setup input pipe if used
-    {
-      int i = PROCESS_IN;
-      if(pipe_sources[i] >= 0) {
-        if(close(pipes[i][1]) < 0) exit(-1);
-        if(dup2(pipes[i][0], pipe_sources[i]) < 0) exit(-1);
-        if(close(pipes[i][0]) < 0) exit(-1);
-      }
-    }
-    //Setup output pipe if used
-    {
-      int i = PROCESS_OUT;
-      if(pipe_sources[i] >= 0) {
-        if(close(pipes[i][0]) < 0) exit(-1);
-        if(dup2(pipes[i][1], pipe_sources[i]) < 0) exit(-1);
-        if(close(pipes[i][1]) < 0) exit(-1);
-      }
-    }
-    //Setup error pipe if used
-    {
-      int i = PROCESS_ERR;
-      if(pipe_sources[i] >= 0) {
-        if(close(pipes[i][0]) < 0) exit(-1);
-        if(dup2(pipes[i][1], pipe_sources[i]) < 0) exit(-1);
-        if(close(pipes[i][1]) < 0) exit(-1);
-      }
+    //Connect process error pipe if necessary.
+    if(has_pipes[PROCESS_ERR]){
+      if(close(pipes[PROCESS_ERR][0]) < 0) exit(-1);
+      if(output == PROCESS_ERR)
+        if(dup2(pipes[PROCESS_ERR][1], STDOUT_FILENO) < 0) exit(-1);
+      if(error == PROCESS_ERR)
+        if(dup2(pipes[PROCESS_ERR][1], STDERR_FILENO) < 0) exit(-1);
+      if(close(pipes[PROCESS_ERR][1]) < 0) exit(-1);
     }
     
     //Setup working directory
