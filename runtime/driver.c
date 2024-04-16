@@ -454,18 +454,33 @@ StringList* list_dir (const stz_byte* filename){
 //===================== Sleeping =============================
 //============================================================
 
-stz_int sleep_us (stz_long us){
-  struct timespec t1, t2;
-  t1.tv_sec = us / 1000000L;
-  t1.tv_nsec = (us % 1000000L) * 1000L;
-  return (stz_int)nanosleep(&t1, &t2);
+//Helper: Handle EINTR by calling nanosleep() repeatedly
+//until desired time has elapsed.
+stz_int continuous_sleep (struct timespec time){
+  while(true){
+    struct timespec rem;
+    stz_int result = nanosleep(&time, &rem);
+    if(result >= 0) return result;
+    if(errno != EINTR) return result;
+    time = rem;
+  }
+  exit_with_error();  
 }
 
+//Sleep for the given number of microseconds.
+stz_int sleep_us (stz_long us){
+  struct timespec t;
+  t.tv_sec = us / 1000000L;
+  t.tv_nsec = (us % 1000000L) * 1000L;
+  return continuous_sleep(t);
+}
+
+//Sleep for the given number of milliseconds.
 stz_int sleep_ms (stz_long ms){
-  struct timespec t1, t2;
-  t1.tv_sec = ms / 1000L;
-  t1.tv_nsec = (ms % 1000L) * 1000000L;
-  return (stz_int)nanosleep(&t1, &t2);
+  struct timespec t;
+  t.tv_sec = ms / 1000L;
+  t.tv_nsec = (ms % 1000L) * 1000000L;
+  return continuous_sleep(t);
 }
 
 //============================================================
