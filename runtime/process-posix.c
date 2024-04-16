@@ -152,8 +152,12 @@ static void update_child_status (pid_t pid) {
 static void update_all_child_statuses () {
   volatile ChildProcessList * volatile curr = child_processes;
   while(curr != NULL) {
+    //NOTE: curr->next is retrieved preemptively because
+    //update_child_status may call free() on curr, and make
+    //curr->next inaccessible.
+    ChildProcessList* next = curr->next;
     update_child_status(curr->proc->pid);
-    curr = curr->next;
+    curr = next;
   }
 }
 
@@ -174,11 +178,16 @@ void autoreaping_sigchld_handler(int sig){
   //Update the statuses of all registered child processes.
   update_all_child_statuses();
 
-  //Test whether the previous signal handler was
-  //created via the "sigaction" system. Forward the signal
-  //if it was.
-  if(!(old_sigchild_action.sa_flags & SA_SIGINFO))
+  //Test whether we are able to forward the signal
+  //to the previous signal handler. It must:
+  //1. Not be using the sigaction system. (SA_SIGINFO)
+  //2. Not be the default signal handler. (SIG_DFL)
+  //3. Not be explicitly ignored. (SIG_IGN)
+  if(!(old_sigchild_action.sa_flags & SA_SIGINFO) &&
+     old_sigchild_action.sa_handler != SIG_DFL &&
+     old_sigchild_action.sa_handler != SIG_IGN){
     old_sigchild_action.sa_handler(sig);
+  }
 }
 
 // This installs the autoreaping signal handler.
@@ -406,11 +415,8 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
   //Spawn the child process.
   pid_t pid = -1;
-  int spawn_ret = posix_spawnp(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars);
-  if(spawn_ret != 0){
-    errno = spawn_ret;
+  if(posix_spawnp(&pid, C_CSTR(file), &actions, NULL, (char**)argvs, (char**)env_vars))
     goto return_error;
-  }
 
   //Set up the pipes in the parent process.
   FILE* fin = NULL;
