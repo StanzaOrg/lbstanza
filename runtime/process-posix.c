@@ -9,7 +9,7 @@
 //============================================================
 
 // Holds all metadata for a spawned child process.
-// - pid: The process id of the child process itself. 
+// - pid: The process id of the child process itself.
 // - fin/fout/ferr: The stdin/stdout/stderr streams for communicating with the child.
 //   NULL if child uses stdin/stdout/stderr directly.
 // - status: Pointer to location to write status code when child is terminated.
@@ -19,7 +19,7 @@ typedef struct ChildProcess {
   FILE* fin;
   FILE* fout;
   FILE* ferr;
-  stz_int* status;
+  ProcessStatus* pstatus;
 } ChildProcess;
 
 // Represents a linked list of ChildProcess.
@@ -69,7 +69,7 @@ static void remove_child_process (pid_t pid) {
     prev = curr;
     curr = curr->next;
   }
-  
+
   // Remove child process from list if one was found.
   if(curr != NULL){
     if(prev == NULL)
@@ -95,17 +95,18 @@ static void register_child_process (
 
   // Initialize and save ProcessStatus struct.
   ProcessStatus* st = (ProcessStatus*)malloc(sizeof(ProcessStatus));
+  st->code_set = 0;
   st->status_code = -1;
   *status = st;
-  
+
   // Initialize ChildProcess struct.
   ChildProcess* child = (ChildProcess*)malloc(sizeof(ChildProcess));
   child->pid = pid;
   child->fin = fin;
   child->fout = fout;
   child->ferr = ferr;
-  child->status = &(st->status_code);
-  
+  child->pstatus = st; //;&(st->status_code);
+
   // Store child in ChildProcessList
   add_child_process(child);
 }
@@ -121,13 +122,23 @@ static bool is_dead_status (stz_int status_code) {
   return WIFSIGNALED(status_code) || WIFEXITED(status_code);
 }
 
+// If status value is unknown, process is still running
+// Otherwise, inspect value
+static bool is_process_dead (ProcessStatus* pstatus) {
+  if(pstatus->code_set)
+    return is_dead_status(pstatus->status_code);
+  else return false;
+}
+
 // Update the status code for the registered child process
 // with the given process id.
 // Precondition: SIGCHLD is blocked
 static void set_child_status (pid_t pid, stz_int status_code) {
   ChildProcess* proc = get_child_process(pid);
-  if(proc != NULL)
-    *(proc->status) = status_code;
+  if(proc != NULL) {
+    proc->pstatus->code_set = 1;
+    proc->pstatus->status_code = status_code;
+  }
 }
 
 // Update the current status of the given registered child process.
@@ -257,15 +268,19 @@ static void restore_signal_mask (sigset_t* old_mask)  {
 //============================================================
 
 //Create a Stanza ProcessState struct from a POSIX status code.
-ProcessState make_process_state (stz_int status_code){
-  if(WIFEXITED(status_code))
-    return (ProcessState){PROCESS_DONE, WEXITSTATUS(status_code)};
-  else if(WIFSIGNALED(status_code))
-    return (ProcessState){PROCESS_TERMINATED, WTERMSIG(status_code)};
-  else if(WIFSTOPPED(status_code))
-    return (ProcessState){PROCESS_STOPPED, WSTOPSIG(status_code)};
-  else
-    return (ProcessState){PROCESS_RUNNING, 0};  
+ProcessState make_process_state (ProcessStatus* pstatus){
+  if(pstatus->code_set) {
+    if(WIFEXITED(pstatus->status_code))
+      return (ProcessState){PROCESS_DONE, WEXITSTATUS(pstatus->status_code)};
+    else if(WIFSIGNALED(pstatus->status_code))
+      return (ProcessState){PROCESS_TERMINATED, WTERMSIG(pstatus->status_code)};
+    else if(WIFSTOPPED(pstatus->status_code))
+      return (ProcessState){PROCESS_STOPPED, WSTOPSIG(pstatus->status_code)};
+    else
+      return (ProcessState){PROCESS_RUNNING, 0};
+  } else {
+    return (ProcessState){PROCESS_RUNNING, 0};
+  }
 }
 
 // Retrieve the state of the given process.
@@ -276,26 +291,25 @@ ProcessState make_process_state (stz_int status_code){
 stz_int retrieve_process_state (Process* process,
                                 ProcessState* s,
                                 stz_int wait_for_termination){
-  
+
   //Block SIGCHLD while we're reading the process state.
   sigset_t old_signal_mask = block_sigchild();
 
   //Read the current status code of the process.
-  stz_int status = process->status->status_code;
+  ProcessStatus* pstatus = process->status;
 
   //If we need to wait for termination, then
   //call suspend_until_sigchild repeatedly until
   //process is dead.
   if(wait_for_termination){
-    while(!is_dead_status(status)){
+    while(!is_process_dead(pstatus)){
       suspend_until_sigchild();
-      status = process->status->status_code;
-    }    
+    }
   }
 
   //Store the status code as a Stanza ProcessState.
-  *s = make_process_state(status);
-  
+  *s = make_process_state(pstatus);
+
   //End Block SIGCHLD.
   restore_signal_mask(&old_signal_mask);
 
@@ -321,11 +335,11 @@ stz_int retrieve_process_state (Process* process,
 //}
 
 stz_int launch_process(stz_byte* file, stz_byte** argvs,
-                       stz_int input, stz_int output, stz_int error, 
+                       stz_int input, stz_int output, stz_int error,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //block sigchld
   sigset_t old_signal_mask = block_sigchild();
-  
+
   //Compute which pipes to create for the process.
   //has_pipes[PROCESS_IN] = 1, indicates that a process input pipe
   //needs to be created.
@@ -368,9 +382,9 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs,
         goto return_error;
     if(error == PROCESS_OUT)
       if(posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_OUT][1], STDERR_FILENO))
-        goto return_error;      
+        goto return_error;
     if(posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_OUT][1]))
-      goto return_error;    
+      goto return_error;
   }
   //Connect process error pipe if necessary.
   if(has_pipes[PROCESS_ERR]){
@@ -383,7 +397,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs,
       if(posix_spawn_file_actions_adddup2(&actions, pipes[PROCESS_ERR][1], STDOUT_FILENO))
         goto return_error;
     if(posix_spawn_file_actions_addclose(&actions, pipes[PROCESS_ERR][1]))
-      goto return_error;        
+      goto return_error;
   }
 
   //Setup working directory
@@ -456,9 +470,9 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs,
 #ifdef PLATFORM_LINUX
 
 stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, 
+                       stz_int output, stz_int error,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
-  
+
   //Compute which pipes to create for the process.
   //has_pipes[PROCESS_IN] = 1, indicates that a process input pipe
   //needs to be created.
@@ -481,7 +495,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   // Fork child process
   stz_long pid = (stz_long)vfork();
   if(pid < 0) return -1;
-  
+
   // Parent: if exec succeeded, open files, register with signal handler
   if(pid > 0) {
 
@@ -526,14 +540,14 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
       restore_signal_mask(&old_signal_mask);
       return -1;
     }
-    
+
     //Perform cleanup and return 0 to indicate success.
     return_success: {
       restore_signal_mask(&old_signal_mask);
       return 0;
     }
   }
-  
+
   // Child: setup pipes, exec
   else {
     //Connect process input pipe if necessary.
@@ -560,7 +574,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
         if(dup2(pipes[PROCESS_ERR][1], STDERR_FILENO) < 0) exit(-1);
       if(close(pipes[PROCESS_ERR][1]) < 0) exit(-1);
     }
-    
+
     //Setup working directory
     if(working_dir) {
       if(chdir(C_CSTR(working_dir)) < 0) exit(-1);

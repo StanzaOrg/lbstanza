@@ -7,6 +7,7 @@
 //- status_code: Holds the POSIX status code of the process as communicated by
 //  the SIGCHILD signal.
 typedef struct ProcessStatus {
+  int code_set;
   stz_int status_code;
 } ProcessStatus;
 
