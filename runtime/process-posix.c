@@ -105,7 +105,7 @@ static void register_child_process (
   child->fin = fin;
   child->fout = fout;
   child->ferr = ferr;
-  child->pstatus = st; //;&(st->status_code);
+  child->pstatus = st;
 
   // Store child in ChildProcessList
   add_child_process(child);
