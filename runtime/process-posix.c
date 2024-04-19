@@ -23,6 +23,7 @@ void obtain_lock (char* ctxt) {
     exit(-1);
   }
   locked = 1;
+  printf("Obtained lock (%s).\n", ctxt);
 }
 
 void release_lock (char* ctxt) {
@@ -31,6 +32,7 @@ void release_lock (char* ctxt) {
     exit(-1);
   }
   locked = 0;
+  printf("Released lock (%s).\n", ctxt);
 }
 
 //============================================================
@@ -256,8 +258,8 @@ void install_autoreaping_sigchld_handler () {
 
 //Blocks the SIGCHILD signal by updating the signal mask.
 //Returns the previous signal mask.
-static sigset_t block_sigchild () {
-  obtain_lock("block_sigchild");
+static sigset_t block_sigchild (char* ctxt) {
+  obtain_lock(ctxt);
   
   //Create signal mask containing only SIGCHLD.
   sigset_t sigchld_mask;
@@ -291,10 +293,10 @@ static void suspend_until_sigchild () {
 
 //Restore the signal mask to the given mask.
 //Exits program with error if unsuccessful.
-static void restore_signal_mask (sigset_t* old_mask)  {
+static void restore_signal_mask (sigset_t* old_mask, char* ctxt)  {
   if(sigprocmask(SIG_SETMASK, old_mask, NULL))
     exit_with_error();
-  release_lock("restore_signal_mask");
+  release_lock(ctxt);
 }
 
 //============================================================
@@ -323,7 +325,7 @@ stz_int retrieve_process_state (Process* process,
                                 stz_int wait_for_termination){
   
   //Block SIGCHLD while we're reading the process state.
-  sigset_t old_signal_mask = block_sigchild();
+  sigset_t old_signal_mask = block_sigchild("retrieve_process_state");
 
   //Read the current status code of the process.
   stz_int status = process->status->status_code;
@@ -342,7 +344,7 @@ stz_int retrieve_process_state (Process* process,
   *s = make_process_state(status);
   
   //End Block SIGCHLD.
-  restore_signal_mask(&old_signal_mask);
+  restore_signal_mask(&old_signal_mask, "retrieve_process_state");
 
   //Return 0 to indicate success.
   //TODO: In this implementation failures halt the program
@@ -369,7 +371,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs,
                        stz_int input, stz_int output, stz_int error, 
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //block sigchld
-  sigset_t old_signal_mask = block_sigchild();
+  sigset_t old_signal_mask = block_sigchild("launch_process");
   
   //Compute which pipes to create for the process.
   //has_pipes[PROCESS_IN] = 1, indicates that a process input pipe
@@ -481,14 +483,14 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs,
   // Perform cleanup and return -1 to indicate error.
   return_error: {
     posix_spawn_file_actions_destroy(&actions);
-    restore_signal_mask(&old_signal_mask);
+    restore_signal_mask(&old_signal_mask, "launch_process");
     return -1;
   }
 
   // Perform cleanup and return 0 to indicate success.
   return_success: {
     posix_spawn_file_actions_destroy(&actions);
-    restore_signal_mask(&old_signal_mask);
+    restore_signal_mask(&old_signal_mask, "launch_process");
     return 0;
   }
 }
@@ -531,7 +533,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   if(pid > 0) {
 
     //Block SIGCHLD until setup is finished
-    sigset_t old_signal_mask = block_sigchild();
+    sigset_t old_signal_mask = block_sigchild("launch_process");
 
     //Set up the pipes in the parent process.
     FILE* fin = NULL;
@@ -568,13 +570,13 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
     //Perform cleanup and return -1 to indicate error.
     return_error: {
-      restore_signal_mask(&old_signal_mask);
+      restore_signal_mask(&old_signal_mask, "launch_process");
       return -1;
     }
     
     //Perform cleanup and return 0 to indicate success.
     return_success: {
-      restore_signal_mask(&old_signal_mask);
+      restore_signal_mask(&old_signal_mask, "launch_process");
       return 0;
     }
   }
