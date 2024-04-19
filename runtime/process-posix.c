@@ -278,6 +278,7 @@ static sigset_t block_sigchild (char* ctxt) {
 //Suspends the current thread until a SIGCHLD
 //signal is encountered.
 static void suspend_until_sigchild () {
+  release_lock("suspend_until_sigchild");
   //Create a signal mask that blocks everything
   //except SIGCHLD.
   sigset_t allow_sigchld;
@@ -289,6 +290,7 @@ static void suspend_until_sigchild () {
   //normal wakeup.
   sigsuspend(&allow_sigchld);
   if(errno != EINTR) exit_with_error();
+  obtain_lock("suspend_until_sigchild");
 }
 
 //Restore the signal mask to the given mask.
