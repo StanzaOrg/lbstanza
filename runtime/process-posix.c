@@ -259,7 +259,6 @@ void install_autoreaping_sigchld_handler () {
 //Blocks the SIGCHILD signal by updating the signal mask.
 //Returns the previous signal mask.
 static sigset_t block_sigchild (char* ctxt) {
-  obtain_lock(ctxt);
   
   //Create signal mask containing only SIGCHLD.
   sigset_t sigchld_mask;
@@ -272,6 +271,7 @@ static sigset_t block_sigchild (char* ctxt) {
     exit_with_error();
 
   //Return the previous signal mask.
+  obtain_lock(ctxt);
   return old_mask;
 }
 
@@ -296,9 +296,9 @@ static void suspend_until_sigchild () {
 //Restore the signal mask to the given mask.
 //Exits program with error if unsuccessful.
 static void restore_signal_mask (sigset_t* old_mask, char* ctxt)  {
+  release_lock(ctxt);
   if(sigprocmask(SIG_SETMASK, old_mask, NULL))
     exit_with_error();
-  release_lock(ctxt);
 }
 
 //============================================================
