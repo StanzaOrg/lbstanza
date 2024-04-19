@@ -86,10 +86,10 @@ mkdir -p "$PKGDIR"
 
 if [[ "$COMPILE" == 1 ]]; then
     echo "Compiling $DPLATFORM Stanza Pkgs"
-    "$STANZA" build-stanza.proj stz/driver $PKGFILES -pkg "$PKGDIR" -platform $PLATFORM
+    "$STANZA" build-stanza.proj stz/driver $PKGFILES -pkg "$PKGDIR" -platform $PLATFORM -build-from-source
 
     echo "Compiling $DPLATFORM Stanza Optimized Pkgs"
-    "$STANZA" build-stanza.proj stz/driver $PKGFILES -pkg "$PKGDIR" -optimize -platform $PLATFORM
+    "$STANZA" build-stanza.proj stz/driver $PKGFILES -pkg "$PKGDIR" -optimize -platform $PLATFORM -build-from-source
 
     echo "Compiling $DPLATFORM Stanza Executable"
     "$STANZA" build-stanza.proj stz/driver -pkg "$PKGDIR" -s "$STANZA_S" -optimize -platform $PLATFORM

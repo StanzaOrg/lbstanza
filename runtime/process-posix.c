@@ -5,6 +5,35 @@
 #include "process.h"
 
 //============================================================
+//=================== Lock Assumption ========================
+//============================================================
+
+volatile int locked = 0;
+
+void assert_lock (char* ctxt) {
+  if(!locked){
+    printf("ERROR: Lock is assumed to be obtained but isn't. (%s)\n", ctxt);
+    exit(-1);
+  }
+}
+
+void obtain_lock (char* ctxt) {
+  if(locked){
+    printf("ERROR: Cannot obtain lock. Lock is already assumed. (%s)\n", ctxt);
+    exit(-1);
+  }
+  locked = 1;
+}
+
+void release_lock (char* ctxt) {
+  if(!locked){
+    printf("ERROR: Cannot release lock. Lock is not assumed. (%s)\n", ctxt);
+    exit(-1);
+  }
+  locked = 0;
+}
+
+//============================================================
 //================= ChildProcess Registration ================
 //============================================================
 
@@ -38,6 +67,7 @@ volatile ChildProcessList * volatile child_processes = NULL;
 // Add a new ChildProcess to the global 'child_processes' list.
 // Precondition: SIGCHLD is blocked
 void add_child_process (ChildProcess* child) {
+  assert_lock("add_child_process");
   ChildProcessList * new_node = (ChildProcessList*)malloc(sizeof(ChildProcessList));
   new_node->proc = child;
   new_node->next = child_processes;
@@ -47,6 +77,7 @@ void add_child_process (ChildProcess* child) {
 // Return the ChildProcess with the given process id.
 // Returns NULL if there is none.
 static ChildProcess* get_child_process (pid_t pid){
+  assert_lock("get_child_process");
   volatile ChildProcessList * volatile curr = child_processes;
   while(curr != NULL && curr->proc->pid != pid)
     curr = curr->next;
@@ -58,6 +89,7 @@ static ChildProcess* get_child_process (pid_t pid){
 // 'child_processes' list if it exists in the list.
 // Precondition: SIGCHLD is blocked
 static void remove_child_process (pid_t pid) {
+  assert_lock("remove_child_process");
 
   // Find the ChildProcess with matching pid.
   // After this loop, either:
@@ -92,6 +124,7 @@ static void register_child_process (
               FILE* fout,
               FILE* ferr,
               ProcessStatus** status) {
+  assert_lock("register_child_process");
 
   // Initialize and save ProcessStatus struct.
   ProcessStatus* st = (ProcessStatus*)malloc(sizeof(ProcessStatus));
@@ -125,6 +158,7 @@ static bool is_dead_status (stz_int status_code) {
 // with the given process id.
 // Precondition: SIGCHLD is blocked
 static void set_child_status (pid_t pid, stz_int status_code) {
+  assert_lock("set_child_status");
   ChildProcess* proc = get_child_process(pid);
   if(proc != NULL)
     *(proc->status) = status_code;
@@ -135,6 +169,8 @@ static void set_child_status (pid_t pid, stz_int status_code) {
 // metadata struct.
 // Precondition: SIGCHLD is blocked
 static void update_child_status (pid_t pid) {
+  assert_lock("update_child_status");
+  
   //Retrieve the status of the given process.
   int status;
   int ret_pid = waitpid(pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
@@ -151,6 +187,8 @@ static void update_child_status (pid_t pid) {
 // Update the current status of all registered child processes.
 // Precondition: SIGCHLD is blocked
 static void update_all_child_statuses () {
+  assert_lock("update_all_child_statuses");
+  
   volatile ChildProcessList * volatile curr = child_processes;
   while(curr != NULL) {
     //NOTE: curr->next is retrieved preemptively because
@@ -176,6 +214,8 @@ struct sigaction old_sigchild_action;
 // be executed if it is already in the middle of executing. SIGCHILD
 // must be blocked.
 void autoreaping_sigchld_handler(int sig){
+  obtain_lock("autoreaping_sigchld_handler");
+  
   //Update the statuses of all registered child processes.
   update_all_child_statuses();
 
@@ -189,6 +229,8 @@ void autoreaping_sigchld_handler(int sig){
      old_sigchild_action.sa_handler != SIG_IGN){
     old_sigchild_action.sa_handler(sig);
   }
+
+  release_lock("autoreaping_sigchld_handler");
 }
 
 // This installs the autoreaping signal handler.
@@ -215,6 +257,8 @@ void install_autoreaping_sigchld_handler () {
 //Blocks the SIGCHILD signal by updating the signal mask.
 //Returns the previous signal mask.
 static sigset_t block_sigchild () {
+  obtain_lock("block_sigchild");
+  
   //Create signal mask containing only SIGCHLD.
   sigset_t sigchld_mask;
   sigemptyset(&sigchld_mask);
@@ -250,6 +294,7 @@ static void suspend_until_sigchild () {
 static void restore_signal_mask (sigset_t* old_mask)  {
   if(sigprocmask(SIG_SETMASK, old_mask, NULL))
     exit_with_error();
+  release_lock("restore_signal_mask");
 }
 
 //============================================================
