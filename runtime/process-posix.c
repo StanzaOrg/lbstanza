@@ -54,32 +54,6 @@ static ChildProcess* get_child_process (pid_t pid){
   else return curr->proc;
 }
 
-// Remove the ChildProcess with the given process id from the
-// 'child_processes' list if it exists in the list.
-// Precondition: SIGCHLD is blocked
-static void remove_child_process (pid_t pid) {
-
-  // Find the ChildProcess with matching pid.
-  // After this loop, either:
-  // 1. curr is NULL: No matching ChildProcess was found.
-  // 2. curr is ChildProcessList*: The matching ChildProcess was found.
-  volatile ChildProcessList * volatile curr = child_processes;
-  volatile ChildProcessList * volatile prev = NULL;
-  while(curr != NULL && curr->proc->pid != pid) {
-    prev = curr;
-    curr = curr->next;
-  }
-  
-  // Remove child process from list if one was found.
-  if(curr != NULL){
-    if(prev == NULL)
-      child_processes = curr->next;
-    else
-      prev->next = curr->next;
-    //free((void*) curr);
-  }
-}
-
 // After a child process is spawned, this function creates a
 // ChildProcess struct for recording the child's metadata
 // and stores it in the 'child_processes' list.
@@ -140,12 +114,8 @@ static void update_child_status (pid_t pid) {
   int ret_pid = waitpid(pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
 
   //waitpid returns a positive integer if the process status has changed.
-  if(ret_pid > 0) {
+  if(ret_pid > 0)
     set_child_status(pid, status);
-    // Remove the child's metadata from list if child is dead.
-    //if(is_dead_status(status))
-    //  remove_child_process(pid);
-  }
 }
 
 // Update the current status of all registered child processes.
@@ -153,14 +123,8 @@ static void update_child_status (pid_t pid) {
 static void update_all_child_statuses () {
   volatile ChildProcessList * volatile curr = child_processes;
   while(curr != NULL) {
-    //NOTE: curr->next is retrieved preemptively because
-    //update_child_status may call free() on curr, and make
-    //curr->next inaccessible.
-    //TODO: this is no longer true once update_child_status
-    // does not call free
-    volatile ChildProcessList* next = curr->next;
     update_child_status(curr->proc->pid);
-    curr = next;
+    curr = curr->next;
   }
 }
 
