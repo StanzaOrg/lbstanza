@@ -28,12 +28,12 @@ typedef struct ChildProcess {
 // NOTE: volatile declarations on 'next' forced by compiler.
 typedef struct ChildProcessList {
   ChildProcess* proc;
-  volatile struct ChildProcessList * volatile next;
+  volatile struct ChildProcessList * next;
 } ChildProcessList;
 
 // Linked list of live child processes.
 // Will be read from by signal handler.
-volatile ChildProcessList * volatile child_processes = NULL;
+volatile ChildProcessList * child_processes = NULL;
 
 // Add a new ChildProcess to the global 'child_processes' list.
 // Precondition: SIGCHLD is blocked
@@ -47,7 +47,7 @@ void add_child_process (ChildProcess* child) {
 // Return the ChildProcess with the given process id.
 // Returns NULL if there is none.
 static ChildProcess* get_child_process (pid_t pid){
-  volatile ChildProcessList * volatile curr = child_processes;
+  volatile ChildProcessList * curr = child_processes;
   while(curr != NULL && curr->proc->pid != pid)
     curr = curr->next;
   if(curr == NULL) return NULL;
@@ -121,7 +121,7 @@ static void update_child_status (pid_t pid) {
 // Update the current status of all registered child processes.
 // Precondition: SIGCHLD is blocked
 static void update_all_child_statuses () {
-  volatile ChildProcessList * volatile curr = child_processes;
+  volatile ChildProcessList * curr = child_processes;
   while(curr != NULL) {
     update_child_status(curr->proc->pid);
     curr = curr->next;
@@ -131,8 +131,8 @@ static void update_all_child_statuses () {
 // Remove all ChildProcess nodes that have terminated from the list.
 // Precondition: assumes SIGCHLD is blocked
 static void remove_dead_child_processes () {
-  volatile ChildProcessList * volatile curr = child_processes;
-  volatile ChildProcessList * volatile prev = NULL;
+  volatile ChildProcessList * curr = child_processes;
+  volatile ChildProcessList * prev = NULL;
   while(curr != NULL) {
     // Remove curr if its process has died
     if(is_dead_status(*(curr->proc->status))) {
