@@ -76,7 +76,7 @@ static void remove_child_process (pid_t pid) {
       child_processes = curr->next;
     else
       prev->next = curr->next;
-    free((void*) curr);
+    //free((void*) curr);
   }
 }
 
@@ -143,8 +143,8 @@ static void update_child_status (pid_t pid) {
   if(ret_pid > 0) {
     set_child_status(pid, status);
     // Remove the child's metadata from list if child is dead.
-    if(is_dead_status(status))
-      remove_child_process(pid);
+    //if(is_dead_status(status))
+    //  remove_child_process(pid);
   }
 }
 
@@ -156,11 +156,39 @@ static void update_all_child_statuses () {
     //NOTE: curr->next is retrieved preemptively because
     //update_child_status may call free() on curr, and make
     //curr->next inaccessible.
+    //TODO: this is no longer true once update_child_status
+    // does not call free
     volatile ChildProcessList* next = curr->next;
     update_child_status(curr->proc->pid);
     curr = next;
   }
 }
+
+// Remove all ChildProcess nodes that have terminated from the list.
+// Precondition: assumes SIGCHLD is blocked
+static void remove_dead_child_processes () {
+  volatile ChildProcessList * volatile curr = child_processes;
+  volatile ChildProcessList * volatile prev = NULL;
+  while(curr != NULL) {
+    // Remove curr if its process has died
+    if(is_dead_status(*(curr->proc->status))) {
+      if(prev == NULL) {
+        child_processes = curr->next;
+        free((void*) curr);
+        curr = child_processes;
+      } else {
+        prev->next = curr->next;
+        free((void*) curr);
+        curr = prev->next;
+      }
+    } else {
+      prev = curr;
+      curr = curr->next;
+    }
+  }
+}
+
+
 
 //============================================================
 //==================== Autoreap Handler ======================
@@ -326,6 +354,9 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs,
   //block sigchld
   sigset_t old_signal_mask = block_sigchild();
   
+  //cleanup any unneeded process metadata
+  remove_dead_child_processes();
+
   //Compute which pipes to create for the process.
   //has_pipes[PROCESS_IN] = 1, indicates that a process input pipe
   //needs to be created.
@@ -459,6 +490,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
                        stz_int output, stz_int error, 
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   
+
   //Compute which pipes to create for the process.
   //has_pipes[PROCESS_IN] = 1, indicates that a process input pipe
   //needs to be created.
@@ -487,6 +519,9 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
     //Block SIGCHLD until setup is finished
     sigset_t old_signal_mask = block_sigchild();
+
+    //cleanup any unneeded process metadata
+    remove_dead_child_processes();
 
     //Set up the pipes in the parent process.
     FILE* fin = NULL;
