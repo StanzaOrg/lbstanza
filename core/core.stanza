@@ -10132,6 +10132,11 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     ;Throw an exception if launch failed.
     if launch_succ != 0 :
       throw(ProcessLaunchError(filename, linux-error-msg()))
+
+    ;If the process was created successfully, then create a finalizer
+    ;to free the structures.
+    add-finalizer(new ProcessFinalizer{proc.status}, proc)
+
     ;Return the newly created process.
     return proc
 
@@ -10169,6 +10174,26 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     clear(scratch)
     print(scratch, "%_=%_" % [key(entry), value(entry)])
     put(scratch, 0Y)
+
+  ;Finalizer for notifying that Process struct in driver
+  ;can safely be freed.
+  
+  ;Mirrors the ProcessStatus structure in 'process.h'.
+  lostanza deftype ProcessStatus :
+    code-set:int
+    status-code:int
+    var referenced-from-stanza:int
+
+  ;Finalizer which indicates that a process is no longer
+  ;referenced from Stanza.
+  lostanza deftype ProcessFinalizer <: Finalizer :
+    status:ptr<ProcessStatus>
+
+  ;When the finalizer runs, set the 'referenced-from-stanza' flag to 0,
+  ;so that the driver can safely free the struct.
+  lostanza defmethod run (f:ref<ProcessFinalizer>) -> ref<False> :
+    f.status.referenced-from-stanza = 0
+    return false
 
 ;Helper: Copy the given byte buffer to a malloc'd piece of stable memory.
 lostanza defn copy-buffer-to-stable-memory (buffer:ref<ByteBuffer>) -> ptr<byte> :
