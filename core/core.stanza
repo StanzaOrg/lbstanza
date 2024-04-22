@@ -10182,7 +10182,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
   lostanza deftype ProcessStatus :
     code-set:int
     status-code:int
-    referenced-from-stanza:int
+    var referenced-from-stanza:int
 
   ;Finalizer which indicates that a process is no longer
   ;referenced from Stanza.
