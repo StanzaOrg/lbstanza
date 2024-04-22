@@ -4,9 +4,12 @@
 #include <stanza/types.h>
 
 //Struct for holding the status code of a terminated/killed/stopped process.
+//- code_set: Initialized to 0 to indicate that the process was just launched
+//  and status_code is not yet known. Once status_code is known, this field is set to 1.
 //- status_code: Holds the POSIX status code of the process as communicated by
-//  the SIGCHILD signal.
+//  the SIGCHILD signal. Initialized to -1.
 typedef struct ProcessStatus {
+  int code_set;
   stz_int status_code;
 } ProcessStatus;
 
