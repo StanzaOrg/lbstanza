@@ -8,9 +8,14 @@
 //  and status_code is not yet known. Once status_code is known, this field is set to 1.
 //- status_code: Holds the POSIX status code of the process as communicated by
 //  the SIGCHILD signal. Initialized to -1.
+//- referenced_from_stanza: Initialized to 1 to indicate that the Stanza
+//  Process wrapper is still alive, and hence the low-level structures cannot
+//  be freed yet. When the Stanza Process wrapper is garbage-collected this
+//  flag will be set to 0.
 typedef struct ProcessStatus {
-  int code_set;
+  stz_int code_set;
   stz_int status_code;
+  stz_int referenced_from_stanza; 
 } ProcessStatus;
 
 //Represents the Process, and the channels for

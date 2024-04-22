@@ -44,6 +44,13 @@ void add_child_process (ChildProcess* child) {
   child_processes = new_node;
 }
 
+// Free the ChildProcessList* node, and accompanying structures.
+void free_child_process (ChildProcessList* node){
+  free(node->proc->pstatus);
+  free(node->proc);
+  free(node);
+}
+
 // Return the ChildProcess with the given process id.
 // Returns NULL if there is none.
 static ChildProcess* get_child_process (pid_t pid){
@@ -71,6 +78,7 @@ static void register_child_process (
   ProcessStatus* st = (ProcessStatus*)malloc(sizeof(ProcessStatus));
   st->code_set = 0;
   st->status_code = -1;
+  st->referenced_from_stanza = 1;
   *status = st;
 
   // Initialize ChildProcess struct.
@@ -103,6 +111,12 @@ static bool is_process_dead (ProcessStatus* pstatus) {
   if(pstatus->code_set)
     return is_dead_status(pstatus->status_code);
   else return false;
+}
+
+// Helper: Return true if the given process is safe to be
+// freed.
+static bool is_process_safe_to_free (ProcessStatus* pstatus) {
+  return !pstatus->referenced_from_stanza && is_process_dead(pstatus);
 }
 
 // Update the status code for the registered child process
@@ -147,14 +161,14 @@ static void remove_dead_child_processes () {
   volatile ChildProcessList * prev = NULL;
   while(curr != NULL) {
     // Remove curr if its process has died
-    if(is_process_dead(curr->proc->pstatus)) {
+    if(is_process_safe_to_free(curr->proc->pstatus)) {
       if(prev == NULL) {
         child_processes = curr->next;
-        free((void*) curr);
+        free_child_process((ChildProcessList*) curr);
         curr = child_processes;
       } else {
         prev->next = curr->next;
-        free((void*) curr);
+        free_child_process((ChildProcessList*) curr);
         curr = prev->next;
       }
     } else {
@@ -163,8 +177,6 @@ static void remove_dead_child_processes () {
     }
   }
 }
-
-
 
 //============================================================
 //==================== Autoreap Handler ======================
