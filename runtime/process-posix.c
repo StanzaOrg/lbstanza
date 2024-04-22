@@ -28,12 +28,12 @@ typedef struct ChildProcess {
 // NOTE: volatile declarations on 'next' forced by compiler.
 typedef struct ChildProcessList {
   ChildProcess* proc;
-  volatile struct ChildProcessList * volatile next;
+  volatile struct ChildProcessList * next;
 } ChildProcessList;
 
 // Linked list of live child processes.
 // Will be read from by signal handler.
-volatile ChildProcessList * volatile child_processes = NULL;
+volatile ChildProcessList * child_processes = NULL;
 
 // Add a new ChildProcess to the global 'child_processes' list.
 // Precondition: SIGCHLD is blocked
@@ -47,37 +47,11 @@ void add_child_process (ChildProcess* child) {
 // Return the ChildProcess with the given process id.
 // Returns NULL if there is none.
 static ChildProcess* get_child_process (pid_t pid){
-  volatile ChildProcessList * volatile curr = child_processes;
+  volatile ChildProcessList * curr = child_processes;
   while(curr != NULL && curr->proc->pid != pid)
     curr = curr->next;
   if(curr == NULL) return NULL;
   else return curr->proc;
-}
-
-// Remove the ChildProcess with the given process id from the
-// 'child_processes' list if it exists in the list.
-// Precondition: SIGCHLD is blocked
-static void remove_child_process (pid_t pid) {
-
-  // Find the ChildProcess with matching pid.
-  // After this loop, either:
-  // 1. curr is NULL: No matching ChildProcess was found.
-  // 2. curr is ChildProcessList*: The matching ChildProcess was found.
-  volatile ChildProcessList * volatile curr = child_processes;
-  volatile ChildProcessList * volatile prev = NULL;
-  while(curr != NULL && curr->proc->pid != pid) {
-    prev = curr;
-    curr = curr->next;
-  }
-  
-  // Remove child process from list if one was found.
-  if(curr != NULL){
-    if(prev == NULL)
-      child_processes = curr->next;
-    else
-      prev->next = curr->next;
-    free((void*) curr);
-  }
 }
 
 // After a child process is spawned, this function creates a
@@ -140,27 +114,45 @@ static void update_child_status (pid_t pid) {
   int ret_pid = waitpid(pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
 
   //waitpid returns a positive integer if the process status has changed.
-  if(ret_pid > 0) {
+  if(ret_pid > 0)
     set_child_status(pid, status);
-    // Remove the child's metadata from list if child is dead.
-    if(is_dead_status(status))
-      remove_child_process(pid);
-  }
 }
 
 // Update the current status of all registered child processes.
 // Precondition: SIGCHLD is blocked
 static void update_all_child_statuses () {
-  volatile ChildProcessList * volatile curr = child_processes;
+  volatile ChildProcessList * curr = child_processes;
   while(curr != NULL) {
-    //NOTE: curr->next is retrieved preemptively because
-    //update_child_status may call free() on curr, and make
-    //curr->next inaccessible.
-    volatile ChildProcessList* next = curr->next;
     update_child_status(curr->proc->pid);
-    curr = next;
+    curr = curr->next;
   }
 }
+
+// Remove all ChildProcess nodes that have been terminated from the list.
+// Precondition: assumes SIGCHLD is blocked
+static void remove_dead_child_processes () {
+  volatile ChildProcessList * curr = child_processes;
+  volatile ChildProcessList * prev = NULL;
+  while(curr != NULL) {
+    // Remove curr if its process has died
+    if(is_dead_status(*(curr->proc->status))) {
+      if(prev == NULL) {
+        child_processes = curr->next;
+        free((void*) curr);
+        curr = child_processes;
+      } else {
+        prev->next = curr->next;
+        free((void*) curr);
+        curr = prev->next;
+      }
+    } else {
+      prev = curr;
+      curr = curr->next;
+    }
+  }
+}
+
+
 
 //============================================================
 //==================== Autoreap Handler ======================
@@ -323,9 +315,12 @@ stz_int retrieve_process_state (Process* process,
 stz_int launch_process(stz_byte* file, stz_byte** argvs,
                        stz_int input, stz_int output, stz_int error, 
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
-  //block sigchld
+  //Block sigchld.
   sigset_t old_signal_mask = block_sigchild();
   
+  //Cleanup any unneeded process metadata.
+  remove_dead_child_processes();
+
   //Compute which pipes to create for the process.
   //has_pipes[PROCESS_IN] = 1, indicates that a process input pipe
   //needs to be created.
@@ -459,6 +454,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
                        stz_int output, stz_int error, 
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   
+
   //Compute which pipes to create for the process.
   //has_pipes[PROCESS_IN] = 1, indicates that a process input pipe
   //needs to be created.
@@ -485,8 +481,11 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   // Parent: if exec succeeded, open files, register with signal handler
   if(pid > 0) {
 
-    //Block SIGCHLD until setup is finished
+    //Block SIGCHLD until setup is finished.
     sigset_t old_signal_mask = block_sigchild();
+
+    //Cleanup any unneeded process metadata.
+    remove_dead_child_processes();
 
     //Set up the pipes in the parent process.
     FILE* fin = NULL;
