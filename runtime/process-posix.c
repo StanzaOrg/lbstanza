@@ -501,15 +501,15 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
   int errpipe[2];
   if(pipe(errpipe) < 0) goto return_error;
 
+  //Block SIGCHLD until setup is finished.
+  sigset_t old_signal_mask = block_sigchild();
+
   // Fork child process
   stz_long pid = (stz_long)vfork();
   if(pid < 0) return -1;
 
   // Parent: if exec succeeded, open files, register with signal handler
   if(pid > 0) {
-
-    //Block SIGCHLD until setup is finished.
-    sigset_t old_signal_mask = block_sigchild();
 
     // Check for exec success
     close(errpipe[1]);
