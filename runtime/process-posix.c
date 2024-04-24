@@ -497,6 +497,10 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     if(has_pipes[i])
       if(pipe(pipes[i])) return -1;
 
+  //Create error pipe
+  int errpipe[2];
+  if(pipe(errpipe) < 0) goto return_error;
+
   // Fork child process
   stz_long pid = (stz_long)vfork();
   if(pid < 0) return -1;
@@ -506,6 +510,15 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
     //Block SIGCHLD until setup is finished.
     sigset_t old_signal_mask = block_sigchild();
+
+    // Check for exec success
+    close(errpipe[1]);
+    int exec_r = 0;
+    read(errpipe[0], &exec_r, sizeof(int)); // block until read or close
+    if(exec_r) {
+      errno = exec_r;
+      goto return_error;
+    }
 
     //Cleanup any unneeded process metadata.
     remove_dead_child_processes();
@@ -558,6 +571,11 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
   // Child: setup pipes, exec
   else {
+
+    // Error pipe setup
+    close(errpipe[0]); // close read end of error pipe
+    if(fcntl(errpipe[1], F_SETFD, FD_CLOEXEC) == -1) exit(-1); // set close-on-exec
+
     //Connect process input pipe if necessary.
     if(has_pipes[PROCESS_IN]){
       if(close(pipes[PROCESS_IN][1]) < 0) exit(-1);
@@ -590,12 +608,14 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
     //Launch child process.
     //If an environment is supplied then call execvpe, otherwise call execvp.
+    int exec_r;
     if(env_vars == NULL)
-      execvp(C_CSTR(file), (char**)argvs);
+      exec_r = execvp(C_CSTR(file), (char**)argvs);
     else
-      execvpe(C_CSTR(file), (char**)argvs, (char**)env_vars);
+      exec_r = execvpe(C_CSTR(file), (char**)argvs, (char**)env_vars);
 
     //Exit to indicate that execvp did not work.
+    write(errpipe[1], &exec_r, sizeof(int));
     exit(-1);
   }
 }
