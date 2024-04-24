@@ -497,15 +497,33 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
     if(has_pipes[i])
       if(pipe(pipes[i])) return -1;
 
-  // Fork child process
+  //Create error pipe for receiving status code from
+  //child's call to exec.
+  int errpipe[2];
+  if(pipe(errpipe) < 0) goto return_error;
+
+  //Block SIGCHLD until setup is finished.
+  sigset_t old_signal_mask = block_sigchild();
+
+  //Fork child process.
   stz_long pid = (stz_long)vfork();
   if(pid < 0) return -1;
 
   // Parent: if exec succeeded, open files, register with signal handler
   if(pid > 0) {
 
-    //Block SIGCHLD until setup is finished.
-    sigset_t old_signal_mask = block_sigchild();
+    //Read return value of child's call to exec from error pipe.
+    //Either child sends back one integer containing the result,
+    //or child closes the pipe.
+    //Call to read is blocking until either an integer is read, or
+    //child closes the pipe.
+    close(errpipe[1]);
+    int exec_ret = 0;
+    int bytes_read = read(errpipe[0], &exec_ret, sizeof(int));
+    if(bytes_read > 0) {
+      errno = exec_ret;
+      goto return_error;
+    }
 
     //Cleanup any unneeded process metadata.
     remove_dead_child_processes();
@@ -558,6 +576,13 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
   // Child: setup pipes, exec
   else {
+
+    //Setup error pipe. Close the read end, and set close-on-exec so
+    //that the pipe is automatically closed if exec completes
+    //successfully.
+    close(errpipe[0]);
+    if(fcntl(errpipe[1], F_SETFD, FD_CLOEXEC) == -1) exit(-1);
+
     //Connect process input pipe if necessary.
     if(has_pipes[PROCESS_IN]){
       if(close(pipes[PROCESS_IN][1]) < 0) exit(-1);
@@ -590,12 +615,17 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
 
     //Launch child process.
     //If an environment is supplied then call execvpe, otherwise call execvp.
+    int exec_ret;
     if(env_vars == NULL)
-      execvp(C_CSTR(file), (char**)argvs);
+      exec_ret = execvp(C_CSTR(file), (char**)argvs);
     else
-      execvpe(C_CSTR(file), (char**)argvs, (char**)env_vars);
+      exec_ret = execvpe(C_CSTR(file), (char**)argvs, (char**)env_vars);
 
-    //Exit to indicate that execvp did not work.
+    //Write the result of exec to the error pipe to indicate that
+    //execvp did not work.
+    write(errpipe[1], &exec_ret, sizeof(int));
+
+    //Hard stop.
     exit(-1);
   }
 }
