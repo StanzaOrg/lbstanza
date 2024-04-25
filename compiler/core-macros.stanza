@@ -1061,6 +1061,7 @@ defsyntax core :
    public defproduction id$
    public defproduction ids!
    defrule id! = (?x:#id)
+   fail-if id! = (?x:#symbol) : CSE(closest-info(), "Cannot use reserved keyword '%_' as an identifier." % [x])
    fail-if id! = () : CSE(closest-info(), "Identifier expected here.")
    defrule id$ = (?x:#id! (! _))
    fail-if id$ = () : CSE(closest-info(), "Expected an identifier here.")
