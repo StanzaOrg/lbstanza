@@ -207,6 +207,8 @@ void autoreaping_sigchld_handler(int sig){
   }
 }
 
+static char* sighandler_stack;
+
 // This installs the autoreaping signal handler.
 void install_autoreaping_sigchld_handler () {
   //Create signal mask containing on SIGCHLD.
@@ -214,13 +216,22 @@ void install_autoreaping_sigchld_handler () {
   sigemptyset(&sigchld_mask);
   sigaddset(&sigchld_mask, SIGCHLD);
 
+  //Allocate stack and initialize struct for handler
+  sighandler_stack = (char*)malloc(SIGSTKSZ * sizeof(char));
+
+  stack_t ss = {
+    .ss_size = SIGSTKSZ,
+    .ss_sp = sighandler_stack 
+  };
+
   //Setup SIGCHLD handler  .
   //SIGCHLD is blocked during execution of the handler.
   struct sigaction sa = {
     .sa_handler = autoreaping_sigchld_handler,
     .sa_mask = sigchld_mask,
-    .sa_flags = SA_RESTART
+    .sa_flags = SA_RESTART | SA_ONSTACK
   };
+  sigaltstack(&ss, 0);
   sigaction(SIGCHLD, &sa, &old_sigchild_action);
 }
 
