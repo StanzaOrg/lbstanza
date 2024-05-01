@@ -9,7 +9,7 @@
 //============================================================
 
 // Holds all metadata for a spawned child process.
-// - pid: The process id of the child process itself. 
+// - pid: The process id of the child process itself.
 // - fin/fout/ferr: The stdin/stdout/stderr streams for communicating with the child.
 //   NULL if child uses stdin/stdout/stderr directly.
 // - status: Pointer to location to write status code when child is terminated.
@@ -221,7 +221,7 @@ void install_autoreaping_sigchld_handler () {
 
   stack_t ss = {
     .ss_size = SIGSTKSZ,
-    .ss_sp = sighandler_stack 
+    .ss_sp = sighandler_stack
   };
 
   //Setup SIGCHLD handler  .
@@ -352,7 +352,7 @@ stz_int launch_process(stz_byte* file, stz_byte** argvs,
                        stz_byte* working_dir, stz_byte** env_vars, Process* process) {
   //Block sigchld.
   sigset_t old_signal_mask = block_sigchild();
-  
+
   //Cleanup any unneeded process metadata.
   remove_dead_child_processes();
 
