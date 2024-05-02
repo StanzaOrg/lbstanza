@@ -468,7 +468,7 @@ defn split-packages (e:IExp,
           val e = all-exps[i + 1] as IDefPackage
           val [exps, end] = package-exps(i + 2)
           val imports = to-tuple $ seq(to-iimport, imports(e) as List<IImportExp>)
-          add(packages, IPackage(name!(e), doc, imports, exps, info(e)))
+          add(packages, IPackage(name!(e), doc, imports, [], exps, info(e)))
           loop(end)
 
         ;Package without preceding IDoc form.
@@ -476,7 +476,7 @@ defn split-packages (e:IExp,
           val e = all-exps[i] as IDefPackage
           val [exps, end] = package-exps(i + 1)
           val imports = to-tuple $ seq(to-iimport, imports(e) as List<IImportExp>)
-          add(packages, IPackage(name!(e), false, imports, exps, info(e)))
+          add(packages, IPackage(name!(e), false, imports, [], exps, info(e)))
           loop(end)
 
         ;Default package.
@@ -484,7 +484,7 @@ defn split-packages (e:IExp,
           val [exps, end] = package-exps(i)
           val info = info(head(exps)) when not empty?(exps)
           val name = gensym(`default)
-          add(packages, IPackage(name, false, default-imports, exps, info))
+          add(packages, IPackage(name, false, default-imports, [], exps, info))
           loop(end)
 
   ;Return packages
@@ -522,7 +522,6 @@ defn to-iimport (e:IImportExp) -> IImport :
          IDefPackage:
             {name:v imports:(imp ...)}
             custom{ensure-unique-imports(e)}
-         ILoadPackage: ()
          IBegin: {exps:(pe ...)}
          + te
 

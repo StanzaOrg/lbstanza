@@ -454,18 +454,33 @@ StringList* list_dir (const stz_byte* filename){
 //===================== Sleeping =============================
 //============================================================
 
-stz_int sleep_us (stz_long us){
-  struct timespec t1, t2;
-  t1.tv_sec = us / 1000000L;
-  t1.tv_nsec = (us % 1000000L) * 1000L;
-  return (stz_int)nanosleep(&t1, &t2);
+//Helper: Handle EINTR by calling nanosleep() repeatedly
+//until desired time has elapsed.
+stz_int continuous_sleep (struct timespec time){
+  while(true){
+    struct timespec rem;
+    stz_int result = nanosleep(&time, &rem);
+    if(result >= 0) return result;
+    if(errno != EINTR) return result;
+    time = rem;
+  }
+  exit_with_error();  
 }
 
+//Sleep for the given number of microseconds.
+stz_int sleep_us (stz_long us){
+  struct timespec t;
+  t.tv_sec = us / 1000000L;
+  t.tv_nsec = (us % 1000000L) * 1000L;
+  return continuous_sleep(t);
+}
+
+//Sleep for the given number of milliseconds.
 stz_int sleep_ms (stz_long ms){
-  struct timespec t1, t2;
-  t1.tv_sec = ms / 1000L;
-  t1.tv_nsec = (ms % 1000L) * 1000000L;
-  return (stz_int)nanosleep(&t1, &t2);
+  struct timespec t;
+  t.tv_sec = ms / 1000L;
+  t.tv_nsec = (ms % 1000L) * 1000000L;
+  return continuous_sleep(t);
 }
 
 //============================================================
@@ -589,540 +604,16 @@ void stz_memory_resize (void* p, stz_long old_size, stz_long new_size) {
 //================= Process Runtime ==========================
 //============================================================
 #if defined(PLATFORM_OS_X) || defined(PLATFORM_LINUX)
-
-//------------------------------------------------------------
-//------------------- Structures -----------------------------
-//------------------------------------------------------------
-
-//- working_dir: If not null, the working directory of the
-//  new process.
-//- env_vars: If not null, the environment variables to set in the
-//  child process. Each string has format "MYVAR=MYVALUE" and is null-terminated.
-//- argvs: The string arguments that are passed to the C main function.
-typedef struct {
-  stz_byte* pipe;
-  stz_byte* in_pipe;
-  stz_byte* out_pipe;
-  stz_byte* err_pipe;
-  stz_byte* file;
-  stz_byte* working_dir;
-  stz_byte** env_vars;
-  stz_byte** argvs;
-} EvalArg;
-
-#define RETURN_NEG(x) {int r=(x); if(r < 0) return -1;}
-
-//------------------------------------------------------------
-//-------------------- Utilities -----------------------------
-//------------------------------------------------------------
-
-static int count_non_null (void** xs){
-  int n=0;
-  while(xs[n] != NULL)
-    n++;
-  return n;
-}
-
-static char* string_join (const char* a, const char* b){
-  int len = strlen(a) + strlen(b);
-  char* buffer = (char*)stz_malloc(len + 1);
-  sprintf(buffer, "%s%s", a, b);
-  return buffer;
-}
-
-//Opening a named pipe
-static int open_pipe (const char* prefix, const char* suffix, int options){
-  char* name = string_join(prefix, suffix);
-  int fd = open(name, options);
-  stz_free(name);
-  return fd;
-}
-
-//Creating a named pipe
-static int make_pipe (char* prefix, char* suffix){
-  char* name = string_join(prefix, suffix);
-  return mkfifo(name, S_IRUSR|S_IWUSR);
-}
+#include "process-posix.c"
 #endif
 
-//------------------------------------------------------------
-//----------------------- Serialization ----------------------
-//------------------------------------------------------------
-#if defined(PLATFORM_LINUX) | defined(PLATFORM_OS_X)
-
-// ===== Serialization =====
-static void write_int (FILE* f, stz_int x){
-  fwrite(&x, sizeof(stz_int), 1, f);
-}
-static void write_long (FILE* f, stz_long x){
-  fwrite(&x, sizeof(stz_long), 1, f);
-}
-static void write_string (FILE* f, stz_byte* s){
-  if(s == NULL)
-    write_int(f, -1);
-  else{
-    size_t n = strlen(C_CSTR(s));
-    write_int(f, (stz_int)n);
-    fwrite(s, 1, n, f);
-  }
-}
-static void write_strings (FILE* f, stz_byte** s){
-  int n = count_non_null((void**)s);
-  write_int(f, (stz_int)n);
-  for(int i=0; i<n; i++)
-    write_string(f, s[i]);
-}
-
-//Write a list of strings. The list may be optional, and is
-//represented using NULL.
-static void write_optional_strings (FILE* f, stz_byte** s){
-  if(s == NULL){
-    write_int(f, 0);
-  }else{
-    write_int(f, 1);
-    write_strings(f, s);
-  }     
-}
-
-static void write_earg (FILE* f, EvalArg* earg){
-  write_string(f, earg->pipe);
-  write_string(f, earg->in_pipe);
-  write_string(f, earg->out_pipe);
-  write_string(f, earg->err_pipe);
-  write_string(f, earg->file);
-  write_string(f, earg->working_dir);
-  write_optional_strings(f, earg->env_vars);
-  write_strings(f, earg->argvs);
-}
-
-static void write_process_state (FILE* f, ProcessState* s){
-  write_int(f, s->state);
-  write_int(f, s->code);
-}
-
-// ===== Deserialization =====
-static void bread (void* xs0, int size, int n0, FILE* f){
-  char* xs = xs0;
-  int n = n0;
-  while(n > 0){
-    int c = fread(xs, size, n, f);
-    if(c < n){
-      if(ferror(f)) exit_with_error();
-      if(feof(f)) return;
-    }
-    n = n - c;
-    xs = xs + size*c;
-  }
-}
-static stz_int read_int (FILE* f){
-  stz_int n;
-  bread(&n, sizeof(stz_int), 1, f);
-  return n;
-}
-static stz_long read_long (FILE* f){
-  stz_long n;
-  bread(&n, sizeof(stz_long), 1, f);
-  return n;
-}
-static stz_byte* read_string (FILE* f){
-  stz_int n = read_int(f);
-  if(n < 0)
-    return NULL;
-  else{
-    stz_byte* s = (stz_byte*)stz_malloc(n + 1);
-    bread(s, 1, (int)n, f);
-    s[n] = '\0';
-    return s;
-  }
-}
-static stz_byte** read_strings (FILE* f){
-  stz_int n = read_int(f);
-  stz_byte** xs = (stz_byte**)stz_malloc(sizeof(stz_byte*)*(n + 1));
-  for(int i=0; i<n; i++)
-    xs[i] = read_string(f);
-  xs[n] = NULL;
-  return xs;
-}
-
-static stz_byte** read_optional_strings (FILE* f){
-  stz_int flag = read_int(f);
-  if(flag == 0){
-    return NULL;
-  }else{
-    return read_strings(f);
-  }
-}
-
-static EvalArg* read_earg (FILE* f){
-  EvalArg* earg = (EvalArg*)stz_malloc(sizeof(EvalArg));
-  earg->pipe = read_string(f);
-  earg->in_pipe = read_string(f);
-  earg->out_pipe = read_string(f);
-  earg->err_pipe = read_string(f);
-  earg->file = read_string(f);
-  earg->working_dir = read_string(f);
-  earg->env_vars = read_optional_strings(f);
-  earg->argvs = read_strings(f);
-  return earg;
-}
-static void read_process_state (FILE* f, ProcessState* s){
-  s->state = read_int(f);
-  s->code = read_int(f);
-}
-
-//===== Free =====
-static void free_strings (stz_byte** ss){
-  for(int i=0; ss[i] != NULL; i++)
-    stz_free(ss[i]);
-  stz_free(ss);
-}
-
-static void free_earg (EvalArg* arg){
-  stz_free(arg->pipe);
-  if(arg->in_pipe != NULL) stz_free(arg->in_pipe);
-  if(arg->out_pipe != NULL) stz_free(arg->out_pipe);
-  if(arg->err_pipe != NULL) stz_free(arg->err_pipe);
-  stz_free(arg->file);
-  if(arg->working_dir != NULL) stz_free(arg->working_dir);
-  if(arg->env_vars != NULL) free_strings(arg->env_vars);
-  free_strings(arg->argvs);
-  stz_free(arg);
-}
-
-//------------------------------------------------------------
-//-------------------- Process Queries -----------------------
-//------------------------------------------------------------
-
-static void get_process_state (stz_long pid, ProcessState* s, int wait_for_termination){
-  int status;
-  int ret = waitpid((pid_t)pid, &status, wait_for_termination? 0 : WNOHANG);
-
-  if(ret == 0)
-    *s = (ProcessState){PROCESS_RUNNING, 0};
-  else if(WIFEXITED(status))
-    *s = (ProcessState){PROCESS_DONE, WEXITSTATUS(status)};
-  else if(WIFSIGNALED(status))
-    *s = (ProcessState){PROCESS_TERMINATED, WTERMSIG(status)};
-  else if(WIFSTOPPED(status))
-    *s = (ProcessState){PROCESS_STOPPED, WSTOPSIG(status)};
-  else
-    *s = (ProcessState){PROCESS_RUNNING, 0};
-}
-
-//------------------------------------------------------------
-//----------------------- Execvpe ----------------------------
-//------------------------------------------------------------
-//The 'execvpe' frontend to 'execvp' does not exist in OS-X.
-//So implement a quick version of it.
-
-#ifdef PLATFORM_OS_X
-extern char **environ;
-int execvpe(const char *program, char **argv, char **envp){
-  char **saved = environ;
-  environ = envp;
-  int rc = execvp(program, argv);
-  environ = saved;
-  return rc;
-}
-#endif
-
-//------------------------------------------------------------
-//---------------------- Launcher Main -----------------------
-//------------------------------------------------------------
-
-#define LAUNCH_COMMAND 0
-#define STATE_COMMAND 1
-#define WAIT_COMMAND 2
-
-static void write_error_and_exit (int fd){
-  int code = errno;
-  write(fd, &code, sizeof(int));
-  close(fd);
-  exit(-1);
-}
-
-static void disable_ctrl_c () {
-  #ifdef PLATFORM_WINDOWS
-    SetConsoleCtrlHandler(NULL, TRUE);
-  #else
-    signal(SIGINT, SIG_IGN);
-  #endif
-}
-
-static void launcher_main (FILE* lin, FILE* lout){
-  disable_ctrl_c();
-  while(1){
-    //Read in command
-    int comm = fgetc(lin);
-    if(feof(lin)) exit(0);
-
-    //Interpret launch process command
-    if(comm == LAUNCH_COMMAND){
-      //Read in evaluation arguments
-      EvalArg* earg = read_earg(lin);
-      if(feof(lin)) exit(0);
-
-      //Create error-code pipe
-      int READ = 0;
-      int WRITE = 1;
-      int exec_error[2];
-      if(pipe(exec_error) < 0) exit_with_error();
-
-      //Fork a new child
-      stz_long pid = (stz_long)fork();
-      if(pid < 0) exit_with_error();
-
-      if(pid > 0){
-        //Read from error-code pipe
-        int exec_code;
-        close(exec_error[WRITE]);
-        int exec_r = read(exec_error[READ], &exec_code, sizeof(int));
-        close(exec_error[READ]);
-
-        if(exec_r == 0){
-          //Exec evaluated successfully
-          //Return new process id
-          write_long(lout, pid);
-          fflush(lout);
-        }
-        else if(exec_r == sizeof(int)){
-          //Exec evaluated unsuccessfully
-          //Return error code as negative long
-          write_long(lout, (stz_long)-exec_code);
-          fflush(lout);
-        }
-        else{
-          fprintf(stderr, "Unreachable code.");
-          exit(-1);
-        }
-      }else{
-        //Close exec pipe read, and close write end on successful exec
-        close(exec_error[READ]);
-        fcntl(exec_error[WRITE], F_SETFD, FD_CLOEXEC);
-
-        //Open named pipes
-        if(earg->in_pipe != NULL){
-          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->in_pipe), O_RDONLY);
-          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
-          dup2(fd, 0);
-        }
-        if(earg->out_pipe != NULL){
-          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->out_pipe), O_WRONLY);
-          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
-          dup2(fd, 1);
-        }
-        if(earg->err_pipe != NULL){
-          int fd = open_pipe(C_CSTR(earg->pipe), C_CSTR(earg->err_pipe), O_WRONLY);
-          if(fd < 0) write_error_and_exit(exec_error[WRITE]);
-          dup2(fd, 2);
-        }
-
-        //Set the working directory of the child process if explicitly
-        //requested.
-        if (earg->working_dir) {
-          if (chdir(C_CSTR(earg->working_dir)) == -1) {
-            write_error_and_exit(exec_error[WRITE]);
-          }
-        }
-
-        //Launch child process.
-        //If an environment is supplied then call execvpe, otherwise call execvp.
-        if(earg->env_vars == NULL)
-          execvp(C_CSTR(earg->file), (char**)earg->argvs);
-        else
-          execvpe(C_CSTR(earg->file), (char**)earg->argvs, (char**)earg->env_vars);
-
-        //Unsuccessful exec, write error number
-        write_error_and_exit(exec_error[WRITE]);
-      }
-    }
-    //Interpret state retrieval command
-    else if(comm == STATE_COMMAND || comm == WAIT_COMMAND){
-      //Read in process id
-      stz_long pid = read_long(lin);
-
-      //Retrieve state
-      ProcessState s; get_process_state(pid, &s, comm == WAIT_COMMAND);
-      write_process_state(lout, &s);
-      fflush(lout);
-    }
-    //Unrecognized command
-    else{
-      fprintf(stderr, "Illegal command: %d\n", comm);
-      exit(-1);
-    }
-  }
-}
-
-static stz_long launcher_pid = -1;
-static FILE* launcher_in = NULL;
-static FILE* launcher_out = NULL;
-void initialize_launcher_process (){
-  if(launcher_pid < 0){
-    //Create pipes
-    int READ = 0;
-    int WRITE = 1;
-    int lin[2];
-    int lout[2];
-    if(pipe(lin) < 0) exit_with_error();
-    if(pipe(lout) < 0) exit_with_error();
-
-    //Fork
-    stz_long pid = (stz_long)fork();
-    if(pid < 0) exit_with_error();
-
-    if(pid > 0){
-      //Parent
-      launcher_pid = pid;
-      close(lin[READ]);
-      close(lout[WRITE]);
-      launcher_in = fdopen(lin[WRITE], "w");
-      if(launcher_in == NULL) exit_with_error();
-      launcher_out = fdopen(lout[READ], "r");
-      if(launcher_out == NULL) exit_with_error();
-    }
-    else{
-      //Child
-      close(lin[WRITE]);
-      close(lout[READ]);
-      FILE* fin = fdopen(lin[READ], "r");
-      if(fin == NULL) exit_with_error();
-      FILE* fout = fdopen(lout[WRITE], "w");
-      if(fout == NULL) exit_with_error();
-      launcher_main(fin, fout);
-    }
-  }
-}
-
-static void make_pipe_name (char* pipe_name, int pipeid) {
-  sprintf(pipe_name, "/tmp/stanza_exec_pipe_%ld_%ld", (long)getpid(), (long)pipeid);
-}
-
-static int delete_process_pipe (FILE* fd, char* pipe_name, char* suffix) {
-  if (fd != NULL) {
-    int close_res = fclose(fd);
-    if (close_res == EOF) return -1;
-    char my_pipe_name[80];
-    sprintf(my_pipe_name, "%s%s", pipe_name, suffix);
-    int rm_res = remove(my_pipe_name);
-    if (rm_res < 0) return -1;
-  }
-  return 0;
-}
-
-stz_int delete_process_pipes (FILE* input, FILE* output, FILE* error, stz_int pipeid) {
-  char pipe_name[80];
-  make_pipe_name(pipe_name, (int)pipeid);
-  if (delete_process_pipe(input,  pipe_name, "_in") < 0)
-    return -1;
-  if (delete_process_pipe(output, pipe_name, "_out") < 0)
-    return -1;
-  if (delete_process_pipe(error,  pipe_name, "_err") < 0)
-    return -1;
-  return 0;
-}
-
-stz_int launch_process(stz_byte* file, stz_byte** argvs, stz_int input,
-                       stz_int output, stz_int error, stz_int pipeid,
-                       stz_byte* working_dir, stz_byte** env_vars, Process* process) {
-  //Initialize launcher if necessary
-  initialize_launcher_process();
-
-  //Figure out unique pipe name
-  char pipe_name[80];
-  make_pipe_name(pipe_name, (int)pipeid);
-
-  //Compute pipe sources
-  int pipe_sources[NUM_STREAM_SPECS];
-  for(int i=0; i<NUM_STREAM_SPECS; i++)
-    pipe_sources[i] = -1;
-  pipe_sources[input] = 0;
-  pipe_sources[output] = 1;
-  pipe_sources[error] = 2;
-
-  //Create pipes to child
-  if(pipe_sources[PROCESS_IN] >= 0)
-    RETURN_NEG(make_pipe(pipe_name, "_in"))
-  if(pipe_sources[PROCESS_OUT] >= 0)
-    RETURN_NEG(make_pipe(pipe_name, "_out"))
-  if(pipe_sources[PROCESS_ERR] >= 0)
-    RETURN_NEG(make_pipe(pipe_name, "_err"))
-
-  //Write in command and evaluation arguments
-  EvalArg earg = {STZ_STR(pipe_name), NULL, NULL, NULL, file, working_dir, env_vars, argvs};
-  if(input == PROCESS_IN) earg.in_pipe = STZ_STR("_in");
-  if(output == PROCESS_OUT) earg.out_pipe = STZ_STR("_out");
-  if(output == PROCESS_ERR) earg.out_pipe = STZ_STR("_err");
-  if(error == PROCESS_OUT) earg.err_pipe = STZ_STR("_out");
-  if(error == PROCESS_ERR) earg.err_pipe = STZ_STR("_err");
-  int r = fputc(LAUNCH_COMMAND, launcher_in);
-  if(r == EOF) return -1;
-  write_earg(launcher_in, &earg);
-  fflush(launcher_in);
-
-  //Open pipes to child
-  FILE* fin = NULL;
-  if(pipe_sources[PROCESS_IN] >= 0){
-    int fd = open_pipe(pipe_name, "_in", O_WRONLY);
-    RETURN_NEG(fd)
-    fin = fdopen(fd, "w");
-    if(fin == NULL) return -1;
-  }
-  FILE* fout = NULL;
-  if(pipe_sources[PROCESS_OUT] >= 0){
-    int fd = open_pipe(pipe_name, "_out", O_RDONLY);
-    RETURN_NEG(fd)
-    fout = fdopen(fd, "r");
-    if(fout == NULL) return -1;
-  }
-  FILE* ferr = NULL;
-  if(pipe_sources[PROCESS_ERR] >= 0){
-    int fd = open_pipe(pipe_name, "_err", O_RDONLY);
-    RETURN_NEG(fd)
-    ferr = fdopen(fd, "r");
-    if(ferr == NULL) return -1;
-  }
-
-  //Read back process id, and set errno if failed
-  stz_long pid = read_long(launcher_out);
-  if(pid < 0){
-    errno = (int)(- pid);
-    return -1;
-  }
-
-  //Return process structure
-  process->pid = pid;
-  process->in = fin;
-  process->out = fout;
-  process->err = ferr;
-  return 0;
-}
-
-int retrieve_process_state (Process* process, ProcessState* s, stz_int wait_for_termination){
-  stz_int pid = process->pid;
-  
-  //Check whether launcher has been initialized
-  if(launcher_pid < 0){
-    fprintf(stderr, "Launcher not initialized.\n");
-    exit(-1);
-  }
-
-  //Send command
-  int r = fputc(wait_for_termination? WAIT_COMMAND : STATE_COMMAND, launcher_in);
-  if(r == EOF) exit_with_error();
-  write_long(launcher_in, pid);
-  fflush(launcher_in);
-
-  //Read back process state
-  read_process_state(launcher_out, s);
-  return 0;
-}
-#else
+#ifdef PLATFORM_WINDOWS
 #include "process-win32.c"
-//============================================================
-//============== End Process Runtime =========================
-//============================================================
 #endif
+
+//============================================================
+//============== Stanza Entry Function =======================
+//============================================================
 
 #define STACK_TYPE 6
 
@@ -1237,6 +728,12 @@ STANZA_API_FUNC int MAIN_FUNC (int argc, char* argv[]) {
 
   //Initialize trackers to empty list.
   init.trackers = NULL;
+
+  //Initialize the autoreaping process handler if on
+  //posix.
+  #if defined(PLATFORM_LINUX) || defined(PLATFORM_OS_X)
+    install_autoreaping_sigchld_handler();
+  #endif
 
   //Call Stanza entry
   stanza_entry(&init);

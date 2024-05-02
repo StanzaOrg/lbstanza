@@ -6,6 +6,7 @@ defpackage stz/dl-ir :
   import stz/type-fargs
   import stz/absolute-info
   import stz/base-dir
+  import stz/printing-utils
 
 ;============================================================
 ;======================== PackageIO =========================
@@ -31,16 +32,29 @@ defmethod hash (p : ImportedPackage) :
 defmethod equal? (p1 : ImportedPackage, p2 : ImportedPackage) :
   equal?(package-name(p1), package-name(p2))
 
+;- forwarded-imports: If package A imports B, and B forwards C,
+;  then we say that C is imported into A via forwarding (assuming
+;  that C is not already directly imported into A).
+;  This field stores all packages that are imported via forwarding.
+;- direct-imports: These are the packages that are explicitly imported
+;  by the user via an import statement. This is a subset of the
+;  'imported-packages' field in that it does not include the packages
+;  that are implicitly imported due to type signatures.
 public defstruct PackageIO :
   package: Symbol
   imported-packages: Tuple<ImportedPackage> with: (updater => sub-imported-packages)
+  forwarded-imports: Tuple<Symbol>
+  direct-imports: Tuple<Symbol>
   imports: Tuple<Import> with: (updater => sub-imports)
   exports: Tuple<Export> with: (updater => sub-exports)
   documentation?:False|String with: (updater => sub-documentation)
 
+;Subset of PackageIO which does not include 'Import' field.
 public defstruct PackageExports :
   package: Symbol
   imported-packages: Tuple<ImportedPackage>
+  forwarded-imports: Tuple<Symbol>
+  direct-imports: Tuple<Symbol>
   exports: Tuple<Export> with: (updater => sub-exports)
 
 ;============================================================
@@ -442,7 +456,7 @@ public defn match? (x:Rec, y:Rec, types-in-io:HashSet<TypeId>|False) -> True|Fal
 ;============================================================
 
 public defn to-package-exports (io:PackageIO) :
-  PackageExports(package(io), imported-packages(io), exports(io))
+  PackageExports(package(io), imported-packages(io), forwarded-imports(io), direct-imports(io), exports(io))
 
 public defn to-package-exports? (io:PackageIO|False) :
   match(io:PackageIO) :
@@ -567,10 +581,26 @@ defmethod print (o:OutputStream, x:Export) :
     lnprint(o2, "doc: %_" % [documentation?(x)])
 
 defmethod print (o:OutputStream, x:PackageIO) :
-  print(o, "package %~ :" % [package(x)])
-  val o2 = IndentedStream(o)
-  lnprint(o2, "imported-packages = (%@)" % [imported-packages(x)])
-  lnprints(o2, cat(imports(x), exports(x)))
+  val items = [
+    falseable-field("documentation", documentation?(x))
+    named-list-fields("imported-packages", imported-packages(x))
+    line-wrapped-field("forwarded-imports", forwarded-imports(x))
+    line-wrapped-field("direct-imports", direct-imports(x))
+    inline-fields(imports(x))
+    inline-fields(exports(x))]
+  print(o, "package %~ %_" % [package(x), colon-field-list(items)])
+
+defmethod print (o:OutputStream, x:ImportedPackage) :
+  val items = [
+    simple-field("forward", forward(x))
+    falseable-field("only", only(x))
+    inline-fields(prefix(x))]
+  print(o, "import package %~ %_" % [package-name(x), colon-field-list(items)])
+
+defmethod print (o:OutputStream, x:ImportPrefix) :
+  match(names(x)) :
+    (names:Tuple<Symbol>) : print(o, "prefix(%,) => %~" % [names, prefix(x)])
+    (f:False) : print(o, "prefix => %~" % [prefix(x)])
 
 defmethod print (o:OutputStream, x:PackageExports) :
   print(o, "package %~ :" % [package(x)])
@@ -603,7 +633,8 @@ defsyntax dl-ir :
                          ?imports:#import ...
                          ?exports:#export ...) :
     ;[TODO] Add doc string reader macro. Defaulted to false for now.
-    PackageIO(name, to-tuple(map({ImportedPackage(_)}, ips)), to-tuple(imports), to-tuple(exports), false)
+    ;[TODO]: is the empty direct-import list OK?
+    PackageIO(name, to-tuple(map({ImportedPackage(_)}, ips)), [], [], to-tuple(imports), to-tuple(exports), false)
 
   defproduction dtype : DType
   defrule dtype = (byte) : DByte()
