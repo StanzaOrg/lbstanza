@@ -864,6 +864,9 @@ lostanza defn extend-heap (size:long) -> ref<False> :
 ;- size: the number of bytes that we desire from the heap. This is
 ;  used to compute whether or not to grow the heap.
 lostanza defn collect-garbage (size:long) -> long :
+  ;Record call count
+  total-gc-call-count = total-gc-call-count + 1
+
   ;Retrieve state
   val vms:ptr<VMState> = call-prim flush-vm()
 
@@ -871,6 +874,9 @@ lostanza defn collect-garbage (size:long) -> long :
   if heap-top-after-last-gc != null :
     val bytes-allocated = vms.heap.top - heap-top-after-last-gc
     total-bytes-allocated = total-bytes-allocated + bytes-allocated
+
+  ;Record initial heap top
+  val init-heap-top:ptr<long> = vms.heap.top
 
   ;Measure the current time before we start running GC.
   val time-before-gc = call-c clib/current_time_ms()
@@ -882,6 +888,9 @@ lostanza defn collect-garbage (size:long) -> long :
   val time-after-gc = call-c clib/current_time_ms()
   val time-elapsed = time-after-gc - time-before-gc
   total-ms-in-gc = total-ms-in-gc + time-elapsed
+
+  ;Record number of bytes freed.
+  total-bytes-freed = total-bytes-freed + (init-heap-top - vms.heap.top)
 
   ;Record the heap top after GC.
   heap-top-after-last-gc = vms.heap.top
@@ -2503,6 +2512,9 @@ public lostanza defn ensure-heap-space (size:long, vms:ptr<VMState>) -> ref<Fals
 ;============== Garbage Collector Statistics ================
 ;============================================================
 
+;The total number of times collect-garbage has been called since program start.
+lostanza var total-gc-call-count:int = 0
+
 ;The total number of milliseconds spent in GC since program
 ;start.
 lostanza var total-ms-in-gc:long = 0L
@@ -2515,6 +2527,9 @@ lostanza var total-bytes-allocated:long = 0L
 ;to old generation.
 lostanza var total-bytes-promoted:long = 0L
 
+;The total number of bytes freed by GC since program start.
+lostanza var total-bytes-freed:long = 0L
+
 ;The heap top pointer at the end of the last GC.
 lostanza var heap-top-after-last-gc:ptr<long> = 0L as ptr<?>
 
@@ -2523,6 +2538,10 @@ lostanza defn initialize-gc-statistics () -> ref<False> :
   val vms:ptr<VMState> = call-prim flush-vm()
   heap-top-after-last-gc = vms.heap.top
   return false
+
+;Return the total number of times collect-garbage has been called.
+public lostanza defn gc-call-count () -> ref<Int> :
+  return new Int{total-gc-call-count}
 
 ;Return the total time in milliseconds spent in GC since
 ;program start.
@@ -2541,6 +2560,10 @@ public lostanza defn bytes-allocated-by-program () -> ref<Long> :
 ;generation to old generation.
 public lostanza defn bytes-promoted-to-old-generation () -> ref<Long> :
   return new Long{total-bytes-promoted}
+
+;Return the total number of bytes freed by the program.
+public lostanza defn bytes-freed-by-program () -> ref<Long> :
+  return new Long{total-bytes-freed}
 
 ;============================================================
 ;============================================================
