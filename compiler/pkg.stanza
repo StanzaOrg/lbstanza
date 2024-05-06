@@ -262,6 +262,8 @@ defn hash-string (mode:CacheFilename) -> String :
   if debug?(mode) :
     print(buffer, "[DEBUG]")
   print(buffer, source-file(mode))
-  buffer $> to-bytearray
-         $> sha256-hash
-         $> to-hex
+  val hashstring = buffer
+                $> to-bytearray
+                $> sha256-hash
+                $> to-hex
+  hashstring[0 to 16]
