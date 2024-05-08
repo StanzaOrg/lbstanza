@@ -4672,11 +4672,12 @@ public lostanza deftype FileOutputStream <: OutputStream :
   closable?: long
 
 public lostanza defn FileOutputStream (filename:ref<String>, append?:ref<True|False>) -> ref<FileOutputStream> :
-   var file : ptr<?>
-   if append? == true : file = call-c clib/fopen(addr!(filename.chars), "ab")
-   else : file = call-c clib/fopen(addr!(filename.chars), "wb")
-   if file == null : throw(FileOpenException(filename, linux-error-msg()))
-   return new FileOutputStream{file, 1}
+  val processed-filename = condition-long-paths(filename)
+  var file : ptr<?>
+  if append? == true : file = call-c clib/fopen(addr!(processed-filename.chars), "ab")
+  else : file = call-c clib/fopen(addr!(processed-filename.chars), "wb")
+  if file == null : throw(FileOpenException(filename, linux-error-msg()))
+  return new FileOutputStream{file, 1}
 
 public defn FileOutputStream (filename:String) :
    FileOutputStream(filename, false)
@@ -5072,9 +5073,10 @@ public lostanza deftype FileInputStream <: InputStream :
   closable?: long
 
 public lostanza defn FileInputStream (filename:ref<String>) -> ref<FileInputStream> :
-   val file = call-c clib/fopen(addr!(filename.chars), "rb")
-   if file == null : throw(FileOpenException(filename, linux-error-msg()))
-   return new FileInputStream{file, 1}
+  val processed-filename = condition-long-paths(filename)
+  val file = call-c clib/fopen(addr!(processed-filename.chars), "rb")
+  if file == null : throw(FileOpenException(filename, linux-error-msg()))
+  return new FileInputStream{file, 1}
 
 public lostanza defn close (i:ref<FileInputStream>) -> ref<False> :
    if i.closable? :
@@ -5256,16 +5258,17 @@ public lostanza deftype RandomAccessFile :
   writable: ref<True|False>
 
 public lostanza defn RandomAccessFile (filename:ref<String>, writable:ref<True|False>) -> ref<RandomAccessFile> :
+  val processed-filename = condition-long-paths(filename)
   if writable == true :
-    var file:ptr<?> = call-c clib/fopen(addr!(filename.chars), "r+b")
+    var file:ptr<?> = call-c clib/fopen(addr!(processed-filename.chars), "r+b")
     if file == null :
-      file = call-c clib/fopen(addr!(filename.chars), "w+b")
+      file = call-c clib/fopen(addr!(processed-filename.chars), "w+b")
       if file == null : throw(FileOpenException(filename, linux-error-msg()))
       return new RandomAccessFile{file, writable}
     else :
       return new RandomAccessFile{file, writable}
   else :
-    val file = call-c clib/fopen(addr!(filename.chars), "rb")
+    val file = call-c clib/fopen(addr!(processed-filename.chars), "rb")
     if file == null : throw(FileOpenException(filename, linux-error-msg()))
     return new RandomAccessFile{file, writable}
 
@@ -5770,9 +5773,9 @@ lostanza defn ptr-to-string? (p:ptr<byte>) -> ref<String|False> :
     val p = call-c clib/windows_full_path_name(addr!(path.chars))
     return ptr-to-string?(p)
 
-  ;----------------------------------------------------------
-  ;---------------------- Utilities -------------------------
-  ;----------------------------------------------------------
+  ;---------------------------------------------------------
+  ;---------------------- Utilities ------------------------
+  ;---------------------------------------------------------
   ;The windows GetFinalPath function sometimes prepends the result
   ;with \\?\ to indicate that it is using Unicode syntax
   ;to represent the result. We do not currently handle Unicode
@@ -5917,6 +5920,54 @@ public defn file-exists? (filename:String) -> True|False :
   catch (e:FileTypeException) :
     false
 
+;---------------------------------------------------------
+;----------------- Extended Path Syntax ------------------
+;---------------------------------------------------------
+
+;Convert the given path string to use the Windows
+;"extended path" syntax. This is used to overcome the
+;260 character limit for file paths.
+;Returns false if we are unable to compute an absolute path
+;to use for the extended path.
+public defn to-extended-path-syntax (path-str:String) -> String|False :
+
+  ;Helper: Ensure that the given path is an
+  ;absolute path. Returns false if it is an invalid path, or
+  ;if it is a relative path, and the system cannot determine
+  ;the current working directory.  
+  defn to-absolute-path (path-str:String) -> String|False :
+    try :
+      val path = parse-path(path-str, Windows)
+      if absolute?(path) :
+        to-string(format(path,Windows))
+      else :
+        val current-dir = resolve-path(".")
+        match(current-dir:String) :
+          val full-path = relative-to-dir(parse-path(current-dir), path)
+          to-string(format(full-path,Windows))
+    catch (e:PathParsingError) :
+      false
+
+  ;Launch!
+  val abs-path = to-absolute-path(path-str)
+  match(abs-path:String) :
+    val expath-prefix = "\\\\?\\"
+    append(expath-prefix, abs-path)
+
+;Preprocesses the given path such that if it may exceed
+;Windows 260 character limit, we use the Windows "extended path"
+;syntax. 
+public defn condition-long-paths (path-str:String) -> String :
+  #if-defined(PLATFORM-WINDOWS) :
+    if length(path-str) >= 180 :
+      val expath = to-extended-path-syntax(path-str)
+      match(expath:String) : expath
+      else : path-str
+    else :
+      path-str
+  #else :
+    path-str
+
 ;============================================================
 ;================= Get the File Type ========================
 ;============================================================
@@ -5948,7 +5999,8 @@ lostanza defn to-file-type (filename:ref<String>, r:int) -> ref<FileType> :
     if follow-symlinks? == true :
       return file-type(resolve-path!(filename), false)
     else :
-      val result = call-c clib/get_file_type(addr!(filename.chars))
+      val processed-filename = condition-long-paths(filename)
+      val result = call-c clib/get_file_type(addr!(processed-filename.chars))
       return to-file-type(filename, result)
 #else :
   public lostanza defn file-type (filename:ref<String>, follow-symlinks?:ref<True|False>) -> ref<FileType> :
@@ -5982,8 +6034,9 @@ lostanza deftype StringList :
 
 extern list_dir: ptr<byte> -> ptr<StringList>
 public lostanza defn dir-files (dirname:ref<String>, include-parents?:ref<True|False>) -> ref<Tuple<String>> :
+  val processed-dirname = conditon-long-paths(dirname)  
   ;Call list dir
-  val list = call-c list_dir(addr!(dirname.chars))
+  val list = call-c list_dir(addr!(processed-dirname.chars))
   val null = 0L as ptr<?>
   if list == null: throw(DirException(dirname, linux-error-msg()))
   ;Convert to vector
