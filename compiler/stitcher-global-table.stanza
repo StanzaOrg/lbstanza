@@ -62,8 +62,6 @@ public defn GlobalTable (stubs:AsmStubs) -> GlobalTable :
 
   ;Emit all the globals
   defn emit-table (emitter:CodeEmitter) -> False :
-    defn E (x:Ins) : emit(emitter,x)
-
     ;Holds the current size of the entire emitted table.
     val counter = Counter(0)
 
@@ -76,8 +74,19 @@ public defn GlobalTable (stubs:AsmStubs) -> GlobalTable :
     ;Accumulate all roots here.
     val all-roots = Vector<Int>()
 
-    ;Emit DefSpace if sz > 0.
-    defn EDefSpace? (sz:Int) :
+    ;Emit an instruction.
+    defn E (x:Ins) : emit(emitter,x)
+
+    ;Emit an instruction and increment counter by
+    ;the given size.
+    defn E (x:Ins -- size:Int) :
+      E(x)
+      next(counter, size)
+
+    ;Emit space to advance the table to the given
+    ;offset.
+    defn advance-to-offset (offset:Int) :
+      val sz = advance-to(counter,offset)
       E(DefSpace(sz)) when sz > 0
       
     ;Emit the global table itself.
@@ -89,13 +98,11 @@ public defn GlobalTable (stubs:AsmStubs) -> GlobalTable :
         (item:GlobalInfo) :
           info = item
         (item:Padding) :
-          E(DefSpace(size(item)))
-          next(counter, size(item))
+          E(DefSpace(size(item)), size = size(item))
         (item:VMGlobal) :
           E(Comment(description(info, id(item), value(counter))))
           if empty?(roots(item)) :
-            E(DefSpace(size(item)))
-            next(counter, size(item))
+            E(DefSpace(size(item)), size = size(item))
           else :
             ;Retrieve the offset for the global.
             val offset = value(counter)
@@ -103,14 +110,20 @@ public defn GlobalTable (stubs:AsmStubs) -> GlobalTable :
             ;Sanity check: Ensure that global is 8-byte aligned.
             if offset % 8 != 0 :
               fatal("Global has roots but is not 8-byte aligned.")
-              
+
+            ;Emit a void marker for each root in the global.
             for root in roots(item) do :
-              val root-offset = offset + 8 * root              
+              ;Advance to the offset for the given root,
+              ;and emit the void marker.
+              val root-offset = offset + 8 * root
+              advance-to-offset(root-offset)
+              E(void-marker, size = 8)
+              
+              ;Register the index of the root into the all-roots vector.
               add(all-roots, root-offset / 8)
-              EDefSpace?(advance-to(counter, root-offset))
-              E(void-marker)
-            val end = offset + size(item)
-            EDefSpace?(advance-to(counter, end))         
+
+            ;Advance to the end of the constant.
+            advance-to-offset(offset + size(item))
     E(DefText())
     E(Comment("End of Global Table"))
 
