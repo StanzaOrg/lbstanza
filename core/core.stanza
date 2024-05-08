@@ -6034,7 +6034,7 @@ lostanza deftype StringList :
 
 extern list_dir: ptr<byte> -> ptr<StringList>
 public lostanza defn dir-files (dirname:ref<String>, include-parents?:ref<True|False>) -> ref<Tuple<String>> :
-  val processed-dirname = conditon-long-paths(dirname)  
+  val processed-dirname = condition-long-paths(dirname)  
   ;Call list dir
   val list = call-c list_dir(addr!(processed-dirname.chars))
   val null = 0L as ptr<?>
