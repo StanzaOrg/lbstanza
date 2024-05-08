@@ -2128,11 +2128,9 @@ defsyntax core :
    ;                      Try
    ;                      ===
    defproduction catch-clause: CatchClause
-   fail-if catch-clause = (catch (@do _ ...)) :
-      CSE(closest-info(), "Invalid catch clause. Did you forget a space between the catch keyword and the argument list?")
-   defrule catch-clause = (catch (?x:#binder! : ?type:#type!) #:! ?body:#exp!) :
+   defrule catch-clause = (catch (#do? ?x:#binder! : ?type:#type!) #:! ?body:#exp!) :
       CatchClause(x, One(type), body)
-   defrule catch-clause = (catch (?x:#binder!) #:! ?body:#exp!) :
+   defrule catch-clause = (catch (#do? ?x:#binder!) #:! ?body:#exp!) :
       CatchClause(x, None(), body)
    fail-if catch-clause = (catch) :
       CSE(closest-info(), "Invalid syntax for catch clause.")
