@@ -513,6 +513,21 @@ public defn TypeErrorFormatter (namemap:NameMap, hier:TypeHierarchy) :
           msg % [info-str(info(e)), def-name(n(funcs(e)[0])),
                  seq(quotes,keywords(e)), possibilities(funcs(e))]
 
+        (e:WrongTArgArityInCall) :
+          val targ-str =
+            if min-expected(e) == max-expected(e) :
+              "%_ explicit type arguments" % [min-expected(e)]
+            else if num-provided(e) < min-expected(e) :
+              "at least %_ explicit type arguments" % [min-expected(e)]
+            else if num-provided(e) > max-expected(e) :
+              "at most %_ explicit type arguments" % [max-expected(e)]
+            else :
+              fatal("Unreachable.")
+          val msg = "%_Function '%~' requires %_, but %_ is provided. \
+                       Possibilities are:\n%_"
+          msg % [info-str(info(e)), def-name(n(funcs(e)[0])), targ-str, num-provided(e),
+                 possibilities(funcs(e))]
+
 ;Helper: Add single-quotes around x.
 defn quotes (x) :
   "'%_'" % [x]
@@ -689,18 +704,20 @@ defn refine-error? (e:TypeError) -> TypeError|False :
   match(e) :
     (e:NoMix) :
       label<TypeError|False> return :
-        check-keywords(e,
-          return-extra-keywords = fn (keywords) :
-            return(ExtraKeywordsInCall(info(exp(e)), keywords,refs(exp(e))))
-          return-missing-keywords = fn (keywords) :
-            return(MissingKeywordsInCall(info(exp(e)), keywords,refs(exp(e)))))
+        defn return? (e:TypeError|False) :
+          return(e) when e is TypeError
+        return?(check-keywords(e))
+        return?(check-targ-arity(e))
     (e) :
       false
 
+;-----------------------------------------------------------
+;---------------- Checking Keyword Usage -------------------
+;-----------------------------------------------------------
+
 ;Analyze the keyword usage in the given call.
-defn check-keywords (e:NoMix --
-                     return-extra-keywords:Tuple<Symbol> -> Void,
-                     return-missing-keywords:Tuple<Symbol> -> Void) -> False :
+defn check-keywords (e:NoMix) ->
+                     ExtraKeywordsInCall|MissingKeywordsInCall|False :
 
   val provided = provided-keywords(ctxt(exp(e)) as Context|LSContext)
   match(provided:HashSet<Symbol>) :
@@ -712,12 +729,15 @@ defn check-keywords (e:NoMix --
       ;Check for extra keywords.
       val expected = expected-keywords(ref-types)
       val extra = filter({not expected[_]}, provided)
-      return-extra-keywords(to-tuple(extra)) when not empty?(extra)
+      if not empty?(extra) :
+        ExtraKeywordsInCall(info(exp(e)), to-tuple(extra), refs(exp(e)))
 
       ;Check for missing keywords.
-      val common = common-keywords(ref-types)
-      val missing = filter({not provided[_]}, common)
-      return-missing-keywords(to-tuple(missing)) when not empty?(missing)
+      else :
+        val common = common-keywords(ref-types)
+        val missing = filter({not provided[_]}, common)
+        if not empty?(missing) :
+          MissingKeywordsInCall(info(exp(e)), to-tuple(missing), refs(exp(e)))
 
 ;If the given context is a function-call context, then
 ;return the set of all keywords that were provided.
@@ -752,3 +772,35 @@ defn keywords (fargs:Seqable<FArg> --
     match(farg:KeywordArg) :
       allow-optional? or not optional?(farg)
   seq(name{_ as KeywordArg}, fargs*)
+
+;------------------------------------------------------------
+;-------------------- Check TArg Arity ----------------------
+;------------------------------------------------------------
+
+;Analyze the type argument arity in the given call.
+defn check-targ-arity (e:NoMix) -> WrongTArgArityInCall|False :
+
+  val provided = provided-targs(ctxt(exp(e)) as Context|LSContext)
+  match(provided:Int) :
+    ;Check refs are functions.
+    val ref-types = map(true-type, refs(exp(e)))
+    if all?({_ is TFunction|TLSFunction}, ref-types) :
+      val ref-types = ref-types as Tuple<TFunction|TLSFunction>
+
+      ;Check whether provided is within range.
+      val [min-expected, max-expected] = num-expected-targs(ref-types)
+      if provided < min-expected or provided > max-expected :
+        WrongTArgArityInCall(info(exp(e)), provided,
+                             min-expected, max-expected, refs(exp(e)))
+
+;If the given context is a function-call context, then
+;return the number of targs provided.
+defn provided-targs (ctxt:Context|LSContext) -> Int|False :
+  match(ctxt:CallCtxt|LSCallCtxt) :
+    length(targs(ctxt))
+
+;For the given funcs, where we assume their 'true-type' is
+;filled in, return the min and max expected targs.
+defn num-expected-targs (funcs:Tuple<TFunction|TLSFunction>) -> [Int,Int] :
+  val num-targs = map(length{targs(_)}, funcs)
+  [minimum(num-targs), maximum(num-targs)]

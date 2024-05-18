@@ -34,10 +34,8 @@ public defn TypeFormatter (name:Int -> Symbol) :
         arrow(paren?(seq(pexp,a1(t))), pexp(a2(t)))
       (t:TFunction) :
         val arrow-exp = arrow(pargs(a1(t)), pexp(a2(t)))
-        val type-args = cat(
-          for v in targs(t) seq : Atom("%~" % [name(v)])
-          for v in cargs(t) seq : Atom("?%~" % [name(v)]))
-        targ-dot(type-args, arrow-exp)        
+        val type-args = seq(pexp, cat(targs(t), cargs(t)))
+        targ-dot(type-args, arrow-exp)
       (t:TOr) :
         BinOp("|", pexp(a(t)), pexp(b(t)),
               precedence = 2, associativity = DualAssociative)
@@ -75,10 +73,8 @@ public defn TypeFormatter (name:Int -> Symbol) :
   defn pexp (t:LSType) -> PrintExp :
     match(t) :
       (t:TLSFunction) :
-        val type-args = cat(
-          for v in targs(t) seq : Atom("%~" % [name(v)])
-          for v in cargs(t) seq : Atom("?%~" % [name(v)]))
         val arrow-exp = arrow(pargs(a1(t)), pexp(a2(t)))
+        val type-args = seq(pexp, cat(targs(t), cargs(t)))
         targ-dot(type-args, arrow-exp)
       (t:FnT) :
         val x = match(r(t)) :
@@ -121,7 +117,7 @@ public defn TypeFormatter (name:Int -> Symbol) :
   ;Convert function arguments to single exp. Auto surrounds
   ;with parenthesis when appropriate for argument list.
   defn pargs (args:Tuple<FArg<Type|LSType>>) -> PrintExp :
-    val i = index-when({_ is KeywordArg}, args)    
+    val i = index-when({_ is KeywordArg}, args)
     match(i:Int) : paren(join-keywords(map(parg,args), i))
     else : paren?(seq(parg,args))
 
@@ -201,7 +197,7 @@ defn arrow (a:PrintExp, b:PrintExp) :
 ;Helper: a:b
 defn colon (a:PrintExp, b:PrintExp) :
   join-exp(a, sep = ":", b)
-        
+
 ;Helper: e ...
 defn ellipsis (e:PrintExp) :
   join-exp(e, " ...")
@@ -225,4 +221,3 @@ defn join-keywords (xs:Tuple<PrintExp>, i:Int) -> Seqable<PrintExp> :
     add(accum, join-exp(xs[i - 1], sep = " -- ", xs[i]))
     add-all(accum, xs[(i + 1) to false])
   accum
-

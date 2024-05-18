@@ -232,14 +232,14 @@ defn add-top-level-variables (comm:TComm) -> TComm :
     (c:TDefn) :
       val new-a1 = map(or-gradual, a1(c))
       val new-a2 = or-var(a2(c))
-      val new-type = TFunction(targs(c), cargs(c), new-a1, new-a2)
+      val new-type = TFunction(map(TVar,targs(c)), map(TCap,cargs(c)), new-a1, new-a2)
       set-type(n(c), new-type)
       c $> sub-a1{_, new-a1}
         $> sub-a2{_, new-a2}
     (c:TDefmulti) :
       val new-a1 = map(or-gradual, a1(c))
       val new-a2 = or-gradual(a2(c))
-      val new-type = TFunction(targs(c), cargs(c), new-a1, new-a2)
+      val new-type = TFunction(map(TVar,targs(c)), map(TCap,cargs(c)), new-a1, new-a2)
       set-type(n(c), new-type)
       c $> sub-a1{_, new-a1}
         $> sub-a2{_, new-a2}
@@ -250,7 +250,7 @@ defn add-top-level-variables (comm:TComm) -> TComm :
       set-type(n(c), type(c))
       c
     (c:TLDefn) :
-      val type = TLSFunction(targs(c), cargs(c), a1(c), a2(c))
+      val type = TLSFunction(map(TVar,targs(c)), map(TCap,cargs(c)), a1(c), a2(c))
       set-type(n(c), type)
       c
     (c:TLExternFn) :

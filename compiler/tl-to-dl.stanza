@@ -62,7 +62,7 @@ public defn exports (return:(Int, Rec) -> ?,
   defn conv (f:False, tvars:Tuple<Int>) : false
 
   match(c) :
-  
+
     (c:TDefType) :
       val id = typeid(n(c), namemap)
       val ntargs = length(args(c))
@@ -73,7 +73,7 @@ public defn exports (return:(Int, Rec) -> ?,
         val parent = conv(parent(c), args(c)) as DOf
         Child(id, ntargs, parent)
       return(n(c), TypeRec(id, ntargs, dparent, children))
-      
+
     (c:TLDefType) :
       val id = typeid(n(c), namemap)
       val ntargs = length(args(c))
@@ -88,15 +88,15 @@ public defn exports (return:(Int, Rec) -> ?,
         val item-field = sfield(unwrap-rest(rest))
         return(n(c), StructRec(id, ntargs, parent, base-fields, item-field))
       else :
-        return(n(c), StructRec(id, ntargs, parent, base-fields, false))      
-      
+        return(n(c), StructRec(id, ntargs, parent, base-fields, false))
+
     (c:TDef) :
       ;Because of tuple-destructuring not all defs have an entry in the namemap.
       if key?(namemap, n(c)) :
         val id = valid(n(c), namemap)
         val type = conv(type(c) as Type, [])
         return(n(c), ValRec(id, type, false, false))
-      
+
     (c:TDefTuple) :
       ;Because of tuple-destructuring not all defs have an entry in the namemap.
       for (n in ns(c), t in types(c)) do :
@@ -104,41 +104,41 @@ public defn exports (return:(Int, Rec) -> ?,
           val id = valid(n, namemap)
           val type = conv(t as Type, [])
           return(n, ValRec(id, type, false, false))
-      
+
     (c:TDefVar) :
       val id = valid(n(c), namemap)
       val type = conv(type(c) as Type, [])
       return(n(c), ValRec(id, type, true, false))
-      
+
     (c:TDefn) :
       val [id, a2] = fnid(n(c), targs(c), cargs(c), a1(c), a2(c) as Type, namemap)
       return(n(c), FnRec(id, a2, false, tail?(c)))
-      
+
     (c:TDefmulti) :
       val [id,a2] = fnid(n(c), targs(c), cargs(c), a1(c), a2(c) as Type, namemap)
       return(n(c), MultiRec(id, a2))
-      
+
     (c:TLDef) :
       val id = valid(n(c), namemap)
       val type = conv(type(c), [])
       return(n(c), ValRec(id, type, false, true))
-      
+
     (c:TLDefVar) :
       val id = valid(n(c), namemap)
       val type = conv(type(c), [])
       return(n(c), ValRec(id, type, true, true))
-      
+
     (c:TLDefn) :
       val [id,a2] = fnid(n(c), targs(c), cargs(c), a1(c), a2(c), namemap)
       return(n(c), FnRec(id, a2, true, tail?(c)))
-      
+
     (c:TLExternFn) :
       val pos-args = map(PositionalArg<LSType>{false, _}, a1(c))
       val [id,a2] = fnid(n(c), [], [], pos-args, a2(c), namemap)
       val ventry = namemap[n(c)]
       val lbl = name(ventry) when visibility(ventry) is-not Private
       return(n(c), ExternFnRec(id, a2, lbl))
-      
+
     (c:TExtern) :
       val id = valid(n(c), namemap)
       val lbl = name(id)
@@ -185,12 +185,12 @@ public defn to-dtype (t:Type, tvars:Tuple<Int>, namemap:NameMap) -> DType :
         DCap(lookup-var(n(t)))
       (t:TOf) :
         val id = typeid(n(t), namemap)
-        DOf(id, conv(args(t)))                  
+        DOf(id, conv(args(t)))
       (t:TTuple) :
         DTuple(conv(args(t)))
       (t:TOr) :
-        DOr?(conv(or-types(t)))        
-      (t:TAnd) : 
+        DOr?(conv(or-types(t)))
+      (t:TAnd) :
         DAnd?(conv(and-types(t)))
       (t:TVar) :
         lookup-var(n(t))
@@ -215,7 +215,7 @@ public defn to-dtype (t:LSType, tvars:Tuple<Int>, namemap:NameMap) -> DType :
 
   ;Convert LSType into a DType.
   defn conv (t:LSType) -> DType :
-    match(t) :      
+    match(t) :
       (t:ByteT) :
         DByte()
       (t:IntT) :
@@ -287,20 +287,16 @@ defn fnid (n:Int, targs:Tuple<Int>, cargs:Tuple<Int>,
 ;Requires an active DL id environment.
 public defn to-deftype (rec:StructRec|TypeRec) -> TDefType|TLDefType :
 
-  ;Helper: Create a Tuple<TVar> from their ids.
-  defn to-tvars (xs:Seqable<Int>) -> Tuple<TVar> :
-    to-tuple(seq(TVar{_, false}, xs))
-
-  ;Helper: Append 'b' to 'a' if b is given. 
+  ;Helper: Append 'b' to 'a' if b is given.
   defn append? (a:Seqable<Field>, b:Field|False) -> Tuple<Field> :
     match(b:Field) : to-tuple(cat(a, [b]))
     else : to-tuple(a)
-    
+
   match(rec) :
     (rec:StructRec) :
       val n = env-id(id(rec))
       val targ-ns = to-tuple(0 to ntargs(rec))
-      val type-args = to-tvars(targ-ns)
+      val type-args = targ-tvars(targ-ns)
       val parent = to-type?(parent(rec), type-args)
       val base-fields = for f in base(rec) seq :
         val type = to-lstype(type(f), type-args)
@@ -311,16 +307,16 @@ public defn to-deftype (rec:StructRec|TypeRec) -> TDefType|TLDefType :
           Field(name(items), type, mutable?(items))
         (items:False) : false
       TLDefType(false, n, targ-ns, parent, append?(base-fields, item-field))
-      
+
     (rec:TypeRec) :
       val n = env-id(id(rec))
       val targ-ns = to-tuple(0 to ntargs(rec))
-      val type-args = to-tvars(targ-ns)      
+      val type-args = targ-tvars(targ-ns)
       val parent = to-type?(parent(rec), type-args)
       val children = for c in children(rec) map :
         val n = env-id(id(c))
         val targ-ns = to-tuple(0 to ntargs(c))
-        val type-args = to-tvars(targ-ns)        
+        val type-args = targ-tvars(targ-ns)
         val parent = to-type(/parent(c), type-args)
         Child(n, targ-ns, parent)
       TDefType(false, n, targ-ns, parent, children)
@@ -331,7 +327,7 @@ public defn to-type (r:Rec) -> Type|LSType|False :
   match(r) :
     (r:ValRec) :
       if lostanza?(r) : to-lstype(type(r), [])
-      else : to-type(type(r), [])      
+      else : to-type(type(r), [])
     (r:FnRec) :
       if lostanza?(r) : to-lstype(id(r) as FnId, a2(r))
       else : to-type(id(r) as FnId, a2(r))
@@ -346,23 +342,23 @@ public defn to-type (r:Rec) -> Type|LSType|False :
 
 ;Convert to HiStanza function type.
 public defn to-type (id:FnId, a2:DType) -> TFunction :
-  val id-counter = to-seq(0 to false)
-  val tvars = to-tuple(take-n(ntargs(id), id-counter))
-  val cvars = to-tuple(take-n(ncargs(id), id-counter))
-  val targs = to-tuple(seq(TVar{_, false}, cat(tvars,cvars)))
-  val new-a1 = map(to-farg{_, targs}, a1(id))
-  val new-a2 = to-type(a2, targs)  
+  val nvars = ntargs(id) + ncargs(id)
+  val all-vars = targ-tvars(0 to nvars)
+  val tvars = all-vars[0 to ntargs(id)]
+  val cvars = map(tcap,all-vars[ntargs(id) to false])
+  val new-a1 = map(to-farg{_, all-vars}, a1(id))
+  val new-a2 = to-type(a2, all-vars)
   TFunction(tvars, cvars, new-a1, new-a2)
 
 ;Convert to LoStanza function type.
 public defn to-lstype (id:FnId, a2:DType) -> TLSFunction :
-  val id-counter = to-seq(0 to false)
-  val tvars = to-tuple(take-n(ntargs(id), id-counter))
-  val cvars = to-tuple(take-n(ncargs(id), id-counter))
-  val targs = to-tuple(seq(TVar{_, false}, cat(tvars,cvars)))
-  val new-a1 = map(to-lsfarg{_, targs}, a1(id))
-  val new-a2 = to-lstype(a2, targs)  
-  TLSFunction(tvars, cvars, new-a1, new-a2)  
+  val nvars = ntargs(id) + ncargs(id)
+  val all-vars = targ-tvars(0 to nvars)
+  val tvars = all-vars[0 to ntargs(id)]
+  val cvars = map(tcap,all-vars[ntargs(id) to false])
+  val new-a1 = map(to-lsfarg{_, all-vars}, a1(id))
+  val new-a2 = to-lstype(a2, all-vars)
+  TLSFunction(tvars, cvars, new-a1, new-a2)
 
 ;Convert to FArg.
 public defn to-farg (a:FArg<DType>, type-args:Tuple<Type>) -> FArg<Type> :
@@ -400,6 +396,25 @@ public defn to-lstype (t:DType, type-args:Tuple<Type>) -> LSType :
       (t:DFnT) : FnT(map(loop,a(t)), to-lstype?(r(t),type-args), loop(b(t)))
       (t:DStructT) : StructT(env-id(id(t)), map(to-type{_, type-args},targs(t)))
       (t) : RefT(to-type(t, type-args))
+
+;Helper: Return default TVars for use in conversion to Type.
+defn targ-tvars (ns:Seqable<Int>) -> Tuple<TVar> :
+  to-tuple(seq(TVar, ns, tvar-names()))
+
+;Helper: Convert a TVar into a TCap.
+defn tcap (t:TVar) -> TCap :
+  TCap(n(t), name(t))
+
+;Helper: Return an infinite list of default names
+;for type variables.
+defn tvar-names () -> Seqable<Symbol> :
+  val chars = ['T' 'S' 'U' 'V' 'R' 'X' 'Y' 'Z']
+  for i in 0 to false seq-cat :
+    if i == 0 :
+      seq(to-symbol, chars)
+    else :
+      for c in chars seq :
+        symbol-join([c, i])
 
 ;------------------------------------------------------------
 ;--------------------- Convenience --------------------------

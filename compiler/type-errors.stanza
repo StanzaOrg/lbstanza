@@ -310,6 +310,15 @@ public defmessages TypeError :
     keywords:Tuple<Symbol>
     funcs:Tuple<TRef|LSVar>
 
+  ;The wrong number of explicit type arguments were
+  ;passed.
+  defmessage WrongTArgArityInCall :
+    info:AbsoluteFileInfo|False
+    num-provided:Int
+    min-expected:Int
+    max-expected:Int
+    funcs:Tuple<TRef|LSVar>
+
 ;============================================================
 ;====================== Utilities ===========================
 ;============================================================

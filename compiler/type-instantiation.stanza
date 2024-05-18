@@ -332,10 +332,10 @@ defn make-instfn (capture:(Tuple<TUVar>, TArrow) -> False
     val capvars = fresh-capvars(instantiator, length(cargs(t)))
 
     ;Substitute the given types to get the actual argument types.
-    val cap-env = to-tuple $ cat(seq(KeyValue, targs(t), type-args),
-                                 seq({_ => n(_)}, cargs(t), capvars))
-    val sub-env = to-tuple $ cat(seq(KeyValue, targs(t), type-args),
-                                 seq(KeyValue, cargs(t), capvars))
+    val cap-env = to-tuple $ cat(seq({n(_) => _}, targs(t), type-args),
+                                 seq({n(_) => n(_)}, cargs(t), capvars))
+    val sub-env = to-tuple $ cat(seq({n(_) => _}, targs(t), type-args),
+                                 seq({n(_) => _}, cargs(t), capvars))
 
     ;Get the instantiated arrow type.
     val arrow = pattern-type(t, pat, tuple-id(instantiator))
@@ -392,10 +392,10 @@ defn make-lsinstfn (capture:(Tuple<TUVar>, FnT) -> False,
     val capvars = fresh-capvars(instantiator, length(cargs(t)))
 
     ;Substitute the given types to get the actual argument types.
-    val cap-env = to-tuple $ cat(seq(KeyValue, targs(t), type-args),
-                                 seq({_ => n(_)}, cargs(t), capvars))
-    val sub-env = to-tuple $ cat(seq(KeyValue, targs(t), type-args),
-                                 seq(KeyValue, cargs(t), capvars))
+    val cap-env = to-tuple $ cat(seq({n(_) => _}, targs(t), type-args),
+                                 seq({n(_) => n(_)}, cargs(t), capvars))
+    val sub-env = to-tuple $ cat(seq({n(_) => _}, targs(t), type-args),
+                                 seq({n(_) => _}, cargs(t), capvars))
 
     ;Get the instantiated FnT type.
     val fnt = pattern-type(t, pat, tuple-id(instantiator))

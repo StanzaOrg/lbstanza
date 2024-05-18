@@ -188,7 +188,7 @@ defn sub-caps-with-table (t:TypeItem,
 
 ;Convert all captured variables to TVar.
 public defn uncap (t:Type) -> Type :
-  match(t:TCap) : TVar(n(t),false)
+  match(t:TCap) : TVar(n(t),name(t))
   else : map-type(uncap, t)
 
 ;Convert all captured variables to TVar.
