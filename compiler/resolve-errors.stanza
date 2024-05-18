@@ -6,11 +6,20 @@ defpackage stz/resolve-errors :
   import stz/dl-ir
 
 ;============================================================
-;===================== Exceptions ===========================
+;==================== Error Bundle ==========================
 ;============================================================
 
+;Bundles all errors from resolver together.
+public defstruct ResolveErrors <: Exception :
+  errors: Tuple<ResolveError>
+
+;Abstract type representing all resolver errors.
 public deftype ResolveError <: Exception
 public defmulti info (e:ResolveError) -> AbsoluteFileInfo|False
+
+;============================================================
+;================== Individual Errors =======================
+;============================================================
 
 public defstruct NoResolve <: ResolveError :
   name:Symbol
@@ -73,29 +82,39 @@ public defstruct MissingForwardedPackage <: ResolveError :
 public defstruct ForwardingCycle <: ResolveError :
   src-packages:Seq<Symbol>
 
+;============================================================
+;======================= Printers ===========================
+;============================================================
+
+defmethod print (o:OutputStream, e:ResolveErrors) :
+  print(o, "%n" % [errors(e)])
+
 defmethod print (o:OutputStream, ps:ForwardingCycle) :
   print(o, "Packages form a cycle via forwarding: ")
   print-all(o, join(src-packages(ps), ", "))
 
 defmethod print (o:OutputStream, e:MissingType) :
-  val FMT = "Missing type: The %~ package requires the %_/%_ type to be defined."
+  val FMT = "Missing type: The '%~' package requires the '%_/%_' type to be defined."
   print(o, FMT % [src-package(e), package(typeid(e)), name(typeid(e))])
 
 defmethod print (o:OutputStream, e:MissingForwardedPackage) :
-  val FMT = "Missing forwarded package: The %~ package needs the %~ package."
+  val FMT = "Missing forwarded package: The '%~' package needs the '%~' package."
   print(o, FMT % [src-package(e), imported-package(e)])
 
 defmethod print (o:OutputStream, e:NoResolve) :
-  val FMT = "%_Could not resolve %~."
-  print(o, FMT % [infostr(e), name(e)])
+  val explanation = match(explain-using-operators(name(e))) :
+    (explanation:OperatorExplanation) : " %_" % [explanation]
+    (f:False) : ""
+  val FMT = "%_Could not resolve '%~'.%_"
+  print(o, FMT % [infostr(e), name(e), explanation])
 
 defmethod print (o:OutputStream, e:BadQualifyPackage) :
   val [package,n] = qualifier(name(e))
-  val FMT = "%_Could not resolve %~. The package %~ could not be found."
+  val FMT = "%_Could not resolve '%~'. The package '%~' could not be found."
   print(o, FMT % [infostr(e), name(e), package])
 
 defmethod print (o:OutputStream, e:NoPackage) :
-  val FMT = "%_Could not find package %~, which is imported by package %~."
+  val FMT = "%_Could not find package '%~', which is imported by package '%~'."
   print(o, FMT % [infostr(e), name(e), source-package(e)])
 
 defmethod print (o:OutputStream, e:NoConditionalPackage) :
@@ -103,45 +122,51 @@ defmethod print (o:OutputStream, e:NoConditionalPackage) :
   print(o, FMT % [name(e)])
 
 defmethod print (o:OutputStream, e:AmbResolve) :
-  val FMT = "%_Ambiguous reference to %~. Possibilities include:"
+  val FMT = "%_Ambiguous reference to '%~'. Possibilities include:"
   print(o, FMT % [infostr(e), name(e)])
   val o2 = IndentedStream(o)
   for v in entries(e) do :
-    val FMT = "%_%~ defined in package %~"
+    val FMT = "%_'%~' defined in package '%~'"
     lnprint(o2, FMT % [infostr(v), name(v), package(v)])
 
 defmethod print (o:OutputStream, e:NotMutable) :
-  val FMT = "%_Expected %~ to be a mutable variable, but %_"
+  val FMT = "%_Expected '%~' to be a mutable variable, but %_"
   print(o, FMT % [infostr(e), name(e), descriptor(entry(e))])
 
 defmethod print (o:OutputStream, e:NotFn) :
-  val FMT = "%_Expected %~ to be a function, but %_"
+  val FMT = "%_Expected '%~' to be a function, but %_"
   print(o, FMT % [infostr(e), name(e), descriptor(entry(e))])
 
 defmethod print (o:OutputStream, e:NotClass) :
-  val FMT = "%_Expected %~ to be a type, but %_"
+  val FMT = "%_Expected '%~' to be a type, but %_"
   print(o, FMT % [infostr(e), name(e), descriptor(entry(e))])
 
 defmethod print (o:OutputStream, e:NotHSClass) :
-  val FMT = "%_Expected %~ to be a HiStanza type, but %_"
+  val FMT = "%_Expected '%~' to be a HiStanza type, but %_"
   print(o, FMT % [infostr(e), name(e), descriptor(entry(e))])
 
 defmethod print (o:OutputStream, e:NotLSClass) :
-  val FMT = "%_Expected %~ to be a LoStanza type, but %_"
+  val FMT = "%_Expected '%~' to be a LoStanza type, but %_"
   print(o, FMT % [infostr(e), name(e), descriptor(entry(e))])
 
 defmethod print (o:OutputStream, e:NotCapVar) :
-  val FMT = "%_Expected %~ to be a captured type variable, but %_"
+  val FMT = "%_Expected '%~' to be a captured type variable, but %_"
   print(o, FMT % [infostr(e), name(e), descriptor(entry(e))])
 
 defmethod print (o:OutputStream, e:NotPrim) :
-  val FMT = "%_%~ is not a recognized HiStanza primitive."
+  val FMT = "%_'%~' is not a recognized HiStanza primitive."
   print(o, FMT % [infostr(e), name(e)])
 
 defmethod print (o:OutputStream, e:NotLSPrim) :
-  val FMT = "%_%~ is not a recognized LoStanza primitive."
+  val FMT = "%_'%~' is not a recognized LoStanza primitive."
   print(o, FMT % [infostr(e), name(e)])
 
+;============================================================
+;================= Descriptor Utility =======================
+;============================================================
+
+;Computes a printable description of the given variable entry.
+;E.g. 'name' defined at user.stanza in package 'user' is a HiStanza value.
 defn descriptor (e:VEntry) :
   val typestr = match(type(e)) :
     (t:ValE) : "HiStanza value"
@@ -160,8 +185,13 @@ defn descriptor (e:VEntry) :
   val defstr = match(info(e)) :
     (info:AbsoluteFileInfo) : " at %_" % [/info(info)]
     (info:False) : ""
-  "%~ defined%_ in package %~ is a %_." % [name(e), defstr, package(e), typestr]
+  "'%~' defined%_ in package '%~' is a %_." % [name(e), defstr, package(e), typestr]
 
+;============================================================
+;================= Infostr Utility ==========================
+;============================================================
+
+;Converts the FileInfo into a small prefix. E.g. "user.stanza: "
 defn infostr (info:AbsoluteFileInfo|False) :
   match(info) :
     (info:AbsoluteFileInfo) : "%_: " % [/info(info)]
@@ -171,7 +201,77 @@ defn infostr (e:ResolveError) :
 defn infostr (e:VEntry) :
   infostr(info(e))
 
-public defstruct ResolveErrors <: Exception :
-  errors: Tuple<ResolveError>
-defmethod print (o:OutputStream, e:ResolveErrors) :
-  print(o, "%n" % [errors(e)])
+;============================================================
+;================= Operator Explanation =====================
+;============================================================
+
+;Indicates an explanation for a symbol as an operator sequence.
+defstruct OperatorExplanation :
+  items:Tuple<Symbol|Char>
+
+defmethod print (o:OutputStream, e:OperatorExplanation) :
+  val msg = "Operators need to be surrounded by spaces. Did you mean '%s'."
+  print(o, msg % [items(e)])
+
+;If a symbol can be explained as an operator sequence,
+;then return it.
+defn explain-using-operators (sym:Symbol) -> OperatorExplanation|False :
+  val items = split-using-operators(to-string(sym))
+  if alternating-operator-sequence?(items) :
+    OperatorExplanation(items)
+
+;Set of common operators to try and explain a missing
+;symbol.
+val COMMON-OPERATORS = to-hashset<Char>("+-*=")
+
+;Split up the string as if it was separated by single operator
+;characters.
+defn split-using-operators (sym:String) -> Tuple<Symbol|Char> :
+
+  ;Accumulate characters one at a time into here.
+  val buffer = Vector<Char>()
+  var buffer-is-operator?:True|False = false
+
+  ;Accumulate completed words here.
+  val strings = Vector<String>()
+
+  ;If buffer is not empty, record its contents
+  ;in the 'strings' list, and clear it.
+  defn flush-buffer () -> False :
+    if not empty?(buffer) :
+      add(strings, String(buffer))
+      clear(buffer)
+
+  ;Launch!
+  for c in sym :
+    ;Case: It's an operator.
+    if COMMON-OPERATORS[c] :
+      flush-buffer() when not buffer-is-operator?
+      buffer-is-operator? = true
+      add(buffer, c)
+    ;Case: It's not an operator.
+    else :
+      flush-buffer() when buffer-is-operator?
+      buffer-is-operator? = false
+      add(buffer, c)
+
+  ;Finish.
+  flush-buffer()
+
+  ;Convert to strings and characters.
+  to-tuple $ for s in strings seq:
+    if length(s) == 1 and COMMON-OPERATORS[s[0]] :
+      s[0]
+    else :
+      to-symbol(s)
+
+;Return true if the given items form an alternating operator sequence.
+;Eg. "A" '+' "B"
+defn alternating-operator-sequence? (items:Tuple<Symbol|Char>) -> True|False :
+  if any?({_ is Char}, items) :
+    val n = length(items)
+    val [op-start, word-start] = [0, 1] when items[0] is Char
+                            else [1, 0]
+    all?({items[_] is Char}, op-start to n by 2) and
+    all?({items[_] is Symbol}, word-start to n by 2)      
+
