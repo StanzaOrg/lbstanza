@@ -296,7 +296,7 @@ defn pkg-up-to-date? (params:ProjParams, auxfile:AuxFile,
                             optimize?(params),
                             debug?(params))
     within indented() :
-      vprintln(pkg-rec)
+      vprintln(1,pkg-rec)
 
     ;Check whether the record exists in the aux file.
     val up-to-date? = key?(auxfile, pkg-rec)
