@@ -28,6 +28,7 @@ defpackage stz/front-end :
   import stz/namemap
   import stz/check-lang-engine
   import stz/timing-log-api
+  import stz/verbose
   import parser/macroexpander
 
 ;<doc>=======================================================
@@ -112,9 +113,6 @@ public defmulti supported-vm-packages (inputs:FrontEndInputs) -> Tuple<String|Sy
   []
 
 public defmulti debug? (inputs:FrontEndInputs) -> True|False :
-  false
-
-public defmulti verbose? (inputs:FrontEndInputs) -> True|False :
   false
 
 ;============================================================
@@ -211,19 +209,17 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
     ;compiled package table.
     val input-objs = read-inputs!(map(InputSource,inputs(sys)))
     val input-package-names = to-tuple $ seq(name, input-objs)
-    if verbose?(sys) :
-      println("Input packages: %," % [input-package-names])
+    vprintln("Input packages: %," % [input-package-names])
     load-package-table!(input-objs)
     ;Begin the resolver loop.
     let loop () :
       ;Loop again after resolving recovery files.
       defn* recover-from (files:Tuple<PackageInFile>) :
-        if verbose?(sys) :
-          println("There are type inconsistencies in the downstream .pkg packages. Compilation \
-                   will be attempted again after reloading the following packages from their \
-                   source files:")
-          for source in files do :
-            println("  package %~ from %~" % [package(source), filename(source)])
+        vprintln("There are type inconsistencies in the downstream .pkg packages. Compilation \
+                  will be attempted again after reloading the following packages from their \
+                  source files:")
+        for source in files do :
+          vprintln("  package %~ from %~" % [package(source), filename(source)])
         load-package-table! $ read-inputs!(files)
         loop()
 
@@ -231,8 +227,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
       if not empty?(recovery-files) :
         recover-from(recovery-files)
       else :
-        if verbose?(sys) :
-          println("Computed package initialization order: %," % [init-order(resolved)])
+        vprintln("Computed package initialization order: %," % [init-order(resolved)])
         val epackages = compile-to-el(ipackages(resolved))
         val all-pkgs = order-packages(cat(epackages, pkgs(package-table)),
                                       init-order(resolved))
@@ -339,12 +334,10 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
           ".stanza" :
             read-ipackages(filename)
           ".pkg" :
-            if verbose?(sys) :
-              println("Reading pre-compiled package from %~." % [filename])
+            vprintln("Reading pre-compiled package from %~." % [filename])
             [load-package(filename, false, false, load-pkg-with-asm?(sys))]
           ".fpkg" :
-            if verbose?(sys) :
-              println("Reading pre-compiled package from %~." % [filename])
+            vprintln("Reading pre-compiled package from %~." % [filename])
             [load-package(filename, false, true, load-pkg-with-asm?(sys))]
           else :
             throw(InvalidExtensionError(filename)))
@@ -410,12 +403,10 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
   ;  CheckError|CheckErrors
   ;  IOException
   defn read-ipackages (filename:String) -> Tuple<IPackage> :
-    if verbose?(sys) :
-      println("Reading from input file %~." % [filename])
+    vprintln("Reading from input file %~." % [filename])
     val forms = within log-time(FRONT-END-READER-READ-FILES, suffix(filename)) :
       read-file(filename)
-    if verbose?(sys) :
-      println("Expanding macros in input file %~." % [filename])
+    vprintln("Expanding macros in input file %~." % [filename])
     val expanded = within log-time(FRONT-END-READER-MACROEXPAND, suffix(filename)) :
       try : macroexpand(macroexpander(sys), forms)
       catch (e:Exception) : throw(MacroexpansionError(e))
@@ -424,8 +415,7 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
                    catch (e:Exception) : false
     val packages = within log-time(FRONT-END-READER-IPACKAGE-CREATION, suffix(filename)) :
       to-ipackages(expanded, base-dir, core-imports)
-    if verbose?(sys) :
-      println("Input file %~ contains packages %,." % [filename, seq(name,packages)])
+    vprintln("Input file %~ contains packages %,." % [filename, seq(name,packages)])
     packages
 
   ;----------------------------------------------------------

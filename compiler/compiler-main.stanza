@@ -157,7 +157,6 @@ public defn compile (proj-manager:ProjManager,
                      backend:Backend,
                      optimize?:True|False,
                      debug?:True|False,
-                     verbose?:True|False,
                      macro-plugins:Tuple<String>,
                      force-build-macros?:True|False) -> CompilationResult :
   defn driver () :
@@ -177,7 +176,6 @@ public defn compile (proj-manager:ProjManager,
       defmethod conditional-dependencies (this, pkgs:Seqable<Symbol>) : conditional-imports(proj-manager, pkgs)
       defmethod supported-vm-packages (this) : supported-vm-packages
       defmethod debug? (this) : debug?
-      defmethod verbose? (this) : verbose?
       defmethod macroexpander (this) : macroexpander
 
     ;Create pkg saver for saving output .pkg files.
