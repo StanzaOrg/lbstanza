@@ -284,6 +284,41 @@ public defmessages TypeError :
     exp:TMix|LSMix
     n:Int
 
+;===========================================================
+;=================== Refined Errors ========================
+;===========================================================
+
+;Refined errors are errors that are not directly produced
+;by the type-fill algorithm, and are instead computed
+;by analyzing an existing error and deducing a more 
+;human-readable cause.
+
+public defmessages TypeError :
+
+  ;A keyword is provided that isn't supported by
+  ;any available possibility. Typically seen when a
+  ;keyword is mispelled.
+  defmessage ExtraKeywordsInCall :
+    info:AbsoluteFileInfo|False
+    keywords:Tuple<Symbol>
+    funcs:Tuple<TRef|LSVar>
+    
+  ;All possibilities require a given keyword that was
+  ;not provided.
+  defmessage MissingKeywordsInCall :
+    info:AbsoluteFileInfo|False
+    keywords:Tuple<Symbol>
+    funcs:Tuple<TRef|LSVar>
+
+  ;The wrong number of explicit type arguments were
+  ;passed.
+  defmessage WrongTArgArityInCall :
+    info:AbsoluteFileInfo|False
+    num-provided:Int
+    min-expected:Int
+    max-expected:Int
+    funcs:Tuple<TRef|LSVar>
+
 ;============================================================
 ;====================== Utilities ===========================
 ;============================================================

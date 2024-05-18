@@ -405,8 +405,10 @@ defn remove-nodoc (e:IExp) -> IExp :
 
 ;Create an IBegin when necessary.
 defn IBegin? (es:List<IExp>) -> IExp :
-  if length(es) == 1 : head(es)
-  else : IBegin(es, info(head(es)))
+  switch(length(es)) :
+    0 : IBegin(List(), false)
+    1 : head(es)
+    else : IBegin(es, info(head(es)))
 
 ;Substitute the expressions in the given IVisibility exp.
 defn sub-exps (v:IVisibility, es:List<IExp>) -> IVisibility :
@@ -426,7 +428,7 @@ defenum IExpPackageCategory :
   WithinPackageExp
 
 defn split-packages (e:IExp,
-                     default-imports:Tuple<IImport>) :
+                     default-imports:Tuple<IImport>) -> Tuple<IPackage> :
   ;Flatten sequence of expressions.
   val all-exps = Vector<IExp>()
   let loop (e:IExp = e) :
@@ -597,7 +599,9 @@ defn to-iimport (e:IImportExp) -> IImport :
          ICast: {exp:e type:t}
          IUpCast: {exp:e type:t}
          ISet: {name:v value:e}
-         IDo: {func:farg args:(arge ...)}
+         IDo:
+           {func:farg args:(arge ...)}
+           custom{ensure-unique-keyword-args(args(e))}
          IPrim: {op:v, args:(e ...)}
          ILiteral: custom{ensure-literal(e)}
          ITuple: {exps:(e ...)}
@@ -776,7 +780,9 @@ defn to-iimport (e:IImportExp) -> IImport :
          ILiteral: custom{ensure-ls-literal(e)}
          + lcalls
       lcalls("LoStanza call") :
-         ILSDo: {func:ltfarg args:(large ...)}
+         ILSDo:
+           {func:ltfarg args:(large ...)}
+           custom{ensure-unique-keyword-args(args(e))}
          ILSPrim: {op:v args:(le ...)}
          ILSCallC: {func:lfarg args:(le ...)}
 
@@ -1067,3 +1073,14 @@ defn ensure-unique-arities (es:List<IExp>) :
             val msg = "Multifn requires functions with different arities. There are \
                        multiple functions with arity %_." % [arity]
             stz/check-lang-engine/error!(info(e), msg)
+
+defn ensure-unique-keyword-args (args:List<IExp>) :
+  val keyword-set = HashSet<Symbol>()
+  for arg in filter-by<IKeywordArg>(args) :
+    match(name(arg)) :
+      (v:IVar) :
+        if not add(keyword-set, name(v)) :
+          val msg = "Keyword argument '%~' has already been provided."
+          stz/check-lang-engine/error!(info(arg), msg % [name(v)])
+      (e) :
+        false

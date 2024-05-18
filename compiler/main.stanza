@@ -120,7 +120,7 @@ defn print-version-command () :
 ;================== Compilation System ======================
 ;============================================================
 
-defn build-system (verbose?:True|False) :
+defn build-system () :
   new System :
     defmethod call-cc (this, platform:Symbol, asm:String, ccfiles:Tuple<String>, ccflags:Tuple<String> output:String) :
       ;Ensure that the directory for creating these files exist.
@@ -150,11 +150,10 @@ defn build-system (verbose?:True|False) :
       emit-args(["-o" output])
 
       ;Output for debugging
-      if verbose? :
-        println("Call C compiler with arguments:")
-        within indented() :
-          for a in args do :
-            println("%~" % [a])
+      vprintln("Call C compiler with arguments:")
+      within indented() :
+        for a in args do :
+          vprintln("%~" % [a])
 
       ;First directly try calling the cc-prog driver.
       try :
@@ -170,10 +169,9 @@ defn build-system (verbose?:True|False) :
         throw(e)
 
     defmethod call-shell (this, platform:Symbol, command:String) :
-      if verbose? :
-        println("Call shell with command:")
-        within indented() :
-          println("%~" % [command])
+      vprintln("Call shell with command:")
+      within indented() :
+        vprintln("%~" % [command])
       if platform == `windows :
         ;The Windows "cmd /c" command expects the input command
         ;to be input as separate arguments. (This is a quirk resulting
@@ -189,13 +187,11 @@ defn build-system (verbose?:True|False) :
 
     defmethod make-temporary-file (this) :
       val filename = to-string("temp%_.s" % [rand()])
-      if verbose? :
-        println("Create temporary file %~." % [filename])
+      vprintln("Create temporary file %~." % [filename])
       filename
 
     defmethod delete-temporary-file (this, file:String) :
-      if verbose? :
-        println("Delete temporary file %~." % [file])
+      vprintln("Delete temporary file %~." % [file])
       delete-file(file)
 
 ;Helper: Check whether the given cc driver is installed.
@@ -346,7 +342,7 @@ defn compile-command () :
     ;Launch!
     within run-with-timing-log(cmd-args) :
       within run-with-verbose-flag(cmd-args) :
-        compile(build-settings(), build-system(verbose-setting?()), verbose-setting?())
+        compile(build-settings(), build-system())
 
   ;Command
   Command("compile",
@@ -396,7 +392,7 @@ defn build-command () :
     ;Launch!
     within run-with-timing-log(cmd-args) :
       within run-with-verbose-flag(cmd-args) :
-        compile(build-settings(), build-system(verbose-setting?()), verbose-setting?())
+        compile(build-settings(), build-system())
 
   ;Command definition
   Command("build",
@@ -436,8 +432,7 @@ defn extend-command () :
   val extend-msg = "Extends the Stanza compiler with additional syntax packages and external bindings."
   defn extend (cmd-args:CommandArgs) :
     defn main () :
-      val verbose? = flag?(cmd-args, "verbose")
-      compile(build-settings(), build-system(verbose?), verbose?)
+      compile(build-settings(), build-system())
 
     defn build-settings () :
       val new-args = to-tuple $
@@ -498,8 +493,7 @@ defn compile-test-command () :
   val compile-test-msg = "Compiles the given test files together with the Stanza testing framework to build a test executable."
   defn compile-test (cmd-args:CommandArgs) :
     defn main () :
-      val verbose? = flag?(cmd-args, "verbose")
-      compile(build-settings(), build-system(verbose?), verbose?)
+      compile(build-settings(), build-system())
 
     defn build-settings () :
       defn symbol? (name:String) :
@@ -567,8 +561,7 @@ defn compile-macros-command () :
   val compile-macros-msg = "Compiles the given macros files together with the Stanza macro plugin framework to build a macro plugin."
   defn compile-macro (cmd-args:CommandArgs) :
     defn main () :
-      val verbose? = flag?(cmd-args, "verbose")
-      compile(build-settings(), build-system(verbose?), verbose?)
+      compile(build-settings(), build-system())
 
     defn build-settings () :
       defn symbol? (name:String) :
@@ -716,6 +709,7 @@ defn repl-command () :
     common-stanza-flag("build-from-source")
     common-stanza-flag("macros")
     common-stanza-flag("timing-log")
+    common-stanza-flag("verbose")
     Flag("-", AllRemainingFlag, OptionalFlag,
       "If provided, the remaining arguments after this flag will be set as the command line arguments for the REPL session.")]
 
@@ -736,37 +730,38 @@ defn repl-command () :
     ;if -confirm-before-exit is provided.
     defn main () :
       within run-with-timing-log(cmd-args) :
-        ;Read configuration file
-        read-config-file()
+        within run-with-verbose-flag(cmd-args) :
+          ;Read configuration file
+          read-config-file()
 
-        ;Add pkg directories to pkg-dirs
-        for dir in get?(cmd-args, "pkg", []) do :
-          STANZA-PKG-DIRS = cons(dir, STANZA-PKG-DIRS)
+          ;Add pkg directories to pkg-dirs
+          for dir in get?(cmd-args, "pkg", []) do :
+            STANZA-PKG-DIRS = cons(dir, STANZA-PKG-DIRS)
 
-        ;Add flags
-        for flag in get?(cmd-args, "flags", []) do :
-          add-flag(to-symbol(flag))
+          ;Add flags
+          for flag in get?(cmd-args, "flags", []) do :
+            add-flag(to-symbol(flag))
 
-        ;Add platform flag
-        add-flag(platform-flag(OUTPUT-PLATFORM))
+          ;Add platform flag
+          add-flag(platform-flag(OUTPUT-PLATFORM))
 
-        ;Setup command line arguments.
-        val new-cmd-args = to-tuple $ cat(["repl"], get?(cmd-args, "-", []))
-        set-command-line-arguments(new-cmd-args)
+          ;Setup command line arguments.
+          val new-cmd-args = to-tuple $ cat(["repl"], get?(cmd-args, "-", []))
+          set-command-line-arguments(new-cmd-args)
 
-        ;Get the desired terminal style.
-        val terminal-style =
-          if flag?(cmd-args, "terminal-style") :
-            parse-terminal-style(cmd-args["terminal-style"]) as TerminalStyle
-          else :
-            default-terminal-style()
+          ;Get the desired terminal style.
+          val terminal-style =
+            if flag?(cmd-args, "terminal-style") :
+              parse-terminal-style(cmd-args["terminal-style"]) as TerminalStyle
+            else :
+              default-terminal-style()
 
-        ;Launch REPL
-        repl(args(cmd-args),
-             terminal-style,
-             get?(cmd-args, "macros", [])
-             get?(cmd-args, "pkg-cache", false)
-             flag?(cmd-args, "build-from-source"))
+          ;Launch REPL
+          repl(args(cmd-args),
+               terminal-style,
+               get?(cmd-args, "macros", [])
+               get?(cmd-args, "pkg-cache", false)
+               flag?(cmd-args, "build-from-source"))
 
     ;Confirm exit
     if flag?(cmd-args, "confirm-before-exit") :

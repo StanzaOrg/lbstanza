@@ -53,13 +53,13 @@ public defast :
 
     ;Represents a type that can only be used for 'defn' definitions.
     TFunction :
-      targs:Tuple<Int>
-      cargs:Tuple<Int>
+      targs:Tuple<TVar>
+      cargs:Tuple<TCap>
       a1:Tuple<FArg<Type>>
       a2:Type
 
     ;Used within a TFunction to represent a capturing position.
-    TCap : (n:Int, name:Symbol|False)
+    TCap : (n:Int, name:Symbol|False with: (default => false))
 
     ;Represents the Top type. Only used for
     ;inference purposes.
@@ -123,8 +123,8 @@ public defast :
 
     ;Represents a type that can only be used for 'lostanza defn' definitions.
     TLSFunction:
-      targs:Tuple<Int>
-      cargs:Tuple<Int>
+      targs:Tuple<TVar>
+      cargs:Tuple<TCap>
       a1:Tuple<FArg<LSType>>
       a2:LSType
 
@@ -133,6 +133,8 @@ public defast :
   ;----------------------------------------------------------
   defmapper (f:TypeItem -> TypeItem) :
     (x:Type) : f(x) as Type
+    (x:Tuple<TVar>) : map({f(_) as TVar}, x)
+    (x:Tuple<TCap>) : map({f(_) as TCap}, x)
     (x:Tuple<Type>) : map({f(_) as Type}, x)
     (x:Tuple<TArrow>) : map({f(_) as TArrow}, x)
     (xs:Tuple<FArg<Type>>) :
@@ -148,6 +150,8 @@ public defast :
 
   defdoer (f:TypeItem -> ?) :
     (x:Type) : f(x)
+    (x:Tuple<TVar>) : do(f,x)
+    (x:Tuple<TCap>) : do(f,x)
     (x:Tuple<Type>) : do(f,x)
     (x:Tuple<TArrow>) : do(f,x)
     (x:Tuple<FnT>) : do(f,x)

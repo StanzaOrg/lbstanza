@@ -30,6 +30,7 @@ defpackage stz/compiler :
   import stz/built-in-package-managers
   import stz/dir-utils
   import stz/package-manager-system
+  import stz/verbose
 
 ;============================================================
 ;==================== System Callbacks ======================
@@ -222,7 +223,7 @@ defn join-vm-packages-with-inputs (settings:BuildSettings) -> BuildSettings :
 ;============= Compile Given Files EntryPoint ===============
 ;============================================================
 
-public defn compile (settings:BuildSettings, system:System, verbose?:True|False) :
+public defn compile (settings:BuildSettings, system:System) :
   defn main () :
     read-config-file()
     val projenv = StandardProjEnv()
@@ -245,7 +246,7 @@ public defn compile (settings:BuildSettings, system:System, verbose?:True|False)
       val proj-params = ProjParams(compiler-flags(), optimize?(settings*), debug?(settings*), false, build-from-source?(settings), pkg-cache-dir(settings*))
       val proj-manager = ProjManager(proj, proj-params, auxfile)
       val comp-result = compile(proj-manager, auxfile, build-inputs!(settings*), vm-packages(settings*), asm?(settings*), pkg-dir(settings*),
-                                backend(platform(settings*) as Symbol), optimize?(settings*), debug?(settings*), verbose?,
+                                backend(platform(settings*) as Symbol), optimize?(settings*), debug?(settings*), 
                                 macro-plugins(settings*), inputs(settings) is BuildTarget)
       save(auxfile)
       within delete-temporary-file-on-finish(settings*) :
@@ -309,9 +310,8 @@ public defn compile (settings:BuildSettings, system:System, verbose?:True|False)
           val filename = external-dependencies(settings) as String
           spit(filename, format-report(deps))
       defmethod notify-external-dependency-up-to-date (this, file?:True|False, name:String) :
-        if verbose? :
-          val type-str = "file" when file? else "flag"
-          println("External dependency: %_ %~ is up-to-date." % [type-str, name])
+        val type-str = "file" when file? else "flag"
+        vprintln("External dependency: %_ %~ is up-to-date." % [type-str, name])
       defmethod call-shell (this, platform:Symbol, command:String) :
         call-shell(system, platform, command)
       defmethod call-cc (this,
