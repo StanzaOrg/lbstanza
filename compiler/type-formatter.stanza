@@ -33,7 +33,7 @@ public defn TypeFormatter (name:Int -> Symbol) :
       (t:TArrow) :
         arrow(paren?(seq(pexp,a1(t))), pexp(a2(t)))
       (t:TFunction) :
-        val arrow-exp = arrow(paren?(seq(parg,a1(t))), pexp(a2(t)))
+        val arrow-exp = arrow(pargs(a1(t)), pexp(a2(t)))
         val type-args = cat(
           for v in targs(t) seq : Atom("%~" % [name(v)])
           for v in cargs(t) seq : Atom("?%~" % [name(v)]))
@@ -78,7 +78,7 @@ public defn TypeFormatter (name:Int -> Symbol) :
         val type-args = cat(
           for v in targs(t) seq : Atom("%~" % [name(v)])
           for v in cargs(t) seq : Atom("?%~" % [name(v)]))
-        val arrow-exp = arrow(paren?(seq(parg, a1(t))), pexp(a2(t)))
+        val arrow-exp = arrow(pargs(a1(t)), pexp(a2(t)))
         targ-dot(type-args, arrow-exp)
       (t:FnT) :
         val x = match(r(t)) :
@@ -117,6 +117,13 @@ public defn TypeFormatter (name:Int -> Symbol) :
         else : e
       (a:VarArg<Type|LSType>) :
         ellipsis(colon(Atom(written(/name(a))), pexp(type(a))))
+
+  ;Convert function arguments to single exp. Auto surrounds
+  ;with parenthesis when appropriate for argument list.
+  defn pargs (args:Tuple<FArg<Type|LSType>>) -> PrintExp :
+    val i = index-when({_ is KeywordArg}, args)    
+    match(i:Int) : paren(join-keywords(map(parg,args), i))
+    else : paren?(seq(parg,args))
 
   ;Return the formatting function.
   new TypeFormatter :
@@ -205,3 +212,17 @@ defn join-exp (a, b -- sep:String = "") :
   val b* = atom?(b)
   BinOp(Atom(sep), a*, b*, precedence = 0,
         associativity = DualAssociative)
+
+;Join the expressions assuming keywords start at
+;index i.
+defn join-keywords (xs:Tuple<PrintExp>, i:Int) -> Seqable<PrintExp> :
+  val accum = Vector<PrintExp>()
+  if i == 0 :
+    add(accum, prefix("-- ", xs[0]))
+    add-all(accum, xs[1 to false])
+  else :
+    add-all(accum, xs[0 to i])
+    add(accum, join-exp(xs[i - 1], sep = " -- ", xs[i]))
+    add-all(accum, xs[(i + 1) to false])
+  accum
+
