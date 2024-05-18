@@ -405,8 +405,10 @@ defn remove-nodoc (e:IExp) -> IExp :
 
 ;Create an IBegin when necessary.
 defn IBegin? (es:List<IExp>) -> IExp :
-  if length(es) == 1 : head(es)
-  else : IBegin(es, info(head(es)))
+  switch(length(es)) :
+    0 : IBegin(List(), false)
+    1 : head(es)
+    else : IBegin(es, info(head(es)))
 
 ;Substitute the expressions in the given IVisibility exp.
 defn sub-exps (v:IVisibility, es:List<IExp>) -> IVisibility :
@@ -426,7 +428,7 @@ defenum IExpPackageCategory :
   WithinPackageExp
 
 defn split-packages (e:IExp,
-                     default-imports:Tuple<IImport>) :
+                     default-imports:Tuple<IImport>) -> Tuple<IPackage> :
   ;Flatten sequence of expressions.
   val all-exps = Vector<IExp>()
   let loop (e:IExp = e) :
@@ -1072,7 +1074,7 @@ defn ensure-unique-arities (es:List<IExp>) :
                        multiple functions with arity %_." % [arity]
             stz/check-lang-engine/error!(info(e), msg)
 
-defn ensure-unique-keyword-args (info:False|AbsoluteFileInfo, args:List<IExp>) :
+defn ensure-unique-keyword-args (args:List<IExp>) :
   val keyword-set = HashSet<Symbol>()
   for arg in filter-by<IKeywordArg>(args) :
     match(name(arg)) :
