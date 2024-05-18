@@ -210,7 +210,7 @@ defstruct OperatorExplanation :
   items:Tuple<Symbol|Char>
 
 defmethod print (o:OutputStream, e:OperatorExplanation) :
-  val msg = "Operators need to be surrounded by spaces. Did you mean '%s'."
+  val msg = "Operators need to be surrounded by spaces. Did you mean '%s'?"
   print(o, msg % [items(e)])
 
 ;If a symbol can be explained as an operator sequence,
