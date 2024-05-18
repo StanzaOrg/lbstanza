@@ -342,7 +342,7 @@ defn compile-command () :
     ;Launch!
     within run-with-timing-log(cmd-args) :
       within run-with-verbose-flag(cmd-args) :
-        compile(build-settings(), build-system(), verbose-setting?())
+        compile(build-settings(), build-system())
 
   ;Command
   Command("compile",
@@ -392,7 +392,7 @@ defn build-command () :
     ;Launch!
     within run-with-timing-log(cmd-args) :
       within run-with-verbose-flag(cmd-args) :
-        compile(build-settings(), build-system(), verbose-setting?())
+        compile(build-settings(), build-system())
 
   ;Command definition
   Command("build",
@@ -432,8 +432,7 @@ defn extend-command () :
   val extend-msg = "Extends the Stanza compiler with additional syntax packages and external bindings."
   defn extend (cmd-args:CommandArgs) :
     defn main () :
-      val verbose? = flag?(cmd-args, "verbose")
-      compile(build-settings(), build-system(), verbose?)
+      compile(build-settings(), build-system())
 
     defn build-settings () :
       val new-args = to-tuple $
@@ -494,8 +493,7 @@ defn compile-test-command () :
   val compile-test-msg = "Compiles the given test files together with the Stanza testing framework to build a test executable."
   defn compile-test (cmd-args:CommandArgs) :
     defn main () :
-      val verbose? = flag?(cmd-args, "verbose")
-      compile(build-settings(), build-system(), verbose?)
+      compile(build-settings(), build-system())
 
     defn build-settings () :
       defn symbol? (name:String) :
@@ -563,8 +561,7 @@ defn compile-macros-command () :
   val compile-macros-msg = "Compiles the given macros files together with the Stanza macro plugin framework to build a macro plugin."
   defn compile-macro (cmd-args:CommandArgs) :
     defn main () :
-      val verbose? = flag?(cmd-args, "verbose")
-      compile(build-settings(), build-system(), verbose?)
+      compile(build-settings(), build-system())
 
     defn build-settings () :
       defn symbol? (name:String) :
