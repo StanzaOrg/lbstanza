@@ -597,7 +597,9 @@ defn to-iimport (e:IImportExp) -> IImport :
          ICast: {exp:e type:t}
          IUpCast: {exp:e type:t}
          ISet: {name:v value:e}
-         IDo: {func:farg args:(arge ...)}
+         IDo:
+           {func:farg args:(arge ...)}
+           custom{ensure-unique-keyword-args(args(e))}
          IPrim: {op:v, args:(e ...)}
          ILiteral: custom{ensure-literal(e)}
          ITuple: {exps:(e ...)}
@@ -776,7 +778,9 @@ defn to-iimport (e:IImportExp) -> IImport :
          ILiteral: custom{ensure-ls-literal(e)}
          + lcalls
       lcalls("LoStanza call") :
-         ILSDo: {func:ltfarg args:(large ...)}
+         ILSDo:
+           {func:ltfarg args:(large ...)}
+           custom{ensure-unique-keyword-args(args(e))}
          ILSPrim: {op:v args:(le ...)}
          ILSCallC: {func:lfarg args:(le ...)}
 
@@ -1067,3 +1071,14 @@ defn ensure-unique-arities (es:List<IExp>) :
             val msg = "Multifn requires functions with different arities. There are \
                        multiple functions with arity %_." % [arity]
             stz/check-lang-engine/error!(info(e), msg)
+
+defn ensure-unique-keyword-args (info:False|AbsoluteFileInfo, args:List<IExp>) :
+  val keyword-set = HashSet<Symbol>()
+  for arg in filter-by<IKeywordArg>(args) :
+    match(name(arg)) :
+      (v:IVar) :
+        if not add(keyword-set, name(v)) :
+          val msg = "Keyword argument '%~' has already been provided."
+          stz/check-lang-engine/error!(info(arg), msg % [name(v)])
+      (e) :
+        false
