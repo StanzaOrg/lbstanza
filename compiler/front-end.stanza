@@ -14,6 +14,7 @@ defpackage stz/front-end :
   import stz/bindings
   import stz/renamer
   import stz/resolver
+  import stz/resolve-errors
   import stz/ids
   import stz/type
   import stz/type-errors with:

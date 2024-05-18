@@ -19,6 +19,7 @@ defpackage stz/repl :
   import stz/input
   import stz/renamer
   import stz/resolver
+  import stz/resolve-errors
   import stz/type-errors
   import stz/tl-to-el
   import stz/dl
