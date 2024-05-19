@@ -155,6 +155,6 @@ public defn FormattedTypeErrors (namemap:NameMap,
                                  hier:TypeHierarchy,
                                  input-es:TypeErrors) -> TypeErrors :
   val formatter = TypeErrorFormatter(namemap, hier)
-  val es = prune-errors(input-es)
+  val es = prune-errors(input-es, formatter)
   val ferrors = map(FormattedTypeError{formatter, _}, errors(es))
   TypeErrors(ferrors)

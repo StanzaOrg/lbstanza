@@ -551,8 +551,10 @@ defn capitalize (s:String) -> String :
 ;If there are errors that satisfy ready-to-display? then this
 ;function keeps only those errors. Otherwise, the errors are
 ;left unchanged.
-public defn prune-errors (es:TypeErrors) -> TypeErrors :
-  spit("before-prune.log", es)  
+public defn prune-errors (es:TypeErrors, f:TypeErrorFormatter) -> TypeErrors :
+  defn formatted (es:Seqable<TypeError>) :
+    "%n" % [seq(format{f, _}, es)]
+  spit("before-prune.log", formatted(errors(es)))
 
   val p1 = Vector<TypeError>()
   val p2 = Vector<TypeError>()
@@ -562,8 +564,8 @@ public defn prune-errors (es:TypeErrors) -> TypeErrors :
       (r:UnresolvedPreferred) : add(p2, e)
       (r:False) : false
 
-  spit("prune-p1.log", "%n" % [p1])
-  spit("prune-p2.log", "%n" % [p2])
+  spit("prune-p1.log", formatted(p1))
+  spit("prune-p2.log", formatted(p2))
 
   val result = 
     if not empty?(p1) :
@@ -573,7 +575,7 @@ public defn prune-errors (es:TypeErrors) -> TypeErrors :
     else :
       es
 
-  spit("after-prune.log", result)
+  spit("after-prune.log", formatted(errors(result)))
   result
 
 ;Represents an item that plays a part in the condition
