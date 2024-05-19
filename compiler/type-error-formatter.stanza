@@ -552,6 +552,8 @@ defn capitalize (s:String) -> String :
 ;function keeps only those errors. Otherwise, the errors are
 ;left unchanged.
 public defn prune-errors (es:TypeErrors) -> TypeErrors :
+  spit("before-prune.log", es)  
+
   val p1 = Vector<TypeError>()
   val p2 = Vector<TypeError>()
   for e in errors(es) do :
@@ -559,12 +561,20 @@ public defn prune-errors (es:TypeErrors) -> TypeErrors :
       (r:True) : add(p1, e)
       (r:UnresolvedPreferred) : add(p2, e)
       (r:False) : false
-  if not empty?(p1) :
-    TypeErrors(to-tuple(p1))
-  else if not empty?(p2) :
-    TypeErrors(to-tuple(p2))
-  else :
-    es
+
+  spit("prune-p1.log", "%n" % [p1])
+  spit("prune-p2.log", "%n" % [p2])
+
+  val result = 
+    if not empty?(p1) :
+      TypeErrors(to-tuple(p1))
+    else if not empty?(p2) :
+      TypeErrors(to-tuple(p2))
+    else :
+      es
+
+  spit("after-prune.log", result)
+  result
 
 ;Represents an item that plays a part in the condition
 ;that is tested for before a type error is issued.

@@ -56,6 +56,8 @@ public defn type-program (ipackages:Tuple<IPackage>,
     val solver = SolverState(type-eqns, hierarchy(tprog-with-vars))
     solve(solver)
 
+    spit("tprog-with-vars.log", tprog-with-vars)
+
     ;Now that they are solved, fill in the
     ;program with the solutions.
     val tprog-solved = match(fill-solution(tprog-with-vars, solver)) :
