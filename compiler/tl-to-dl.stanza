@@ -374,7 +374,7 @@ public defn to-type (t:DType, type-args:Tuple<Type>) -> Type :
     match(t) :
       (t:DOf) : TOf(env-id(id(t)), map(loop,targs(t)))
       (t:DTVar) : type-args[index(t)]
-      (t:DCap) : TCap(n(loop(tvar(t)) as TVar), false)
+      (t:DCap) : tcap(to-type(tvar(t), type-args) as TVar)
       (t:DAnd) : reduce(TAnd, seq(loop, types(t)))
       (t:DOr) : reduce(TOr, seq(loop, types(t)))
       (t:DTop) : TGradual()
