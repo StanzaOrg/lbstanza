@@ -33,7 +33,7 @@ public defn TypeFormatter (name:Int -> Symbol) :
       (t:TArrow) :
         arrow(paren?(seq(pexp,a1(t))), pexp(a2(t)))
       (t:TFunction) :
-        val arrow-exp = arrow(pargs(a1(t)), pexp(a2(t)))
+        val arrow-exp = arrow(parglist(a1(t)), pexp(a2(t)))
         val type-args = seq(pexp, cat(targs(t), cargs(t)))
         targ-dot(type-args, arrow-exp)
       (t:TOr) :
@@ -45,7 +45,7 @@ public defn TypeFormatter (name:Int -> Symbol) :
       (t:TOf) :
         val elide-args? = all?({_ is TGradual}, args(t))
         if elide-args? : Atom(written(name(n(t))))
-        else : of(Atom(written(name(n(t)))), angle(seq(pexp,args(t))))
+        else : of(written(name(n(t))), seq(pexp,args(t)))
       (t:TVar) :
         match(/name(t)) :
           (n:Symbol) : Atom(written(n))
@@ -73,7 +73,7 @@ public defn TypeFormatter (name:Int -> Symbol) :
   defn pexp (t:LSType) -> PrintExp :
     match(t) :
       (t:TLSFunction) :
-        val arrow-exp = arrow(pargs(a1(t)), pexp(a2(t)))
+        val arrow-exp = arrow(parglist(a1(t)), pexp(a2(t)))
         val type-args = seq(pexp, cat(targs(t), cargs(t)))
         targ-dot(type-args, arrow-exp)
       (t:FnT) :
@@ -92,14 +92,14 @@ public defn TypeFormatter (name:Int -> Symbol) :
       (t:DoubleT) : Atom("double")
       (t:UnknownT) : Atom("?")
       (t:UVarT) : Atom(written(name(n(t))))
-      (t:PtrT) : of("ptr", angle(pexp(type(t))))
+      (t:PtrT) : of("ptr", pexp(type(t)))
       (t:RestT) : ellipsis(pexp(type(t)))
       (t:StructT) :
         val elide-args? = all?({_ is TGradual}, args(t))
         val name-exp = Atom(written(name(n(t))))
         if elide-args? : name-exp
-        else : of(name-exp, angle(seq(pexp,args(t))))
-      (t:RefT) : of("ref", angle(pexp(type(t))))
+        else : of(name-exp, seq(pexp,args(t)))
+      (t:RefT) : of("ref", pexp(type(t)))
 
   ;Convert function arg to exp.
   defn parg (a:FArg<Type|LSType>) -> PrintExp :
@@ -116,10 +116,19 @@ public defn TypeFormatter (name:Int -> Symbol) :
 
   ;Convert function arguments to single exp. Auto surrounds
   ;with parenthesis when appropriate for argument list.
-  defn pargs (args:Tuple<FArg<Type|LSType>>) -> PrintExp :
+  defn parglist (args:Tuple<FArg<Type|LSType>>) -> PrintExp :
+    ;Are there any keyword arguments?
+    ;If so, then we need the '--' separator.
     val i = index-when({_ is KeywordArg}, args)
-    match(i:Int) : paren(join-keywords(map(parg,args), i))
-    else : paren?(seq(parg,args))
+    match(i:Int) :
+      paren(insert-keyword-separator(map(parg,args), i))
+    else :
+      ;Parentheses can be omitted if there are no
+      ;special arguments.
+      if all?(simple-positional-arg?, args) :
+        paren?(seq(parg,args))
+      else :
+        paren(seq(parg,args))
 
   ;Return the formatting function.
   new TypeFormatter :
@@ -186,8 +195,8 @@ defn atom? (e) :
   else : Atom(e)
 
 ;Helper: a<b>
-defn of (a, b:PrintExp) :
-  BinOp("", atom?(a), b, precedence = 4)
+defn of (a, b:PrintExp|Seqable<PrintExp>) :
+  BinOp("", atom?(a), angle(b), precedence = 4)
 
 ;Helper: a -> b
 defn arrow (a:PrintExp, b:PrintExp) :
@@ -209,15 +218,15 @@ defn join-exp (a, b -- sep:String = "") :
   BinOp(Atom(sep), a*, b*, precedence = 0,
         associativity = DualAssociative)
 
-;Join the expressions assuming keywords start at
-;index i.
-defn join-keywords (xs:Tuple<PrintExp>, i:Int) -> Seqable<PrintExp> :
-  val accum = Vector<PrintExp>()
+;Insert the '--' keyword separator before the
+;i'th expression.
+defn insert-keyword-separator (xs:Tuple<PrintExp>, i:Int) -> Seqable<PrintExp> :
+  val ret = to-array<PrintExp|False>(xs)
   if i == 0 :
-    add(accum, prefix("-- ", xs[0]))
-    add-all(accum, xs[1 to false])
+    ret[0] = prefix("-- ", ret[0] as PrintExp)
   else :
-    add-all(accum, xs[0 to i])
-    add(accum, join-exp(xs[i - 1], sep = " -- ", xs[i]))
-    add-all(accum, xs[(i + 1) to false])
-  accum
+    ret[i] = join-exp(ret[i - 1] as PrintExp, sep = " -- ", ret[i] as PrintExp)
+    ret[i - 1] = false
+  filter-by<PrintExp>(ret)
+
+

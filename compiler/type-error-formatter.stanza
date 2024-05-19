@@ -74,8 +74,10 @@ public defn TypeErrorFormatter (namemap:NameMap, hier:TypeHierarchy) :
       (e:LSField) : "field '.%_'" % [name(e)]
 
   ;Return a human-readable string describing the given expression.
-  defn exp-description (e:TExp|LSExp) :
-    defn fmt (s:String, n:Int) : s % [def-name(n)]
+  defn exp-description (e:TExp|LSExp -- capital?:True|False = false) :
+    defn fmt (s:String, n:Int) :
+      if capital? : capitalize(s) % [def-name(n)]
+      else : s % [def-name(n)]
     match(e) :
       (e:TRef) : fmt("variable '%_'", n(e))
       (e:TMix) : fmt("function '%_'", n(refs(e)[0]))
@@ -325,7 +327,7 @@ public defn TypeErrorFormatter (namemap:NameMap, hier:TypeHierarchy) :
           val [num-targs, num-args] = match(exp(e)) :
             (e:TDo|LSDo) : [length(targs(e)), length(args(e))]
             (e:LSCallC) : [0, length(args(e))]
-          "%_Cannot call %_ of type '%_' with %_ type arguments and %_ value arguments" % [
+          "%_Cannot call %_ of type '%_' with %_ type arguments and %_ value arguments." % [
           info-str(exp(e)), exp-description(func), type-description(type!(func)), num-targs, num-args]
 
         (e:BadPrimitive) :
@@ -348,15 +350,15 @@ public defn TypeErrorFormatter (namemap:NameMap, hier:TypeHierarchy) :
           info-str(exp(e)), def-name(lbl), arg-descriptions(arg-entries)]
 
         (e:BadIfPred) :
-          "%_Invalid expression of type %_ for 'if' condition. Expected a 'long'." % [
+          "%_Invalid expression of type '%_' for 'if' condition. Expected a 'long'." % [
           info-str(exp(e)), type-description(type!(exp(e)))]
 
         (e:BadAndArg) :
-          "%_Invalid expression of type %_ in 'and' expression. Expected a 'long'." % [
+          "%_Invalid expression of type '%_' in 'and' expression. Expected a 'long'." % [
           info-str(exp(e)), type-description(type!(exp(e)))]
 
         (e:BadOrArg) :
-          "%_Invalid expression of type %_ in 'or' expression. Expected a 'long'." % [
+          "%_Invalid expression of type '%_' in 'or' expression. Expected a 'long'." % [
           info-str(exp(e)), type-description(type!(exp(e)))]
 
         (e:BadHiStanzaRef) :
@@ -528,9 +530,19 @@ public defn TypeErrorFormatter (namemap:NameMap, hier:TypeHierarchy) :
           msg % [info-str(info(e)), def-name(n(funcs(e)[0])), targ-str, num-provided(e),
                  possibilities(funcs(e))]
 
+        (e:CallNonFunction) :
+          val msg = "%_%_ of type '%_' cannot be called as a function."
+          msg % [info-str(info(e)),
+                 exp-description(func(e), capital? = true),
+                 type-description(type!(func(e)))]
+
 ;Helper: Add single-quotes around x.
 defn quotes (x) :
   "'%_'" % [x]
+
+;Capitalize the first letter in the given word.
+defn capitalize (s:String) -> String :
+  String(cat([upper-case(s[0])], s[1 to false]))
 
 ;============================================================
 ;==================== Error Pruning =========================
@@ -708,6 +720,8 @@ defn refine-error? (e:TypeError) -> TypeError|False :
           return(e) when e is TypeError
         return?(check-keywords(e))
         return?(check-targ-arity(e))
+    (e:NotFunction) :
+      check-not-callable(e)
     (e) :
       false
 
@@ -804,3 +818,23 @@ defn provided-targs (ctxt:Context|LSContext) -> Int|False :
 defn num-expected-targs (funcs:Tuple<TFunction|TLSFunction>) -> [Int,Int] :
   val num-targs = map(length{targs(_)}, funcs)
   [minimum(num-targs), maximum(num-targs)]
+
+;------------------------------------------------------------
+;------------------ Check Whether Function ------------------
+;------------------------------------------------------------
+
+;Analyze the given call to see whether we're attempting to
+;call something that is not a function.
+defn check-not-callable (e:NotFunction) -> CallNonFunction|False :
+  val func = func(exp(e))
+  if not-callable?(type!(func)) :
+    CallNonFunction(info(exp(e)), func)
+
+;Return true if the type is provably *not* callable as
+;a function.
+defn not-callable? (t:Type|LSType) -> True|False :
+  match(t) :
+    (t:TOr) : not-callable?(a(t)) or not-callable?(b(t))
+    (t:TAnd) : not-callable?(a(t)) and not-callable?(b(t))    
+    (t:TBot|TArrow|TGradual|FnT|TUVar|UVarT) : false
+    (t) : true

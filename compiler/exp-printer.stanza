@@ -20,8 +20,12 @@ Explanation of Precedence:
   an expression where all operators have precedence greater
   than or equal to 2.
 
-    a + a * a   has precedence  0
+    a + a * a   has precedence 0
     a * a >> a   has precedence 1
+
+  Atoms and Surround expressions have INT-MAX precedence. This means
+  that any expression can be forced to have INT-MAX precedence by
+  surrounding them with parentheses.
 
   Along with their tagged precedence, all operators are
   tagged with their accepted left-hand-side and right-hand-side

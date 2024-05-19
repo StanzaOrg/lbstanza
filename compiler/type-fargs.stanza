@@ -91,6 +91,12 @@ public defn used-as-value? (a:FArg) -> True|False :
     (a:VarArg) : false
     (a:RestArg) : false
 
+;Returns true if 'a' represents a "simple positional argument".
+;It is the simplest and most common type of argument: a
+;mandatory positional argument.
+public defn simple-positional-arg? (a:FArg) -> True|False :
+  match(a:PositionalArg) : not optional?(a)
+
 ;============================================================
 ;==================== ArgPattern ============================
 ;============================================================

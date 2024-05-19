@@ -319,6 +319,12 @@ public defmessages TypeError :
     max-expected:Int
     funcs:Tuple<TRef|LSVar>
 
+  ;'func' has been determined to not be a function,
+  ;and we're trying to call it as one.
+  defmessage CallNonFunction :
+    info:AbsoluteFileInfo|False
+    func:TExp|LSExp
+
 ;============================================================
 ;====================== Utilities ===========================
 ;============================================================
