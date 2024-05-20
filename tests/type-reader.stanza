@@ -117,7 +117,8 @@ defn resolve (prog:TestTypeProgram) -> TestTypeProgram :
         val n = match(lookup?(scope,name(t))) :
           (n:Int) : n
           (f:False) : make-id(scope,name(t))
-        TUVar(n, MixBound(types(t)))
+        val types* = map({resolve(_, scope) as TArrow}, types(t))
+        TUVar(n, MixBound(types*))
       (t:TCap) :
         val n = lookup(scope, name(t) as Symbol)
         TCap(n, name(t))
