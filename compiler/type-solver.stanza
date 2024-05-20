@@ -156,7 +156,7 @@ public deftype LSInferResult :
 ;Compute whether the given overloaded arrow is appropriate to be
 ;passed to b.
 public defn select-overload (a:TArrow, b:Type, hier:TypeHierarchy) -> PredResult :
-  eval-gradual-match-result(select-overload-search(a, b, hier))
+  eval-gradual-match-result(overload-search(a, b, hier))
 
 ;Compute whether the given arrow is appropriate to be called with the given
 ;arguments.
@@ -168,7 +168,7 @@ public defn select-overload-call (a:TArrow, args:Tuple<Type>, hier:TypeHierarchy
 ;Compute whether the given Fnt is appropriate to be called with the given
 ;arguments.
 public defn select-overload-call (a:FnT, args:Tuple<LSType>, hier:TypeHierarchy) -> PredResult :
-  eval-gradual-match-result(select-overload-search(a, args, hier))  
+  eval-gradual-match-result(overload-search(a, args, hier))  
 
 ;Helper: Simplify and evaluate the predicate result.
 defn eval-gradual-match-result (sresult:SearchResult) -> PredResult :
@@ -1164,17 +1164,22 @@ public defn constraint-as-type (c:SolnConstraint,
 ;Returns success if the overloaded function 'x' should be selected
 ;given that the expected type is 't'.
 ;To use this function, 'x' is expected to have its type arguments properly filled in.
-;NOTE: The return type of the arrow is not used during overload selection. This is
-;meant to be consistent with the behaviour of overloaded functions in function
-;call position: we do not use the expected return type to select the overloaded function.
-defn select-overload-search (x:TArrow, t:Type, hier:TypeHierarchy) -> SearchResult :
+;NOTE: This function considers the return type when computing its result. This is
+;used when selecting an overload in expression position. When an overload is in
+;call position, only the argument types are considered.
+
+defn overload-search (x:TArrow, t:Type,
+                      hier:TypeHierarchy) -> SearchResult :
   ;Sanity checks.
   if not overload-type?(t) : fatal("Right-hand type is not a user-type: %_" % [t])
   if not user-type?(x, true) : fatal("Left-hand type is not a user-type: %_" % [x])
 
-  ;Convenience.
-  defn so (a:TArrow, b:Type) : select-overload-search(a, b, hier)
+  ;Shorthand for overload-search.
+  defn so (a:TArrow, b:Type) : overload-search(a, b, hier)
+  ;Shorthand for partof-search.
   defn pt (a:Type, b:Type) : partof-search(a, b, hier)
+  ;Shorthand for subtype-search.
+  defn st (a:Type, b:Type) : subtype-search(a,b,hier)
 
   ;Syntax-directed subtype algorithm.
   match(t) :
@@ -1184,8 +1189,12 @@ defn select-overload-search (x:TArrow, t:Type, hier:TypeHierarchy) -> SearchResu
     (t:TOr|TAnd) : SOr(so(x, a(t)), so(x, b(t)))
     ;Unitary types.
     (t:TArrow) :
-      if same-length?(a1(x), a1(t)) : SAnd(seq(pt, a1(t), a1(x)))
-      else : SFail()
+      if same-length?(a1(x), a1(t)) :
+        SAnd(
+          SAnd(seq(pt, a1(t), a1(x)))
+          SSubtype(st(a2(x), a2(t))))
+      else :
+        SFail()
     ;Unsolved types.
     (t:TUVar) : SBlocked(n(t))
     ;Gradual Type.
@@ -1209,8 +1218,8 @@ defn partof-search (x:Type, y:Type, hier:TypeHierarchy) -> SearchResult :
 
   ;Helper: Shorthand for calling partof-search
   defn po (x:Type, y:Type) : partof-search(x, y, hier)
-  ;Helper: Shorthand for calling select-overload-search
-  defn so (x:Type, y:Type) : select-overload-search(x as TArrow, y, hier)
+  ;Helper: Shorthand for calling overload-search
+  defn so (x:Type, y:Type) : overload-search(x as TArrow, y, hier)
   
   match(x, y) :
     ;Bottom and top type.
@@ -1236,7 +1245,7 @@ public defn partof-search (x:LSType, y:LSType, hier:TypeHierarchy) -> SearchResu
 
 ;Returns the search result testing whether the given function can be
 ;called with the given arguments.
-defn select-overload-search (f:FnT, args:Tuple<LSType>, hier:TypeHierarchy) -> SearchResult :
+defn overload-search (f:FnT, args:Tuple<LSType>, hier:TypeHierarchy) -> SearchResult :
   ;Helper: Is x passable to y?
   defn passable? (x:LSType, y:LSType) -> SearchResult :
     SOr(implicit-upcast-search(x,y),
