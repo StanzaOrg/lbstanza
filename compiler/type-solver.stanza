@@ -161,7 +161,15 @@ public defn select-overload (a:TArrow, b:Type, hier:TypeHierarchy) -> PredResult
 ;Compute whether the given arrow is appropriate to be called with the given
 ;arguments.
 public defn select-overload-call (a:TArrow, args:Tuple<Type>, hier:TypeHierarchy) -> PredResult :
-  eval-gradual-match-result(select-overload-search(a, TArrow(args, TTop()), hier))
+  val result = select-overload-search(a, TArrow(args, TTop()), hier)
+  println("select-overload-call(%_, %_)" % [a, args])
+  println(result)
+  val simplified = simplify(result,false,true)
+  println("simplified:")
+  println(simplified)
+  match(simplified:Solved) :
+    println("num-gradual-expansions = %_" % [num-gradual-expansions(simplified)])
+  eval-gradual-match-result(result)
 
 ;Compute whether the given Fnt is appropriate to be called with the given
 ;arguments.
