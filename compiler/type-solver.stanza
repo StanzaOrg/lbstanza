@@ -161,15 +161,9 @@ public defn select-overload (a:TArrow, b:Type, hier:TypeHierarchy) -> PredResult
 ;Compute whether the given arrow is appropriate to be called with the given
 ;arguments.
 public defn select-overload-call (a:TArrow, args:Tuple<Type>, hier:TypeHierarchy) -> PredResult :
-  val result = select-overload-search(a, TArrow(args, TTop()), hier)
-  println("select-overload-call(%_, %_)" % [a, args])
-  println(result)
-  val simplified = simplify(result,false,true)
-  println("simplified:")
-  println(simplified)
-  match(simplified:Solved) :
-    println("num-gradual-expansions = %_" % [num-gradual-expansions(simplified)])
-  eval-gradual-match-result(result)
+  if same-length?(a1(a), args) :
+    val result = SAnd(seq(partof-search{_, _, hier}, args, a1(a)))
+    eval-gradual-match-result(result)  
 
 ;Compute whether the given Fnt is appropriate to be called with the given
 ;arguments.
@@ -1199,11 +1193,15 @@ defn select-overload-search (x:TArrow, t:Type, hier:TypeHierarchy) -> SearchResu
     ;Fall through.
     (t) : SFail()
 
-;The argument type 'y' (as part of a mixed function) is going to be passed values of type 'x'.
-;Return success if this is allowed.
-;  Passing: a|other -> b|other
-;  Expecting: x|y -> c
-;  So: x|y <: a|other
+;Suppose we are calling a component of mixed function with argument 'y', e.g. 'Int'.
+;And we are pass it 'x', e.g. 'Int|String'.
+;Even though normally this is not a valid call because 'Int|String <: Int' is not true,
+;in this case we allow it because we're testing only a single component of a mixed function.
+;
+;Example: Suppose we're attempting to call the mixed function:
+;  mix{Int -> False, String -> False, Char -> False}
+;with argument types:
+;  Int|String.
 defn partof-search (x:Type, y:Type, hier:TypeHierarchy) -> SearchResult :
   ;Sanity check.
   if not overload-type?(y) :
@@ -1211,6 +1209,8 @@ defn partof-search (x:Type, y:Type, hier:TypeHierarchy) -> SearchResult :
 
   ;Helper: Shorthand for calling partof-search
   defn po (x:Type, y:Type) : partof-search(x, y, hier)
+  ;Helper: Shorthand for calling select-overload-search
+  defn so (x:Type, y:Type) : select-overload-search(x as TArrow, y, hier)
   
   match(x, y) :
     ;Bottom and top type.
@@ -1220,7 +1220,7 @@ defn partof-search (x:Type, y:Type, hier:TypeHierarchy) -> SearchResult :
     (x:TOr|TAnd, y) : search-tor-tand(po, x, y, DisjunctiveLeftOr)
     (x, y:TOr|TAnd) : search-tor-tand(po, x, y, DisjunctiveLeftOr)
     ;Unsolved types.
-    (x:TUVar, y) : search-tuvar(po, x, y)
+    (x:TUVar, y) : search-tuvar(so, x, y)
     (x, y:TUVar) : search-tuvar(po, x, y)
     ;Gradual types
     (x:TGradual, y:TGradual) : SSatisfied()
