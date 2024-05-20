@@ -3,6 +3,8 @@ defpackage stz-test-suite/type-test-ir :
   import collections
   import stz/types
   import stz/type-locs
+  import stz/type-fargs
+  import stz/type-capside
   import stz/printing-utils
   import stz/type-equations
   import stz/type-formatter
@@ -43,12 +45,18 @@ public defn type-formatter (prog:TestTypeProgram) -> TypeFormatter :
 public defstruct TypeNames :
   table:IntTable<Symbol> with:
     init => IntTable<Symbol>()
+  id-counter:Seq<Int> with:
+    init => to-seq(0 to false)
 
 ;Generate a new integer id for the given name.
 public defn make-id (names:TypeNames, name:Symbol) -> Int :
-  val id = length(table(names))
+  val id = next(id-counter(names))
   table(names)[id] = name
   id
+
+;Generate a new integer id.
+public defn make-id (names:TypeNames) -> Int :
+  next(id-counter(names))
 
 ;Retrieve name of a given identifier.
 public defn get (names:TypeNames, id:Int) -> Symbol :
@@ -73,6 +81,10 @@ public defstruct Infer <: TypeStmt :
   a:InferLoc|Type
   b:InferLoc|Type  
 
+public defstruct SelectOverloadCall <: TypeStmt :
+  a:TArrow
+  args:Tuple<Type>
+
 public defstruct Solve <: TypeStmt :
   eqns:Tuple<TypeEqn>
 
@@ -83,6 +95,12 @@ public defstruct Solve <: TypeStmt :
 public defstruct TNamedOf <: Type :
   name:Symbol
   args:Tuple<Type>
+with:
+  printer => true
+
+public defstruct TMixBoundVar <: Type :
+  name:Symbol
+  types:Tuple<TArrow>
 with:
   printer => true
 
@@ -109,16 +127,19 @@ public defstruct NamedInferEqn <: NamedTypeEqn :
 public defstruct NamedOverloadExpEqn <: NamedTypeEqn :
   n:Symbol
   sel:Symbol
-  xs:Tuple<TArrow>
+  inst:Symbol
+  functions:Tuple<KeyValue<Symbol,TFunction>>
   y:Type
 
 ;Infer the type of an overloaded function in call
 ;position.
 public defstruct NamedOverloadCallEqn <: NamedTypeEqn :
   n:Symbol
+  exp-ns:Tuple<Symbol>
   sel:Symbol
-  xs:Tuple<TFunction>
-  args:Tuple<FArg>
+  xs:Tuple<TArrow>
+  exp-xs:Tuple<Tuple<Type>>
+  args:Tuple<Type>  
 
 ;Perform the given substitutions in the given
 ;type. 
@@ -154,11 +175,14 @@ public defn map (f:Type -> Type, e:NamedTypeEqn) -> NamedTypeEqn :
   defn g2 (x:TArrow) : f(x) as TArrow
   defn g2 (x:Tuple<TFunction>) : map(g2,x)
   defn g2 (x:Tuple<TArrow>) : map(g2,x)
+  defn g2 (x:KeyValue<Symbol,TFunction>) : key(x) => f(value(x)) as TFunction
+  defn g2 (x:Tuple<KeyValue<Symbol,TFunction>>) : map(g2,x)
+  defn g2 (x:Tuple<Tuple<Type>>) : map(g,x)
   match(e) :
     (e:NamedCaptureAllEqn) : NamedCaptureAllEqn(ns(e), g(a(e)), g(b(e)))
     (e:NamedInferEqn) : NamedInferEqn(n(e), g(a(e)), g(b(e)))
-    (e:NamedOverloadExpEqn) : NamedOverloadExpEqn(n(e), sel(e), g2(xs(e)), g(y(e)))
-    (e:NamedOverloadCallEqn) : NamedOverloadCallEqn(n(e), sel(e), g2(xs(e)), g(args(e)))
+    (e:NamedOverloadExpEqn) : NamedOverloadExpEqn(n(e), sel(e), inst(e), g2(functions(e)), g(y(e)))
+    (e:NamedOverloadCallEqn) : NamedOverloadCallEqn(n(e), exp-ns(e), sel(e), g2(xs(e)), g2(exp-xs(e)), g(args(e)))
     (e:NamedSubEqn) : NamedSubEqn(n(e), g(x(e)), g(ys(e)))
     (e:NamedSuperEqn) : NamedSuperEqn(n(e), g(x(e)))
     (e:NamedEqualEqn) : NamedEqualEqn(n(e), g(type(e)))
@@ -168,23 +192,23 @@ public defn do-named-vars (f:Symbol -> False, e:NamedTypeEqn) :
   match(e) :
     (e:NamedCaptureAllEqn) : do(f,ns(e))
     (e:NamedInferEqn) : f(n(e))
-    (e:NamedOverloadExpEqn) : (f(n(e)), f(sel(e)))
-    (e:NamedOverloadCallEqn) : (f(n(e)), f(sel(e)))
+    (e:NamedOverloadExpEqn) : (f(n(e)), f(sel(e)), f(inst(e)))
+    (e:NamedOverloadCallEqn) : (f(n(e)), do(f,exp-ns(e)), f(sel(e)))
     (e:NamedSubEqn) : f(n(e))
     (e:NamedSuperEqn) : f(n(e))
     (e:NamedEqualEqn) : f(n(e))
 
 ;Replace the names with their ids in the given equation.
 public defn replace-names (f:Symbol -> Int, e:NamedTypeEqn) -> TypeEqn :
+  defn g (ns:Tuple<Symbol>) : map(f,ns)
+  defn g (xs:Tuple<KeyValue<Symbol,Type>>) : for x in xs map : f(key(x)) => value(x)
+  defn g2 (xs:Tuple<KeyValue<Symbol,TFunction>>) : for x in xs map : f(key(x)) => value(x)
   match(e) :
-    (e:NamedCaptureAllEqn) : CaptureAllEqn(map(f,ns(e)), a(e), b(e))
-    (e:NamedInferEqn) : InferEqn(f(n(e)), a(e), b(e))
-    (e:NamedOverloadExpEqn) : OverloadExpEqn(f(n(e)), f(sel(e)), xs(e), y(e))
-    (e:NamedOverloadCallEqn) : OverloadCallEqn(f(n(e)), f(sel(e)), xs(e), args(e))
-    (e:NamedSubEqn) :
-      val new-ys = for y in ys(e) map :
-        f(key(y)) => value(y)
-      SubEqn(f(n(e)), x(e), new-ys)
+    (e:NamedCaptureAllEqn) : CaptureAllEqn(g(ns(e)), CapRight, [a(e)], [b(e)])
+    (e:NamedInferEqn) : InferEqn(f(n(e)), a(e), b(e), false)
+    (e:NamedOverloadExpEqn) : OverloadExpEqn(f(n(e)), f(sel(e)), f(inst(e)), g2(functions(e)), None(), y(e))
+    (e:NamedOverloadCallEqn) : OverloadCallEqn(f(n(e)), g(exp-ns(e)), f(sel(e)), xs(e), exp-xs(e), args(e))
+    (e:NamedSubEqn) : SubEqn(f(n(e)), x(e), g(ys(e)))
     (e:NamedSuperEqn) : SuperEqn(f(n(e)), x(e))
     (e:NamedEqualEqn) : EqualEqn(f(n(e)), type(e))
 
@@ -209,6 +233,9 @@ defmethod print (o:OutputStream, s:Subtype) :
 
 defmethod print (o:OutputStream, s:Infer) :
   print(o, "infer %_ <: %_" % [a(s), b(s)])
+
+defmethod print (o:OutputStream, s:SelectOverloadCall) :
+  print(o, "select-overload-call %_ (%,)" % [a(s), args(s)])
 
 defmethod print (o:OutputStream, s:Solve) :
   print(o, "Solve%_" % [colon-field-list(eqns(s))])
@@ -240,6 +267,7 @@ public defn format (f:TypeFormatter, s:TypeStmt) :
     (s:Capture) : "capture(%,) %_ <: %_" % [fmt(args(s)), fmt(a(s)), fmt(b(s))]
     (s:Subtype) : "subtype %_ <: %_" % [format(f,a(s)), fmt(b(s))]
     (s:Infer) : "infer %_ <: %_" % [fmt(a(s)), fmt(b(s))]
+    (s:SelectOverloadCall) : "select-overload-call %_ (%,)" % [fmt(a(s)), seq(fmt,args(s))]
     (s:Solve) : "solve%_" % [colon-field-list(seq(fmt,eqns(s)))]
 
 defn wrap-printable (f:OutputStream -> False) :

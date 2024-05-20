@@ -67,7 +67,7 @@ public defn TypeFormatter (name:Int -> Symbol) :
             join-exp(name-atom, paren(prefix("<:", pexp(type(b)))))
           (b:MixBound) :
             val name-atom = Atom(written(name(n(t))))
-            join-exp(name-atom, paren(prefix("mix", seq(pexp,types(b)))))
+            join-exp(name-atom, brackets(prefix("mix: ", seq(pexp,types(b)))))
 
   ;Convert a LoStanza type.
   defn pexp (t:LSType) -> PrintExp :
@@ -156,6 +156,10 @@ defn paren (es:Seqable<PrintExp>) -> PrintExp :
 defn paren (e:PrintExp) : paren([e])
 defn braces (es:Seqable<PrintExp>) -> PrintExp :
   Surround(to-tuple(es), Brace)
+defn braces (e:PrintExp) : braces([e])
+defn brackets (es:Seqable<PrintExp>) -> PrintExp :
+  Surround(to-tuple(es), Bracket)
+defn brackets (e:PrintExp) : brackets([e])
 
 ;Surround the given expressions with parentheses if it isn't
 ;exactly 1 exp.

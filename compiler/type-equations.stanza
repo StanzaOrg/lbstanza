@@ -315,7 +315,7 @@ public defn format (f:TypeFormatter, e:TypeEqn) :
       val fs = seq(fmt, xs(e))
       "overload(%_, sel: %_) (%_) <: %_" % [fmt(n(e)), sel(e), indented-field-list(fs), fmt(y(e))]
     (e:OverloadCallEqn) :
-      "overload(%_, exp-ns:%,, sel: %_) call (%,) with (%,)" % [fmt(n(e)), fmt(exp-ns(e)), sel(e), fmt(xs(e)), fmt(args(e))]
+      "overload(%_, exp-ns:[%,], sel: %_) call (%,) with (%,)" % [fmt(n(e)), fmt(exp-ns(e)), sel(e), fmt(xs(e)), fmt(args(e))]
     (e:LSOverloadCallEqn) :
       val fs = seq(fmt, xs(e))
       "ls-overload(%_, exp-ns:%,, sel: %_) call (%_) with (%,)" % [fmt(n(e)), fmt(exp-ns(e)), sel(e), indented-field-list(fs), seq(fmt,args(e))]

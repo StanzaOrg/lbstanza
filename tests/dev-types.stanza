@@ -7,6 +7,8 @@ defpackage stz-test-suite/dev-types :
   import stz/type-locs
   import stz/type-formatter
   import stz/type-equation-solver
+  import stz/type-capside
+  import stz/type-fargs  
   import stz-test-suite/test-tools
   import stz-test-suite/type-reader
   import stz-test-suite/type-test-ir
@@ -25,6 +27,7 @@ public defn execute (prog:TestTypeProgram) :
   defn fmt (v:SolverValue) : format(type-formatter(prog),v)
   defn fmt (e:KeyValue<Int,SolverValue>) : fmt(key(e)) => fmt(value(e))
   defn fmt (es:Tuple<KeyValue<Int,SolverValue>>) : seq(fmt,es)
+  defn fmt-r (r:CaptureResult) : fmt(r as Type) when r is Type else r
   set-debug-formatter(type-formatter(prog))
   
   val hier = make-hierarchy(prog)
@@ -32,40 +35,27 @@ public defn execute (prog:TestTypeProgram) :
     match(stmt) :
       (stmt:Capture) :
         println("Capture Test: %_" % [fmt(stmt)])
-        val captures = capture-variance(args(stmt) as Tuple<Int>, b(stmt))
-        for capture in captures do :
-          val arg = key(capture)
-          val variance = value(capture)
-          val sresult = capture-search(arg, CapRight, a(stmt), b(stmt), hier)
-          val simp = simplify(sresult, true)
-          val type? = match(simp:Solved) : evaluate-constraint(constraint(simp), variance)
+        val captures = capture-variance(args(stmt) as Tuple<Int>, [b(stmt)], CapRight)
+        for entry in captures do :
+          val arg = key(entry)
+          val variance = value(entry)
+          val result = capture(arg, variance, CapRight, [a(stmt)], [b(stmt)], hier)
           println("Capturing %_" % [fmt(arg)])
-          println(Indented(fmt(sresult)))
-          println("Simplifies to:")
-          println(Indented(fmt(simp)))
-          println("Evaluates to:")
-          println(Indented(fmt(type?)))
+          println(Indented(fmt-r(result)))
           println("")
       (stmt:Subtype) :
-        val sresult = subtype-search(a(stmt), b(stmt), hier)
-        val simp = simplify(sresult, false)
+        val result = subtype(a(stmt), b(stmt), hier)
         println("Subtype Test: %_" % [fmt(stmt)])
-        println(Indented(fmt(sresult)))
-        println("Simplifies to:")
-        println(Indented(fmt(simp)))
+        println(Indented(result))
         println("")
       (stmt:Infer) :
-        val sresult = capture-search(a(stmt), b(stmt), hier)
-        val simp = simplify(sresult, true)
-        val type? = match(simp:Solved) :
-          val variance = capture-variance(a(stmt), b(stmt))
-          evaluate-constraint-conservative(constraint(simp), variance)
+        val result = infer(a(stmt), b(stmt), false, hier)
         println("Inference Test: %_" % [fmt(stmt)])
-        println(Indented(fmt(sresult)))
-        println("Simplifies to:")
-        println(Indented(fmt(simp)))
-        println("Evaluates to:")
-        println(Indented(fmt(type?)))
+        println(Indented(fmt-r(result)))
+      (stmt:SelectOverloadCall) :
+        val result = select-overload-call(a(stmt), args(stmt), hier)
+        println("SelectOverloadCall Test: %_" % [fmt(stmt)])
+        println(Indented(result))
       (stmt:Solve) :
         println("Solver Test:\n%_" % [Indented(fmt(stmt))])
         val state = SolverState(eqns(stmt), hier)
@@ -88,7 +78,7 @@ defn make-hierarchy (prog:TestTypeProgram) -> TypeHierarchy :
   val relations = for r in hierarchy(prog) map :
     val child = child(r) as TOf
     val child-args = map(n, args(child) as Tuple<TVar>)
-    TypeRelation(n(child), get?(special-table,n(child)), child-args, parent(r))
+    TypeRelation(n(child), get?(special-table,n(child)), child-args, parent(r), None())
 
   ;Return the hierarchy.
   TypeHierarchy(relations)
