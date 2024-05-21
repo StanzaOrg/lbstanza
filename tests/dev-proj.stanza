@@ -82,9 +82,12 @@ defn read-proj-action (cmdargs:CommandArgs) :
   println("Read %@" % [filenames])
   val platform = to-symbol(get?(cmdargs, "platform", "os-x"))
   val workdir = resolve-path!(".")
+  val stanzadir = get?(cmdargs, "stanzadir", "/Applications/languages/stanza")
   val env = new ProjEnv :
     defmethod workdir (this) :
       workdir
+    defmethod stanzadir (this) :
+      stanzadir
     defmethod foreign-package-managers (this) :
       manager-infos(get?(cmdargs, "package-managers", []))
     defmethod package-manager-variables (this, params:ForeignPackageParamsStmt, platform:Symbol, link-type:Symbol) :
@@ -99,6 +102,11 @@ simple-command-line-cli(false, commands, "read", false, false) where :
     Command(
       "read", AtLeastOneArg, "the .proj file to read",
       [Flag(
+        "stanzadir"
+        OneFlag
+        OptionalFlag
+        "the Stanza installation directory.")
+       Flag(
         "platform"
         OneFlag
         OptionalFlag

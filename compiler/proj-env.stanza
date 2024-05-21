@@ -12,6 +12,10 @@ public deftype ProjEnv
 ;{WORKDIR} and to also compute absolute paths for everything.
 public defmulti workdir (env:ProjEnv) -> String
 
+;Retrieve the Stanza installation directory. This is used to resolve
+;{STANZA_DIR}.
+public defmulti stanzadir (env:ProjEnv) -> String
+
 ;Retrieve the parameter names and types for the given package manager.
 public defmulti foreign-package-managers (env:ProjEnv) -> Tuple<ForeignPackageManagerInfo> :
   []

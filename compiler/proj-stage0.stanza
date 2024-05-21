@@ -243,6 +243,10 @@ public defstruct WorkDir <: ProjValue :
   info: FileInfo|False with: (as-method => true, updater => sub-info)
 with: (printer => true)
 
+public defstruct StanzaDir <: ProjValue :
+  info: FileInfo|False with: (as-method => true, updater => sub-info)
+with: (printer => true)
+
 ;============================================================
 ;====================== Accessors ===========================
 ;============================================================
@@ -325,7 +329,8 @@ public defn map<?T> (f:ProjItem -> ProjItem, x:?T&ProjItem) -> T :
     (x:ProjTableS0) : ProjTableS0(info(x), h(values(x)))
     (x:SplicedString) : SplicedString(info(x), h(values(x))) 
     (x:ProjDir) : x
-    (x:WorkDir) : x    
+    (x:WorkDir) : x
+    (x:StanzaDir) : x
   result as T&ProjItem
 
 ;Generalized doer for all ProjItem.

@@ -31,7 +31,7 @@ public defn normalize (f:ProjFileS0,
 ;============= Entry point: Normalize One Value =============
 ;============================================================
 
-;Used to fill in default values.
+;Used to fill in default values, during post-normalization checks.
 ;- proj-path: The full path of the ProjFile containing this value.
 public defn normalize (v:ProjValue,
                        current-platform:Symbol,

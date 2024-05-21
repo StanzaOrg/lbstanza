@@ -1,0 +1,5 @@
+package temp requires :
+  ccfiles :
+    "{.}/a.stanza"
+    "{WORKDIR}/b.stanza"
+    "{STANZA_DIR}/include/types.h"
