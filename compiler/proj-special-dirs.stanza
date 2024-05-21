@@ -11,15 +11,20 @@ defpackage stz/proj-special-dirs :
 ;============================================================
 
 ;Create a SpecialDirTable out of the given files and working directory.
-public defn SpecialDirTable (files:Seqable<ProjFileS0>, workdir:String) -> SpecialDirTable :
-  val table = SpecialDirTable(workdir)
+public defn SpecialDirTable (files:Seqable<ProjFileS0> --
+                             workdir:String
+                             stanzadir:String) -> SpecialDirTable :
+  val table = SpecialDirTable(workdir, stanzadir)
   for file in files do : add-projdirs(table, file)
   table
 
 ;Special case for building a SpecialDirTable for just one value.
-;The special id 0 is given to the proj-file-id. 
-public defn SpecialDirTable (workdir:String, proj-path:String) -> SpecialDirTable :
-  val table = SpecialDirTable(workdir)
+;The special id 0 is given to the proj-file-id.
+;Used during normalization of a single ProjValue.
+public defn SpecialDirTable (proj-path:String --
+                             workdir:String,
+                             stanzadir:String) -> SpecialDirTable :
+  val table = SpecialDirTable(workdir, stanzadir)
   projdirs(table)[0] = to-string(enclosing-dir(proj-path))
   table
 
@@ -27,12 +32,14 @@ public defn SpecialDirTable (workdir:String, proj-path:String) -> SpecialDirTabl
 ;=============== Performing Substitutions ===================
 ;============================================================
 
-;Substitute all the WorkDir|ProjDir values in the ProjValue.
+;Substitute all the WorkDir|ProjDir|StanzaDir values in the ProjValue.
 public defn substitute-special-dirs (v:ProjValue,
                                      dirtable:SpecialDirTable) -> ProjValue :
   match(v) :
     (v:WorkDir) :
       AtomValue(info(v), workdir(dirtable))
+    (v:StanzaDir) :
+      AtomValue(info(v), stanzadir(dirtable))
     (v:ProjDir) :
       AtomValue(info(v), projdirs(dirtable)[proj-file-id(v)])
     (v:ProjValue) :
@@ -44,16 +51,19 @@ public defn substitute-special-dirs (v:ProjValue,
 
 ;Hold all the paths needed to resolve WorkDir and ProjDir.
 ;- workdir: The working directory. Used to replace {WORKDIR}.
+;- stanzadir: The Stanza installation directory. Used to replace {STANZA_DIR}.
 ;- projdirs: Each entry, ID => PATH, means that the proj
 ;  file with id 'ID' has path 'PATH'. Used to replace {.}.
 public defstruct SpecialDirTable :
   workdir:String
+  stanzadir:String
   projdirs:IntTable<String> with:
     init => IntTable<String>()
 
 defmethod print (o:OutputStream, t:SpecialDirTable) :
   val items = [
     simple-field("workdir", written(workdir(t)))
+    simple-field("stanzadir", written(stanzadir(t)))
     named-list-fields("projdirs", seq(written, projdirs(t)))]
   print(o, "SpecialDirTable%_" % [colon-field-list(items)])
 
