@@ -2950,17 +2950,30 @@ public defn modulo (a:Int, b:Int) -> Int :
   ensure-divide-non-zero(b)
   ($prim mod a b)
 
-public lostanza defn bitcount (x0:long) -> int :
-  var count:int = 0
-  for (var x:long = x0, x, x = x & (x - 1)) :
-    count = count + 1
-  return count
+public lostanza defn popcount (x0:long) -> int :
+  var x:long = x0
+  x = (x & 0x5555555555555555L) + ((x & 0xaaaaaaaaaaaaaaaaL) >> 1L)
+  x = (x & 0x3333333333333333L) + ((x & 0xccccccccccccccccL) >> 2L)
+  x = (x & 0x0f0f0f0f0f0f0f0fL) + ((x & 0xf0f0f0f0f0f0f0f0L) >> 4L)
+  x = (x & 0x00ff00ff00ff00ffL) + ((x & 0xff00ff00ff00ff00L) >> 8L)
+  x = (x & 0x0000ffff0000ffffL) + ((x & 0xffff0000ffff0000L) >> 16L)
+  x = (x & 0x00000000ffffffffL) + ((x & 0xffffffff00000000L) >> 32L)
+  return (x as int)
 
-public lostanza defn bitcount (x:ref<Int>) -> ref<Int> :
-  return new Int{bitcount(x.value << 32L)}
+public lostanza defn popcount-int (x0:int) -> int :
+  var x:int = x0
+  x = (x & 0x55555555) + ((x & 0xaaaaaaaa) >> 1)
+  x = (x & 0x33333333) + ((x & 0xcccccccc) >> 2)
+  x = (x & 0x0f0f0f0f) + ((x & 0xf0f0f0f0) >> 4)
+  x = (x & 0x00ff00ff) + ((x & 0xff00ff00) >> 8)
+  x = (x & 0x0000ffff) + ((x & 0xffff0000) >> 16)
+  return x
 
-public lostanza defn bitcount (x:ref<Long>) -> ref<Int> :
-  return new Int{bitcount(x.value)}
+public lostanza defn popcount (x:ref<Int>) -> ref<Int> :
+  return new Int{popcount-int(x.value)}
+
+public lostanza defn popcount (x:ref<Long>) -> ref<Int> :
+  return new Int{popcount(x.value)}
 
 ;============================================================
 ;======================== Longs =============================
