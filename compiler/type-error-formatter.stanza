@@ -75,15 +75,16 @@ public defn TypeErrorFormatter (namemap:NameMap, hier:TypeHierarchy) :
 
   ;Return a human-readable string describing the given expression.
   defn exp-description (e:TExp|LSExp -- capital?:True|False = false) :
+    defn fmt (s:String) :
+      capitalize(s) when capital? else s
     defn fmt (s:String, n:Int) :
-      if capital? : capitalize(s) % [def-name(n)]
-      else : s % [def-name(n)]
+      fmt(s) % [def-name(n)]    
     match(e) :
       (e:TRef) : fmt("variable '%_'", n(e))
       (e:TMix) : fmt("function '%_'", n(refs(e)[0]))
       (e:LSVar) : fmt("variable '%_'", n(e))
       (e:LSMix) : fmt("function '%_'", n(refs(e)[0]))
-      (e) : "expression"
+      (e) : fmt("expression")
 
   ;Return a human-readable listing of arguments and their expected types.
   defn arg-descriptions (es:Tuple<KeyValue<Int,TExp|LSExp>>) :
