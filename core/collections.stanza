@@ -222,10 +222,10 @@ public defn Vector<T> (cap:Int) -> Vector<T> :
                loop(i + 1)
 
 public defn update<?T> (v:Vector<?T>, f: T -> Maybe<T>) -> False :
-  update(f, x)
+  update(f,v)
 
 public defn remove-when<?T> (v:Vector<?T>, f: T -> True|False) -> False :
-  remove-when(f, x)
+  remove-when(f,v)
 
 public defn Vector<T> () -> Vector<T> :
    Vector<T>(8)
