@@ -20,13 +20,13 @@ defn lift-to-top (f:Token|Symbol) -> Token|Symbol :
 ;Small package for implementing the dot-operator
 ;for function application. 
 defsyntax dot-operator :
-  import (exp4, id, exp!, type!) from core
+  import (exp4, id, callarg!, type!) from core
 
-  defrule exp4 = (?obj:#exp4 . ?f:#id<?targs:#type! ...>(?args:#exp! ...)) :
+  defrule exp4 = (?obj:#exp4 . ?f:#id<?targs:#type! ...>(?args:#callarg! ...)) :
     val func = lift-to-top(f)
     qquote($do ($of ~ func ~@ targs) ~ obj ~@ args)
 
-  defrule exp4 = (?obj:#exp4 . ?f:#id(?args:#exp! ...)) :
+  defrule exp4 = (?obj:#exp4 . ?f:#id(?args:#callarg! ...)) :
     val func = lift-to-top(f)
     qquote($do ~ func ~ obj ~@ args)
 

@@ -1227,7 +1227,7 @@ defsyntax core :
    defrule exp4 = (?x:#exp4(?ys:#callarg! ...)) : qquote($do ~ x ~@ ys)
 
    ;Named Arguments.
-   defproduction callarg!
+   public defproduction callarg!
    defrule callarg! = (?keyword:#id = ?e:#exp!) : qquote($keywordarg ~ keyword ~ e)
    defrule callarg! = (?e:#exp!)
 
