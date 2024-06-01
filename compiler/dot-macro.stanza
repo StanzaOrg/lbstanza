@@ -18,8 +18,8 @@ defn lift-to-top (f:Token|Symbol) -> Token|Symbol :
   else :
     f
 
-;Helper: Adds the given prefix to the symbol.
-;Used to transform 'length' into 'set-length'.
+;Helper: Adds the given prefix to the symbol and qualifies it.
+;Used to transform 'length' into '/set-length'.
 ;Returns false if the symbol is not a StringSymbol.
 defn add-prefix (prefix:String, f:Token|Symbol) -> Token|Symbol|False :
   label<Token|Symbol|False> return :
@@ -27,17 +27,16 @@ defn add-prefix (prefix:String, f:Token|Symbol) -> Token|Symbol|False :
     val [package,local] = match(unwrap-token(f)) :
       (f:StringSymbol) : qualifier(f)
       (f) : return(false)
-      
-    ;Add the prefix to the name.
-    val new-name = append(prefix, name(local))
 
-    ;Attach the package qualifier if there is one.
-    val qualified-new-name =
-      match(package:Symbol) : symbol-join([package, "/", new-name])
-      else : to-symbol(new-name)
+    ;Compute the new name.
+    val new-name = symbol-join $
+      match(package:Symbol) :
+        [package, "/", prefix, local]
+      else :
+        ["/", prefix, local]
 
     ;Wrap up in the same token.
-    sub-token-item?(f, qualified-new-name)
+    sub-token-item?(f, new-name)
 
 ;Small package for implementing the dot-operator
 ;for function application. 
