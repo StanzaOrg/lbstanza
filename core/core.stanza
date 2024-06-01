@@ -6590,6 +6590,9 @@ public defn get<?T> (xs:Tuple<?T>, r:Range) -> Tuple<T> :
 public defn empty? (t:Tuple) :
    length(t) == 0
 
+public defn map<?T,?R> (xs:Tuple<?T>, f:T -> ?R) -> Tuple<R> :
+  map(f,xs)
+
 public defn map<?T,?R> (f:T -> ?R, xs:Tuple<?T>) -> Tuple<R> :
    to-tuple(seq(f, xs))
 
@@ -6913,6 +6916,9 @@ public defn append-all<?T> (xs:Seqable<List<?T>>) -> List<T> :
       else : append(next(xs-seq), loop())
    loop()
 
+public defn seq-append<?T,?R> (xs:Seqable<?T>, f: T -> List<?R>) -> List<R> :
+  seq-append(f, xs)
+
 public defn seq-append<?T,?R> (f: T -> List<?R>, xs:Seqable<?T>) -> List<R> :
    append-all(seq(f, xs))
 
@@ -6921,6 +6927,9 @@ public defn seq-append<?T,?S,?R> (f: (T,S) -> List<?R>, xs:Seqable<?T>, ys:Seqab
 
 public defn seq-append<?T,?S,?U,?R> (f: (T,S,U) -> List<?R>, xs:Seqable<?T>, ys:Seqable<?S>, zs:Seqable<?U>) -> List<R> :
    append-all(seq(f, xs, ys, zs))
+
+public defn map<?T,?R> (xs:List<?T>, f: T -> ?R) -> List<R> :
+  map(f, xs)
 
 public defn map<?T,?R> (f: T -> ?R, xs:List<?T>) -> List<R> :
   let loop (xs:List<T> = xs, i:Int = 0) :
@@ -7556,6 +7565,9 @@ defmethod print (o:OutputStream, a:RawArray) -> False :
             length(a)
          defmethod print (o:OutputStream, this) :
             print(o, a)
+
+public defn map<R,?T> (xs:Array<?T>, f: T -> R) -> Array<R> :
+  map<R>(f, xs)
 
 public defn map<R,?T> (f: T -> R, xs:Array<?T>) -> Array<R> :
    val ret = Array<R>(length(xs))
@@ -8464,6 +8476,9 @@ defmethod print (o:OutputStream, x:Range) :
 ;                  Mapping
 ;                  =======
 
+public defn map<?R> (r:Range, f: Int -> ?R) -> List<R> :
+  map(f, r)
+
 public defn map<?R> (f: Int -> ?R, r:Range) -> List<R> :
    fatal("Infinite Range") when r is-not Range&Lengthable
    to-list(seq(f, r))
@@ -8887,6 +8902,9 @@ public defmulti do<?T> (f:T -> ?, xs:Seqable<?T>) -> False
 public defmulti do<?T,?S> (f:(T,S) -> ?, xs:Seqable<?T>, ys:Seqable<?S>) -> False
 public defmulti do<?T,?S,?U> (f:(T,S,U) -> ?, xs:Seqable<?T>, ys:Seqable<?S>, zs:Seqable<?U>) -> False
 
+public defn do<?T> (xs:Seqable<?T>, f:T -> ?) -> False :
+  do(f, xs)
+
 defmethod do<?T> (f:T -> ?, xs:Seqable<?T>) -> False :
    for xs-seq in xs do-seq :
       while not empty?(xs-seq) :
@@ -8955,6 +8973,10 @@ public defn to-collection<?T> (f:() -> Seq<?T>) -> Collection<T> :
 ;------------------------------------------------------------
 ;--------- Lazily Mapping a Function Over Sequences ---------
 ;------------------------------------------------------------
+
+;Version of 'seq' that operates nicely with the 'dot' operator.
+public defn seq<?T,?R> (xs:Seqable<?T>, f:T -> ?R) -> Seq<R> :
+  seq(f, xs)
 
 public defn seq<?T,?R> (f:T -> ?R, xs:Seqable<?T>) -> Seq<R> :
   match(to-seq(xs)) :
@@ -9037,6 +9059,9 @@ defmethod contains? (xs:Seqable<Equalable>, y:Equalable) -> True|False :
       for x in xs do :
          return(true) when x == y
 
+public defn find<?T> (xs:Seqable<?T>, f: T -> True|False) -> T|False :
+  find(f, xs)
+
 public defn find<?T> (f: T -> True|False, xs:Seqable<?T>) -> T|False :
    label<False|T> return :
       for x in xs do :
@@ -9047,8 +9072,12 @@ public defn find<?T,?S> (f: (T,S) -> True|False, xs:Seqable<?T>, ys:Seqable<?S>)
       for (x in xs, y in ys) do :
          return(x) when f(x, y)
 
+public defn find!<?T> (xs:Seqable<?T>, f: T -> True|False) : find!(f, xs)
 public defn find!<?T> (f: T -> True|False, xs:Seqable<?T>) : find(f, xs) as T
 public defn find!<?T, ?S> (f: (T,S) -> True|False, xs:Seqable<?T>, ys:Seqable<?S>) : find(f, xs, ys) as T
+
+public defn first<?T,?R> (xs:Seqable<?T>, f: T -> Maybe<?R>) -> Maybe<R> :
+  first(f, xs)
 
 public defn first<?T,?R> (f: T -> Maybe<?R>, xs:Seqable<?T>) -> Maybe<R> :
    label<Maybe<R>> return :
@@ -9066,6 +9095,7 @@ public defn first<?T,?S,?R> (f: (T,S) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<?
             (r:None) : false
       None()
 
+public defn first!<?T,?R> (xs:Seqable<?T>, f: T -> Maybe<?R>) : first!(f,xs)
 public defn first!<?T,?R> (f: T -> Maybe<?R>, xs:Seqable<?T>) : value!(first(f, xs))
 public defn first!<?T,?S,?R> (f: (T,S) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqable<?S>) : value!(first(f, xs, ys))
 
@@ -9123,6 +9153,9 @@ defn PeekSeq?<T> (f: () -> T|Sentinel, free: () -> False) -> PeekSeq<T> :
 ;================ seq? operating function ===================
 ;============================================================
 
+public defn seq?<?T,?R> (xs:Seqable<?T>, f: T -> Maybe<?R>) -> Seq<R> :
+  seq?(f,xs)
+
 ;Construct a sequence from calling 'f' on each item in 'xs'.
 ;If 'f' returns One then the item is included in the returned sequence,
 ;otherwise the result is excluded.
@@ -9177,6 +9210,9 @@ public defn seq?<?T,?S,?U,?R> (f: (T,S,U) -> Maybe<?R>, xs:Seqable<?T>, ys:Seqab
 ;================= filter operating function ================
 ;============================================================
 
+public defn filter<?T> (xs:Seqable<?T>, f: T -> True|False) -> Seq<T> :
+  filter(f,xs)
+
 ;Construct a sequence from 'xs' by including only elements
 ;for which 'f(x)' returns true.
 public defn filter<?T> (f: T -> True|False, xs:Seqable<?T>) -> Seq<T> :
@@ -9221,6 +9257,9 @@ public defn index-of (xs:Seqable<Equalable>, y:Equalable) -> Int|False :
 
 public defn index-of! (xs:Seqable<Equalable>, y:Equalable) : index-of(xs, y) as Int
 
+public defn index-when<?T> (xs:Seqable<?T>, f: T -> True|False) -> Int|False :
+  index-when(f,xs)
+
 public defn index-when<?T> (f: T -> True|False, xs:Seqable<?T>) -> Int|False :
    label<Int|False> return :
       for (x in xs, i in 0 to false) do :
@@ -9231,10 +9270,13 @@ public defn index-when<?T,?S> (f: (T,S) -> True|False, xs:Seqable<?T>, ys:Seqabl
       for (x in xs, y in ys, i in 0 to false) do :
          return(i) when f(x, y)
 
+public defn index-when!<?T> (xs:Seqable<?T>, f: T -> True|False) : index-when!(f, xs)
 public defn index-when!<?T> (f: T -> True|False, xs:Seqable<?T>) : index-when(f, xs) as Int
 public defn index-when!<?T,?S> (f: (T,S) -> True|False, xs:Seqable<?T>, ys:Seqable<?S>) : index-when(f, xs, ys) as Int
 
-public defn split!<?T> (f: T -> True|False, xs: Seqable<?T>) -> [Collection<T>&Lengthable, Collection<T>&Lengthable] :
+public defn split!<?T> (xs: Seqable<?T>, f: T -> True|False) : split!(f,xs)
+
+public defn split!<?T> (f: T -> True|False, xs: Seqable<?T>) -> [Vector<T>, Vector<T>] :
    val true-xs = Vector<T>()
    val false-xs = Vector<T>()
    for x in xs do :
@@ -9243,7 +9285,7 @@ public defn split!<?T> (f: T -> True|False, xs: Seqable<?T>) -> [Collection<T>&L
          else : false-xs
    [true-xs, false-xs]
 
-public defn split!<?T,?S> (f: (T, S) -> True|False, xs:Seqable<?T>, ys:Seqable<?S>) -> [Collection<T>&Lengthable, Collection<T>&Lengthable] :
+public defn split!<?T,?S> (f: (T, S) -> True|False, xs:Seqable<?T>, ys:Seqable<?S>) -> [Vector<T>, Vector<T>] :
   val true-xs = Vector<T>()
   val false-xs = Vector<T>()
   for (x in xs, y in ys) do :
@@ -9252,7 +9294,7 @@ public defn split!<?T,?S> (f: (T, S) -> True|False, xs:Seqable<?T>, ys:Seqable<?
       else : false-xs
   [true-xs, false-xs]
 
-public defn split!<?T> (xs:Seqable<?T>, ss:Seqable<True|False>) -> [Collection<T>&Lengthable, Collection<T>&Lengthable] :
+public defn split!<?T> (xs:Seqable<?T>, ss:Seqable<True|False>) -> [Vector<T>, Vector<T>] :
    val true-xs = Vector<T>()
    val false-xs = Vector<T>()
    for (x in xs, s in ss) do :
@@ -9260,6 +9302,8 @@ public defn split!<?T> (xs:Seqable<?T>, ss:Seqable<True|False>) -> [Collection<T
          if s : true-xs
          else : false-xs
    [true-xs, false-xs]
+
+public defn split<?T> (xs-items:Seqable<?T>, f:T -> True|False) : split(f,xs-items)
 
 public defn split<?T> (f:T -> True|False, xs-items:Seqable<?T>) -> [PeekSeq<T>, PeekSeq<T>] :
   val xs = to-seq(xs-items)
@@ -9336,6 +9380,9 @@ public defn fork<?T> (xs-items:Seqable<?T>, n:Int) -> Tuple<Seq<T>> :
       defmethod empty? (this) :
         empty?(items) and empty?(xs)
 
+public defn take-while<?T> (xs:Collection<?T>|PeekSeq<?T>, f: T -> True|False) -> PeekSeq<T> :
+  take-while(f,xs)
+
 ;Return a new sequence that contains items from 'xs' as long as they
 ;pass 'f'. 'xs' must be peekable to prevent 'take-while' from consuming
 ;an extra item.
@@ -9349,6 +9396,9 @@ public defn take-while<?T> (f: T -> True|False, xs:Collection<?T>|PeekSeq<?T>) -
             next(xs-seq)
             yield(x)
             loop()
+
+public defn take-until<?T> (xs:Seqable<?T>, f: T -> True|False) -> PeekSeq<T> :
+  take-until(f,xs)
 
 public defn take-until<?T> (f: T -> True|False, xs:Seqable<?T>) -> PeekSeq<T> :
   generate<T> :
@@ -9440,6 +9490,9 @@ public defn cat-all<?T> (input-xss:Seqable<Seqable<?T>>) -> Seq<T> :
       free(xss)
       xs = false
 
+public defn seq-cat<?T,?R> (xs:Seqable<?T>, f:T -> Seqable<?R>) -> Seq<R> :
+  seq-cat(f,xs)
+  
 public defn seq-cat<?T,?R> (f:T -> Seqable<?R>, xs:Seqable<?T>) -> Seq<R> :
    cat-all(seq(f, xs))
 
@@ -9448,6 +9501,9 @@ public defn seq-cat<?T,?S,?R> (f:(T,S) -> Seqable<?R>, xs:Seqable<?T>, ys:Seqabl
 
 public defn seq-cat<?T,?S,?U,?R> (f:(T,S,U) -> Seqable<?R>, xs:Seqable<?T>, ys:Seqable<?S>, zs:Seqable<?U>) -> Seq<R> :
    cat-all(seq(f, xs, ys, zs))
+
+public defn all?<?T> (xs:Seqable<?T>, pred?: T -> True|False) -> True|False :
+  all?(pred?, xs)
 
 public defn all?<?T> (pred?: T -> True|False, xs:Seqable<?T>) -> True|False :
    for xs-seq in xs do-seq :
@@ -9470,6 +9526,9 @@ public defn all?<?T,?S,?U> (pred?: (T,S,U) -> True|False, xs:Seqable<?T>, ys:Seq
                if empty?(xs-seq) or empty?(ys-seq) or empty?(zs-seq) : true
                else : pred?(next(xs-seq), next(ys-seq), next(zs-seq)) and loop()
 
+public defn none?<?T> (xs:Seqable<?T>, pred?: T -> True|False) -> True|False :
+  none?(pred?,xs)
+
 public defn none?<?T> (pred?: T -> True|False, xs:Seqable<?T>) -> True|False :
    defn notp (x) : not pred?(x)
    all?(notp, xs)
@@ -9481,6 +9540,9 @@ public defn none?<?T,?S> (pred?: (T,S) -> True|False, xs:Seqable<?T>, ys:Seqable
 public defn none?<?T,?S,?U> (pred?: (T,S,U) -> True|False, xs:Seqable<?T>, ys:Seqable<?S>, zs:Seqable<?U>) -> True|False :
    defn notp (x1, x2, x3) : not pred?(x1, x2, x3)
    all?(notp, xs, ys, zs)
+
+public defn any?<?T> (xs:Seqable<?T>, pred?: T -> True|False) -> True|False :
+  any?(pred?, xs)
 
 public defn any?<?T> (pred?: T -> True|False, xs:Seqable<?T>) -> True|False :
    not none?(pred?, xs)
@@ -9500,6 +9562,9 @@ public defn count (xs:Seqable) -> Int :
       for x in xs do :
         accum = accum + 1
       accum
+
+public defn count<?T> (xs:Seqable<?T>, pred?: T -> True|False) -> Int :
+  count(pred?,xs)
 
 public defn count<?T> (pred?: T -> True|False, xs:Seqable<?T>) -> Int :
    var accum:Int = 0
