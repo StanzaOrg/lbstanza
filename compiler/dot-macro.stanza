@@ -18,10 +18,31 @@ defn lift-to-top (f:Token|Symbol) -> Token|Symbol :
   else :
     f
 
+;Helper: Adds the given prefix to the symbol.
+;Used to transform 'length' into 'set-length'.
+;Returns false if the symbol is not a StringSymbol.
+defn add-prefix (prefix:String, f:Token|Symbol) -> Token|Symbol|False :
+  label<Token|Symbol|False> return :
+    ;Retrieve the package and name.
+    val [package,local] = match(unwrap-token(f)) :
+      (f:StringSymbol) : qualifier(f)
+      (f) : return(false)
+      
+    ;Add the prefix to the name.
+    val new-name = append(prefix, name(local))
+
+    ;Attach the package qualifier if there is one.
+    val qualified-new-name =
+      match(package:Symbol) : symbol-join([package, "/", new-name])
+      else : to-symbol(new-name)
+
+    ;Wrap up in the same token.
+    sub-token-item?(f, qualified-new-name)
+
 ;Small package for implementing the dot-operator
 ;for function application. 
 defsyntax dot-operator :
-  import (exp4, id, callarg!, type!) from core
+  import (exp4, id, callarg!, type!, exp!) from core
 
   defrule exp4 = (?obj:#exp4 . ?f:#id<?targs:#type! ...>{?body ...}) :
     val func = lift-to-top(f)
@@ -43,8 +64,12 @@ defsyntax dot-operator :
     val func = lift-to-top(f)
     qquote($do ~ func ~ obj ~@ args)
 
+  defrule exp4 = (?obj:#exp4 . ?f:#id = ?value:#exp!) :
+    val func = match(add-prefix("set-", f)) :
+      (func:Token|Symbol) : func
+      (func:False) : throw(CSE(closest-info(f), "Function name %~ cannot be a generated symbol." % [f]))
+    qquote($do ~ func ~ obj ~ value)
+
   defrule exp4 = (?obj:#exp4 . ?f:#id) :
     val func = lift-to-top(f)
     qquote($do ~ func ~ obj)
-
-

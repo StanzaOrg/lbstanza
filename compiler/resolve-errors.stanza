@@ -222,7 +222,7 @@ defn explain-using-operators (sym:Symbol) -> OperatorExplanation|False :
 
 ;Set of common operators to try and explain a missing
 ;symbol.
-val COMMON-OPERATORS = to-hashset<Char>("+-*=")
+val COMMON-OPERATORS = to-hashset<Char>("+*=")
 
 ;Split up the string as if it was separated by single operator
 ;characters.
