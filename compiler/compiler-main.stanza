@@ -109,6 +109,7 @@ defpackage stz/compiler-main :
   import stz/tl-ir
   import stz/namemap
   import stz/core-macros
+  import stz/dot-macro
   import stz/tl-to-el
   import stz/tl-to-dl
   import stz/el-to-vm

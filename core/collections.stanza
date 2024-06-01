@@ -221,6 +221,12 @@ public defn Vector<T> (cap:Int) -> Vector<T> :
                f(array[i])
                loop(i + 1)
 
+public defn update<?T> (v:Vector<?T>, f: T -> Maybe<T>) -> False :
+  update(f, x)
+
+public defn remove-when<?T> (v:Vector<?T>, f: T -> True|False) -> False :
+  remove-when(f, x)
+
 public defn Vector<T> () -> Vector<T> :
    Vector<T>(8)
 
@@ -228,6 +234,9 @@ public defn to-vector<T> (xs:Seqable<T>) -> Vector<T> :
    val v = Vector<T>()
    add-all(v, xs)
    v
+
+public defn map<R,?T> (v:Vector<?T>, f: T -> R) -> Vector<R> :
+  map<R>(f, v)
 
 public defn map<R,?T> (f: T -> R, v:Vector<?T>) -> Vector<R> :
    val ret = Vector<R>(length(v))

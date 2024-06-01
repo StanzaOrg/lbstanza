@@ -15,6 +15,8 @@ echo "              REPODIR:" "${REPODIR:=lbstanza}"
 echo "      CONAN_USER_HOME:" "${CONAN_USER_HOME:=${REPODIR}}"
 echo "       CREATE_ARCHIVE:" "${CREATE_ARCHIVE:=false}"
 echo "       CREATE_PACKAGE:" "${CREATE_PACKAGE:=false}"
+echo "         CREATE_CONAN:" "${CREATE_CONAN:=false}"
+echo "         UPLOAD_CONAN:" "${UPLOAD_CONAN:=false}"
 echo "STANZA_BUILD_PLATFORM:" "${STANZA_BUILD_PLATFORM:=$(uname -s)}"  # linux|macos|windows
 echo "                  VER:" "${VER:=$(git -C ${REPODIR} describe --tags --abbrev=0)}"
 
@@ -118,6 +120,8 @@ if [ "$CREATE_PACKAGE" == "true" ] ; then
 
   mkdir -p ziptmp/build
   cp -r ${FILES} ziptmp/
+  # remove temporary fpkg files
+  rm -f ziptmp/${STANZA_PLATFORMCHAR}pkgs/*.fpkg
 
   cd ziptmp
 
@@ -128,7 +132,19 @@ if [ "$CREATE_PACKAGE" == "true" ] ; then
 
   #zip -r ../${STANZA_PLATFORMCHAR}stanza_${VERU}.zip *
   zip -r ../stanza-${PLATFORM_DESC}_${VER}.zip *
+  cd ..
 
+  if [ "$CREATE_CONAN" == "true" ] ; then
+    cd conan
+    SBP=${STANZA_BUILD_PLATFORM}
+    if [ "${SBP}" == "os-x" ] ; then SBP="macos" ; fi
+
+    make "${SBP}" VER="${VER}" STANZA_ZIP="$PWD/../stanza-${PLATFORM_DESC}_${VER}.zip"
+
+    if [ "$UPLOAD_CONAN" == "true" ] ; then
+      make upload VER="${VER}"
+    fi
+  fi
 fi
 
 # if [ "$CREATE_ARCHIVE" == "true" ] ; then

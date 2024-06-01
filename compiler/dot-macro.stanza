@@ -1,0 +1,37 @@
+defpackage stz/dot-macro :
+  import core
+  import macro-utils
+  import stz/core-macros
+
+;Helper: If 'f' represents a regular unqualified name, e.g. 'func',
+;returns func qualified with a preceding slash, '/func', to lift
+;it to the top-level.
+defn lift-to-top (f:Token|Symbol) -> Token|Symbol :
+  ;Retrieve name of 'f' when it's an unqualified symbol.
+  val name = match(unwrap-token(f)) :
+    (f:StringSymbol) : name(f) when not qualified?(f)
+    (f) : false
+  match(name:String) :
+    val new-f = to-symbol(append("/", name))
+    sub-token-item?(f, new-f)
+  else :
+    f
+
+;Small package for implementing the dot-operator
+;for function application. 
+defsyntax dot-operator :
+  import (exp4, id, exp!, type!) from core
+
+  defrule exp4 = (?obj:#exp4 . ?f:#id<?targs:#type! ...>(?args:#exp! ...)) :
+    val func = lift-to-top(f)
+    qquote($do ($of ~ func ~@ targs) ~ obj ~@ args)
+
+  defrule exp4 = (?obj:#exp4 . ?f:#id(?args:#exp! ...)) :
+    val func = lift-to-top(f)
+    qquote($do ~ func ~ obj ~@ args)
+
+  defrule exp4 = (?obj:#exp4 . ?f:#id) :
+    val func = lift-to-top(f)
+    qquote($do ~ func ~ obj)
+
+

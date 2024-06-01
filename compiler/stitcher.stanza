@@ -1484,7 +1484,7 @@ defn compile-collect-garbage-stub (stitcher:Stitcher, emitter:CodeEmitter) :
 
   E $ Label(collect-garbage(stubs))
 
-  ;save R2 ... Rn
+  ;Save R2 ... Rn
   for (r in call-regs(backend), loc in saved-regs(stubs)) do :
     E $ StoreL(M(loc), R(r))
   for (r in call-fregs(backend), loc in saved-fregs(stubs)) do :
@@ -1544,9 +1544,12 @@ defn compile-collect-garbage-stub (stitcher:Stitcher, emitter:CodeEmitter) :
     E $ LoadL(TMP, M(current-stack(stubs)))
     E $ LoadL(RSP, TMP, sp-offset)
 
-  ;restore R2 ... Rn
+  ;restore R2 ... Rn, except for the first one. The first
+  ;one is used for the return value.
+  val ret-reg = call-regs(backend)[0]
   for (r in call-regs(backend), loc in saved-regs(stubs)) do :
-    E $ LoadL(R(r), M(loc))
+    if r != ret-reg :
+      E $ LoadL(R(r), M(loc))
   for (r in call-fregs(backend), loc in saved-fregs(stubs)) do :
     E $ LoadD(F(r), M(loc))
 
