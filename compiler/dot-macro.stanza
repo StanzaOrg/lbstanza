@@ -2,6 +2,7 @@ defpackage stz/dot-macro :
   import core
   import macro-utils
   import stz/core-macros
+  import stz/afn-macro
 
 ;Helper: If 'f' represents a regular unqualified name, e.g. 'func',
 ;returns func qualified with a preceding slash, '/func', to lift
@@ -21,6 +22,18 @@ defn lift-to-top (f:Token|Symbol) -> Token|Symbol :
 ;for function application. 
 defsyntax dot-operator :
   import (exp4, id, callarg!, type!) from core
+
+  defrule exp4 = (?obj:#exp4 . ?f:#id<?targs:#type! ...>{?body ...}) :
+    val func = lift-to-top(f)
+    val parsed-body = parse-afn-body(body)
+    val new-body = qquote(~ func<~@ targs>(~ obj ~@ parsed-body))
+    compile-afn-body(closest-info(), new-body)    
+
+  defrule exp4 = (?obj:#exp4 . ?f:#id{?body ...}) :
+    val func = lift-to-top(f)
+    val parsed-body = parse-afn-body(body)
+    val new-body = qquote(~ func(~ obj ~@ parsed-body))
+    compile-afn-body(closest-info(), new-body)
 
   defrule exp4 = (?obj:#exp4 . ?f:#id<?targs:#type! ...>(?args:#callarg! ...)) :
     val func = lift-to-top(f)
