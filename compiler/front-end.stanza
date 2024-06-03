@@ -614,7 +614,8 @@ defn FrontEnd (sys:FrontEndInputs) -> FrontEnd :
       if add(added-set, name(p)) : true
       else : add(duplicates, name(p))
     if not empty?(duplicates) :
-      throw(DuplicatePackages(to-tuple(duplicates)))
+      vprintln("Warning: dropping duplicate packages %_" % [to-tuple(duplicates)])
+      add(errors, DuplicatePackages(to-tuple(duplicates)))
     ps*
 
   defn check-already-loaded (ps:Seqable<IPackage|Pkg>, errors:Vector<Exception>) -> Tuple<IPackage|Pkg> :
