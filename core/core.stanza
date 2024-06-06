@@ -8826,7 +8826,7 @@ defmethod to-seq (r:Range) :
           fatal("Empty Sequence") when empty?(this)
           i
         defmethod empty? (this) :
-          n == 0
+          n <= 0
         defmethod length (this) :
           n
     (r:Range) :
