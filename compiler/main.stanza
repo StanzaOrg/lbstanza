@@ -1119,12 +1119,14 @@ defn defs-db-command () :
         get?(cmd-args, "macros", []))                 ;macro-plugin
 
     ;Launch!
-    run-with-timing-log(main, cmd-args)
+    within run-with-timing-log(cmd-args) :
+      within run-with-verbose-flag(cmd-args) :
+        main()
 
   ;Command definition
   Command("definitions-database",
           AtLeastOneArg, "the .proj files to use to generate definitions for.",
-          to-tuple $ cat(new-flags, common-stanza-flags(["platform", "flags", "optimize", "macros", "timing-log"])),
+          to-tuple $ cat(new-flags, common-stanza-flags(["platform", "flags", "optimize", "verbose", "macros", "timing-log"])),
           defs-db-msg, false, verify-args, intercept-no-match-exceptions(defs-db-action))
 
 
