@@ -66,7 +66,7 @@ defsyntax dot-operator :
   defrule exp4 = (?obj:#exp4 . ?f:#id = ?value:#exp!) :
     val func = match(add-prefix("set-", f)) :
       (func:Token|Symbol) : func
-      (func:False) : throw(CSE(closest-info(f), "Function name %~ cannot be a generated symbol." % [f]))
+      (func:False) : throw(CoreSyntaxError(closest-info(f), "Function name %~ cannot be a generated symbol." % [f]))
     qquote($do ~ func ~ obj ~ value)
 
   defrule exp4 = (?obj:#exp4 . ?f:#id) :

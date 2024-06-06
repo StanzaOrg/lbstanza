@@ -16,12 +16,15 @@ defpackage stz/core-macros :
 
 public deftype CoreSyntaxError <: Exception
 
-public defn CSE (info:False|FileInfo, msg) :
+public defn CoreSyntaxError (info:False|FileInfo, msg) :
   new CoreSyntaxError :
     defmethod print (o:OutputStream, this) :
       print{o, _} $ match(info) :
         (info:FileInfo) : "%_: Syntax Error: %_" % [info msg]
         (info:False) : "Syntax Error: %_" % [msg]
+
+defn CSE (info:False|FileInfo, msg) :
+  CoreSyntaxError(info,msg)
 
 ;============================================================
 ;==================== Utilities =============================
