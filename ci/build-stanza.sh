@@ -120,8 +120,6 @@ if [ "$CREATE_PACKAGE" == "true" ] ; then
 
   mkdir -p ziptmp/build
   cp -r ${FILES} ziptmp/
-  # remove temporary fpkg files
-  rm -f ziptmp/${STANZA_PLATFORMCHAR}pkgs/*.fpkg
 
   cd ziptmp
 
