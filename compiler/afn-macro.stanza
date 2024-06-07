@@ -112,7 +112,7 @@ public defn compile-afn-body (afn-info:FileInfo|False,
     if standard-arg? and numbered-arg? :
       val msg = "Anonymous function cannot contain both standard placeholder \
                  arguments as well as numbered placeholder arguments."
-      throw(CSE(afn-info, msg))
+      throw(CoreSyntaxError(afn-info, msg))
 
   ;Assuming that it is a anonymous function using numbered arguments,
   ;construct the type table. Ensure that all types are consistent.
@@ -126,7 +126,7 @@ public defn compile-afn-body (afn-info:FileInfo|False,
       if length(types) > 1 :
         val msg = "Argument %_ in anonymous function is declared repeatedly with \
                    different types: %,."
-        throw(CSE(afn-info, msg % [key(group), types]))
+        throw(CoreSyntaxError(afn-info, msg % [key(group), types]))
       table[key(group)] = head(value(group))
     table
 
