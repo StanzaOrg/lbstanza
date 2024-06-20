@@ -89,14 +89,18 @@ case "$STANZA_BUILD_PLATFORM" in
     os-x)
       scripts/make-asmjit.sh os-x
       mv bin/libasmjit-os-x.a bin/libasmjit.a
+    ;;
     linux)
       scripts/make-asmjit.sh linux
       mv bin/libasmjit-linux.a bin/libasmjit.a
+    ;;
     windows)
       scripts/make-asmjit.bat
       mv bin/libasmjit-windows.a bin/libasmjit.a
+    ;;
     *)
       printf "Bad platform" && exit -2
+    ;;
 esac
 
 # copy asmjit.a from stanza install into repository bin directory
