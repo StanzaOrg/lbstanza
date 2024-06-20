@@ -322,11 +322,11 @@ void assembler_cvtsi2ss(Assembler *a, const Xmm *dst, const Gp *src) {
 void assembler_cvtsi2sd(Assembler *a, const Xmm *dst, const Gp *src) {
   a->cvtsi2sd(*dst, *src);
 }
-void assembler_cvtsd2si(Assembler *a, const Gp *dst, const Xmm *src) {
-  a->cvtsd2si(*dst, *src);
+void assembler_cvttsd2si(Assembler *a, const Gp *dst, const Xmm *src) {
+  a->cvttsd2si(*dst, *src);
 }
-void assembler_cvtss2si(Assembler *a, const Gp *dst, const Xmm *src) {
-  a->cvtss2si(*dst, *src);
+void assembler_cvttss2si(Assembler *a, const Gp *dst, const Xmm *src) {
+  a->cvttss2si(*dst, *src);
 }
 void assembler_addss(Assembler *a, const Xmm *dst, const Xmm *src) {
   a->addss(*dst, *src);
