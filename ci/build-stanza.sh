@@ -88,15 +88,15 @@ mkdir -p bin
 case "$STANZA_BUILD_PLATFORM" in
     os-x)
       scripts/make-asmjit.sh os-x
-      mv bin/libasmjit-os-x.a bin/libasmjit.a
+      cp bin/libasmjit-os-x.a bin/libasmjit.a
     ;;
     linux)
       scripts/make-asmjit.sh linux
-      mv bin/libasmjit-linux.a bin/libasmjit.a
+      cp bin/libasmjit-linux.a bin/libasmjit.a
     ;;
     windows)
       scripts/make-asmjit.bat
-      mv bin/libasmjit-windows.a bin/libasmjit.a
+      cp bin/libasmjit-windows.a bin/libasmjit.a
     ;;
     *)
       printf "Bad platform" && exit -2
