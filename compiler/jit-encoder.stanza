@@ -1761,7 +1761,7 @@ defn AsmGen (code:CodeHolder,
         set-imm(reg(Tmp1), y)
         movss(a, xmm0, reg(Tmp1))
         ;reg(Tmp1) = xmm0 as int
-        cvtss2si(a, reg(Tmp1), xmm0)
+        cvttss2si(a, reg(Tmp1), xmm0)
         ;Store as byte
         set-local(x, reg(Tmp1), 1)
       CONV-OPCODE-INT-FLOAT :
@@ -1769,7 +1769,7 @@ defn AsmGen (code:CodeHolder,
         set-imm(reg(Tmp1), y)
         movss(a, xmm0, reg(Tmp1))
         ;reg(Tmp1) = xmm0 as int
-        cvtss2si(a, reg(Tmp1), xmm0)
+        cvttss2si(a, reg(Tmp1), xmm0)
         ;Store as int
         set-local(x, reg(Tmp1), 4)
       CONV-OPCODE-LONG-FLOAT :
@@ -1777,7 +1777,7 @@ defn AsmGen (code:CodeHolder,
         set-imm(reg(Tmp1), y)
         movss(a, xmm0, reg(Tmp1))
         ;reg(Tmp1) = xmm0 as int
-        cvtss2si(a, reg(Tmp1), xmm0)
+        cvttss2si(a, reg(Tmp1), xmm0)
         ;Store as long
         set-local(x, reg(Tmp1), 8)
       CONV-OPCODE-BYTE-DOUBLE :
@@ -1785,7 +1785,7 @@ defn AsmGen (code:CodeHolder,
         set-imm(reg(Tmp1), y)
         movsd(a, xmm0, reg(Tmp1))
         ;reg(Tmp1) = xmm0 as int
-        cvtsd2si(a, reg(Tmp1), xmm0)
+        cvttsd2si(a, reg(Tmp1), xmm0)
         ;Store as byte
         set-local(x, reg(Tmp1), 1)
       CONV-OPCODE-INT-DOUBLE :
@@ -1793,7 +1793,7 @@ defn AsmGen (code:CodeHolder,
         set-imm(reg(Tmp1), y)
         movsd(a, xmm0, reg(Tmp1))
         ;reg(Tmp1) = xmm0 as int
-        cvtsd2si(a, reg(Tmp1), xmm0)
+        cvttsd2si(a, reg(Tmp1), xmm0)
         ;Store as int
         set-local(x, reg(Tmp1), 4)
       CONV-OPCODE-LONG-DOUBLE :
@@ -1801,7 +1801,7 @@ defn AsmGen (code:CodeHolder,
         set-imm(reg(Tmp1), y)
         movsd(a, xmm0, reg(Tmp1))
         ;reg(Tmp1) = xmm0 as int
-        cvtsd2si(a, reg(Tmp1), xmm0)
+        cvttsd2si(a, reg(Tmp1), xmm0)
         ;Store as long
         set-local(x, reg(Tmp1), 8)
       CONV-OPCODE-INT-BYTE :

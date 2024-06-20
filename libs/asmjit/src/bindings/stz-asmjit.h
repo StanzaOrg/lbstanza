@@ -113,8 +113,8 @@ extern "C" {
   void assembler_cvtsd2ss(Assembler *a, const Xmm *dst, const Xmm *src);
   void assembler_cvtsi2ss(Assembler *a, const Xmm *dst, const Gp *src);
   void assembler_cvtsi2sd(Assembler *a, const Xmm *dst, const Gp *src);
-  void assembler_cvtss2si(Assembler *a, const Gp *dst, const Xmm *src);
-  void assembler_cvtsd2si(Assembler *a, const Gp *dst, const Xmm *src);
+  void assembler_cvttss2si(Assembler *a, const Gp *dst, const Xmm *src);
+  void assembler_cvttsd2si(Assembler *a, const Gp *dst, const Xmm *src);
   void assembler_ucomiss(Assembler *a, const Xmm *dst, const Xmm *src);
   void assembler_ucomisd(Assembler *a, const Xmm *dst, const Xmm *src);
   void assembler_addss(Assembler *a, const Xmm *dst, const Xmm *src);

@@ -90,8 +90,8 @@ extern assembler_cvtss2sd: (ptr<?>, ptr<?>, ptr<?>) -> int
 extern assembler_cvtsd2ss: (ptr<?>, ptr<?>, ptr<?>) -> int
 extern assembler_cvtsi2ss: (ptr<?>, ptr<?>, ptr<?>) -> int
 extern assembler_cvtsi2sd: (ptr<?>, ptr<?>, ptr<?>) -> int
-extern assembler_cvtss2si: (ptr<?>, ptr<?>, ptr<?>) -> int
-extern assembler_cvtsd2si: (ptr<?>, ptr<?>, ptr<?>) -> int
+extern assembler_cvttss2si: (ptr<?>, ptr<?>, ptr<?>) -> int
+extern assembler_cvttsd2si: (ptr<?>, ptr<?>, ptr<?>) -> int
 extern assembler_addss: (ptr<?>, ptr<?>, ptr<?>) -> int
 extern assembler_addsd: (ptr<?>, ptr<?>, ptr<?>) -> int
 extern assembler_subss: (ptr<?>, ptr<?>, ptr<?>) -> int
@@ -858,11 +858,11 @@ public lostanza defn cvtsi2ss (a:ref<Assembler>, dst:ref<Xmm>, src:ref<Gp>) -> r
 public lostanza defn cvtsi2sd (a:ref<Assembler>, dst:ref<Xmm>, src:ref<Gp>) -> ref<Xmm> :
   call-c assembler_cvtsi2sd(a.value, dst.value, src.value)
   return dst
-public lostanza defn cvtss2si (a:ref<Assembler>, dst:ref<Gp>, src:ref<Xmm>) -> ref<Gp> :
-  call-c assembler_cvtss2si(a.value, dst.value, src.value)
+public lostanza defn cvttss2si (a:ref<Assembler>, dst:ref<Gp>, src:ref<Xmm>) -> ref<Gp> :
+  call-c assembler_cvttss2si(a.value, dst.value, src.value)
   return dst
-public lostanza defn cvtsd2si (a:ref<Assembler>, dst:ref<Gp>, src:ref<Xmm>) -> ref<Gp> :
-  call-c assembler_cvtsd2si(a.value, dst.value, src.value)
+public lostanza defn cvttsd2si (a:ref<Assembler>, dst:ref<Gp>, src:ref<Xmm>) -> ref<Gp> :
+  call-c assembler_cvttsd2si(a.value, dst.value, src.value)
   return dst
 public lostanza defn addss (a:ref<Assembler>, dst:ref<Xmm>, src:ref<Xmm>) -> ref<Xmm> :
   call-c assembler_addss(a.value, dst.value, src.value)
