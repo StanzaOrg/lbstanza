@@ -35,6 +35,7 @@ public lostanza deftype VMState :
   ;Interpreted Mode Tables
   var instructions: ptr<byte>      ;(Permanent State)
   var trie-table: ptr<ptr<int>>    ;(Permanent State)
+  var dispatchers: ptr<long>       ;(Permanent State)
 
 ;- code: The integer id of the function. The VM
 ;  will retrieve the address of the code by looking up
@@ -80,6 +81,8 @@ public lostanza val VMSTATE-REGISTERS-OFFSET:ref<Int> =
   new Int{addr(null-vmstate().registers) as long as int}
 public lostanza val VMSTATE-SYSTEM-REGISTERS-OFFSET:ref<Int> =
   new Int{addr(null-vmstate().system-registers) as long as int}
+public lostanza val VMSTATE-DISPATCHERS-OFFSET:ref<Int> =
+  new Int{addr(null-vmstate().dispatchers) as long as int}
 public lostanza val VMSTATE-HEAP-START-OFFSET:ref<Int> =
   new Int{addr(null-vmstate().heap.start) as long as int}
 public lostanza val VMSTATE-HEAP-TOP-OFFSET:ref<Int> =
