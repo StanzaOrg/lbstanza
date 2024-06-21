@@ -29,7 +29,7 @@ val FILL-TEMPLATE = TimerLabel("Fill template")
 
 public defn splice (item) :
    Splice(item)
-public defn substitute (pattern, bindings:Collection<KeyValue<Symbol,?>>) :
+public defn substitute (pattern, bindings:Collection<KeyValue<Symbol,?>> = []) :
    Substitute(pattern, bindings)
 public defn nested (bindings:Collection<Collection<KeyValue<Symbol,?>>>) :
    Nested(bindings)

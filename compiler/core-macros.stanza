@@ -1082,10 +1082,10 @@ defsyntax core :
    ;                Doc String
    ;                ==========
 
-   defproduction doc-string
+   public defproduction doc-string
    defrule doc-string = (doc : ?x:#string) : qquote($doc ~ x)
 
-   defproduction doc-string? : Maybe
+   public defproduction doc-string? : Maybe
    defrule doc-string? = (?x:#doc-string) : One(x)
    defrule doc-string? = () : None()
 

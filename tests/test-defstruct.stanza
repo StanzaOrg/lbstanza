@@ -1,0 +1,41 @@
+defpackage test-defstruct :
+  import core
+  import collections
+  import macro-utils
+  import stz/defstruct-macro
+  import stz/core-macros
+
+within (package,sig) = set-stack-trace-filter() :
+  package != `core
+  
+let :
+  val struct = `(
+    defstruct MyStruct :
+      x:Int with: (default => void)
+      y:Int with: (default => void)
+    with:
+      printer => true
+      writer => true
+  )
+  val struct-form = parse-syntax[defstruct-syntax / #defstruct-form](struct)
+  val compiled = compile(struct-form)
+
+  val prog = `(
+    defn positive! (description:String, x:Int) :
+      if x < 0 : fatal("Value for %_ is not positive." % [description])
+    let :
+      val o = MyStruct(10)
+      println(o)
+      println(x(o))
+  )
+  val prog-form = parse-syntax[core / #exp ...](prog)
+
+  val template = `(
+    defstruct
+    prog)
+  val filled = fill-template(template, [
+    `defstruct => compiled
+    `prog => splice(prog-form)])
+
+  spit("temp.stanza", filled)
+  call-system(["stanza", "run", "temp.stanza"])
