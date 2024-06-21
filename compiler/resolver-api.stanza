@@ -1,0 +1,125 @@
+defpackage stz/resolver-api :
+  import core
+  import collections
+  import stz/il-ir
+  import stz/dl-ir
+  import stz/namemap
+
+;============================================================
+;=================== Symbol Tables ==========================
+;============================================================
+
+public :
+
+  deftype SymbolTables
+  defmulti get (st:SymbolTables, package:Symbol) -> SymbolTable|False
+  defmulti package-exports (st:SymbolTables) -> Tuple<PackageExports>
+  defmulti new-ipackages (st:SymbolTables) -> Tuple<IPackage>
+  defmulti load-conditional-dependencies (st:SymbolTables) -> Vector<Symbol>
+
+  ;Return the explicit import statements (ImportedPackage) listed
+  ;in the given package. Returns empty if the package could not be loaded.
+  defmulti imports (st:SymbolTables, package:Symbol) -> Tuple<IImport|ImportedPackage>
+
+
+;============================================================
+;=============== Single-Package SymbolTable =================
+;============================================================
+
+public :
+  ;The SymbolTable for a package holds all the names a user can reference from that package.
+  deftype SymbolTable
+
+  ;The package name of this SymbolTable.
+  defmulti package (t:SymbolTable) -> Symbol
+
+  defmulti import (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable) -> False
+
+  ;For each entry, changes its "owning package" to the SymbolTable's package, and adds it to this SymbolTable.
+  defmulti update-owner (t:SymbolTable, entries:Seqable<VEntry>, ptable:PrefixTable) -> False
+
+  defmulti push-scope (t:SymbolTable) -> False
+  defmulti pop-scope (t:SymbolTable) -> False
+  defmulti define (t:SymbolTable, n:Int) -> False
+  defmulti get (t:SymbolTable, name:Symbol) -> List<List<VEntry>>
+  defmulti base (t:SymbolTable, name:Symbol) -> List<VEntry>
+  defmulti immediate (t:SymbolTable, name:Symbol) -> List<VEntry>
+
+  ;Returns the entries that are defined within this package itself.
+  defmulti defined (t:SymbolTable, name:Symbol) -> List<VEntry>
+
+;============================================================
+;==================== Prefixes ==============================
+;============================================================
+
+public :
+  ;A condensed representation of the list of prefix directives
+  ;in an defpackage statement.
+  deftype PrefixTable
+
+  ;Given the name of a symbol, returns the associated prefix
+  ;to apply to it (if any).
+  defmulti get (t:PrefixTable, name:Symbol) -> String|False
+
+  ; Main constructor for a PrefixTable.
+  defn PrefixTable (prefixes:Tuple<IPrefix>) :
+    var all-prefix:String|False = false
+    val table = HashTable<Symbol,String>()
+    for e in prefixes do :
+      match(names(e)) :
+        (names:False) : all-prefix = prefix(e)
+        (names:Tuple<Symbol>) : do({table[_] = prefix(e)}, names)
+    new PrefixTable :
+      defmethod get (this, name:Symbol) :
+        match(get?(table, name)) :
+          (s:String) : s
+          (s:False) : all-prefix
+
+  ; Convenience: Create an empty prefix table.
+  defn PrefixTable () :
+    new PrefixTable :
+      defmethod get (this, name:Symbol) : false
+
+  ; Convenience: Create a PrefixTable from DL-IR Tuple<ImportPrefix>.
+  defn PrefixTable (prefixes:Tuple<ImportPrefix>) :
+    PrefixTable(map(to-iprefix, prefixes))
+
+  ; Compose tables t1 and t2, where t1 depends on t2.
+  ; t1's prefix comes before t2's prefix.
+  defn compose (t1:PrefixTable, t2:PrefixTable) -> PrefixTable :
+    new PrefixTable :
+      defmethod get (this, name:Symbol) :
+        match(t2[name]) :
+          (s:String) :
+            match(t1[add-prefix(s, name)]) :
+              (t:String) : append(t,s)
+              (f:False) : s
+          (f:False) :
+            t1[name]
+
+  ; Add a prefix to a symbol. If no prefix is given, then
+  ; symbol is returned unchanged.
+  defn add-prefix (prefix:String|False, x:Symbol) -> Symbol :
+    match(prefix:String) :
+      val name* = append(prefix,name(x))
+      match(x) :
+        (x:StringSymbol) : to-symbol(name*)
+        (x:GenSymbol) : gensym(name*)
+    else :
+      x
+
+  ; Remove an optional prefix from a symbol, returning None if symbol
+  ; does not begin with said prefix.
+  ; If no prefix is given, then symbol is returned unchanged.
+  defn unprefix (prefix:String|False, x:Symbol) -> Maybe<Symbol>:
+    match(prefix:String) :
+      if prefix?(name(x), prefix) :
+        val name* = name(x)[length(prefix) to false]
+        match(x):
+          (x:StringSymbol) : One(to-symbol(name*))
+          (x:GenSymbol) : One(gensym(name*))
+      else : None()
+    else : One(x)
+
+  defn to-iprefix (p : ImportPrefix) :
+    IPrefix(names(p), prefix(p))
