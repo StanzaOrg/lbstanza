@@ -3,7 +3,25 @@ defpackage stz/resolver-api :
   import collections
   import stz/il-ir
   import stz/dl-ir
+  import stz/defs-db-ir
   import stz/namemap
+
+;============================================================
+;================= Environment Callbacks ====================
+;============================================================
+
+public deftype Env
+public defmulti imported-package (e:Env, package:Symbol) -> IPackage|PackageExports|PackageDefinitions|False
+
+;============================================================
+;=================== Multis with Defaults ===================
+;============================================================
+
+public defmulti conditional-dependencies (e:Env, packages:Seqable<Symbol>) -> Tuple<Symbol>
+defmethod conditional-dependencies (e:Env, packages:Seqable<Symbol>) : []
+
+public defmulti package-priority (e:Env) -> False|(Symbol -> Int)
+defmethod package-priority (e:Env) : false
 
 ;============================================================
 ;=================== Symbol Tables ==========================
@@ -75,6 +93,20 @@ public :
           (s:String) : s
           (s:False) : all-prefix
 
+  ; Main constructor for a PrefixTable.
+  defn PrefixTable (prefixes:Tuple<PackageImportPrefix>) :
+    var all-prefix:String|False = false
+    val table = HashTable<Symbol,String>()
+    for e in prefixes do :
+      match(names(e)) :
+        (names:False) : all-prefix = prefix(e)
+        (names:Tuple<Symbol>) : do({table[_] = prefix(e)}, names)
+    new PrefixTable :
+      defmethod get (this, name:Symbol) :
+        match(get?(table, name)) :
+          (s:String) : s
+          (s:False) : all-prefix
+
   ; Convenience: Create an empty prefix table.
   defn PrefixTable () :
     new PrefixTable :
@@ -122,4 +154,7 @@ public :
     else : One(x)
 
   defn to-iprefix (p : ImportPrefix) :
+    IPrefix(names(p), prefix(p))
+
+  defn to-iprefix (p:PackageImportPrefix) :
     IPrefix(names(p), prefix(p))

@@ -1,0 +1,49 @@
+defpackage stz/defs-db-resolver :
+  import core
+  import collections
+  import stz/defs-db-ir
+  import stz/resolver-api
+  import stz/namemap
+
+
+; Constructing VEntries
+public defn VEntry (d:Definition, src-package:Symbol) -> VEntry :
+  fatal("TODO")
+;  VEntry(
+;    fresh-id() ; TODO: is this OK?
+;    src-package
+;    visibility(d)
+;    etype(d)
+;    false
+;  )
+;
+;defn etype (d:Definition) -> EType :
+;  match(kind(d)) :
+;    (SrcDefUnknown)  :
+;    (SrcDefMulti)    :
+;    (SrcDefMethod)   :
+;    (SrcDefFunction) :
+;    (SrcDefVariable) :
+;    (SrcDefType)     :
+;    (SrcDefPackage)  :
+;  
+;
+;  match(r) :
+;    (r:ValRec) :
+;      match(mutable?(r), lostanza?(r)) :
+;        (m:False, ls:False) : ValE()
+;        (m:True, ls:False) : VarE()
+;        (m:False, ls:True) : LValE()
+;        (m:True, ls:True) : LVarE()
+;    (r:FnRec) :
+;      if lostanza?(r) : LFnE()
+;      else : FnE()
+;    (r:MultiRec) : MultiE()
+;    (r:ExternFnRec) : LFnE()
+;    (r:ExternRec) :
+;      match(type(r)) :
+;        (t:DFnT) : LFnE()
+;        (t) : LVarE()
+;    (r:StructRec) : LTypeE()
+;    (r:TypeRec) : TypeE()
+;

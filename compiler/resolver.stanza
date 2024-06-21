@@ -17,6 +17,8 @@ defpackage stz/resolver :
    import stz/absolute-info
    import stz/resolve-errors
    import stz/resolver-api
+   import stz/defs-db-ir
+   import stz/defs-db-resolver
 
 ;<doc>=======================================================
 ;====================== Environment =========================
@@ -78,23 +80,6 @@ defn exclude-from-resolve-exp-time<?T> (body:() -> ?T) :
     exclude-log-time(body, ACTIVE-RESOLVE-EXP)
   else :
     body()
-
-;============================================================
-;================= Environment Callbacks ====================
-;============================================================
-
-public deftype Env
-public defmulti imported-package (e:Env, package:Symbol) -> IPackage|PackageExports|False
-
-;============================================================
-;=================== Multis with Defaults ===================
-;============================================================
-
-public defmulti conditional-dependencies (e:Env, packages:Seqable<Symbol>) -> Tuple<Symbol>
-defmethod conditional-dependencies (e:Env, packages:Seqable<Symbol>) : []
-
-public defmulti package-priority (e:Env) -> False|(Symbol -> Int)
-defmethod package-priority (e:Env) : false
 
 ;============================================================
 ;==================== Result Structures =====================
@@ -801,28 +786,29 @@ defmethod import (i : MImportAndForward) : true
 defmethod forward (i : MImportAndForward) : true
 
 
-defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vector<ResolveError>) :
+defn SymbolTables (packages:Tuple<IPackage|PackageExports|PackageDefinitions>, env:Env, errors:Vector<ResolveError>) :
   ;Table holding packages
-  val pkg-table = HashTable<Symbol,IPackage|PackageExports|False>()
+  val pkg-table = HashTable<Symbol,IPackage|PackageExports|PackageDefinitions|False>()
 
   ;Accumulator holding new ipackages loaded during the resolution process
   val new-ipackages = Vector<IPackage>()
 
   ;Load the given package from the environment if it has not
   ;already been loaded. Recursively load all of its dependencies as well.
-  defn load-package (name:Symbol) -> IPackage|PackageExports|False :
+  defn load-package (name:Symbol) -> IPackage|PackageExports|PackageDefinitions|False :
     if not key?(pkg-table, name) :
       val p = within exclude-from-resolve-exp-time() :
         imported-package(env, name)
       pkg-table[name] = p
       match(p:IPackage) :
         add(new-ipackages, p)
-      match(p:IPackage|PackageExports) :
+      match(p:IPackage|PackageExports|PackageDefinitions) :
         load-dependencies(p)
     pkg-table[name]
 
   ;Load all dependencies of a package
-  defn load-dependencies (p:IPackage|PackageExports) :
+  ;TODO: abstract over this stuff
+  defn load-dependencies (p:IPackage|PackageExports|PackageDefinitions) :
     match(p) :
       (p:IPackage) :
         for imp in imports(p) do :
@@ -834,6 +820,11 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
           val result = load-package(package-name(imp))
           if result is False :
             add(errors, NoPackage(package-name(imp), package(p), false))
+      (p:PackageDefinitions) :
+        for imp in imports(p) do :
+          val result = load-package(name(imp))
+          if result is False :
+            add(errors, NoPackage(name(imp), name(p), false))
 
   ;Initialize with source packages,
   ;and load all of their dependencies.
@@ -844,6 +835,8 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
         add(new-ipackages, p)
       (p:PackageExports) :
         pkg-table[package(p)] = p
+      (p:PackageDefinitions) :
+        pkg-table[name(p)] = p
   do(load-dependencies, packages)
 
   ;Ensure that core is loaded.
@@ -948,6 +941,17 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
             val import-list* = import-list-intersection(import-list, only(fwd), PrefixTable(prefix(fwd)))
             val import-ptable* = compose(import-ptable, PrefixTable(prefix(fwd)))
             extend-symtable(symtable, to-iimport(fwd), import-ptable*, mode, import-list*, already-forwarded)
+        (p:PackageDefinitions) :
+          defn ventry (d) : VEntry(d, name(p))
+          ; Import public definitions and protected definitions (when necessary)
+          if import(mode):
+            import(symtable, filter(should-import?, (seq(ventry, definitions(p)))), import-ptable)
+          if forward(mode):
+            update-owner(symtable, filter(should-forward?, (seq(ventry, definitions(p)))), import-ptable)
+          for fwd in filter(forward, imports(p)) do:
+            val import-list* = import-list-intersection(import-list, only(fwd), PrefixTable(prefixes(fwd)))
+            val import-ptable* = compose(import-ptable, PrefixTable(prefixes(fwd)))
+            extend-symtable(symtable, to-iimport(fwd), import-ptable*, mode, import-list*, already-forwarded)
         ;Could not resolve the imported package.
         (f:False) :
           add(errors, NoPackage(import-name, package(symtable), info(imp)))
@@ -1010,7 +1014,7 @@ defn SymbolTables (packages:Tuple<IPackage|PackageExports>, env:Env, errors:Vect
       ;Return newly loaded
       newly-loaded
 
-defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
+defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>|PackageDefinitions) :
   ;Level Table
   val table = MultilevelTable<Symbol, List<VEntry>>()
   val basetable = HashTable<Symbol, List<BaseEntry>>(List())
@@ -1077,6 +1081,7 @@ defn SymbolTable (package-name:Symbol, base:NameMap|Tuple<Export>) :
   match(base) :
     (basemap:NameMap) : add-entries(toplevel(basemap))
     (baseexs:Tuple<Export>) : add-entries(seq(VEntry,baseexs))
+    (pkgdefs:PackageDefinitions) : add-entries(seq({VEntry(_, name(pkgdefs))}, definitions(pkgdefs)))
 
   ;Return bindings structure
   new SymbolTable :
@@ -1130,3 +1135,6 @@ defn one? (xs:List) :
 
 defn to-iimport (imp : ImportedPackage) :
   IImport(package-name(imp), forward(imp), only(imp), map(to-iprefix, prefix(imp)), false, false)
+
+defn to-iimport (imp : PackageImport) :
+  IImport(name(imp), forward(imp), only(imp), map(to-iprefix, prefixes(imp)), false, false)
