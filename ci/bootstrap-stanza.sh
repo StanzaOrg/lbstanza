@@ -52,6 +52,7 @@ ${STANZA} compile-macros \
   compiler/message-lang.stanza \
   compiler/ast-printer-lang.stanza \
   compiler/reader-lang.stanza \
+  compiler/dot-macro.stanza \
   -o bootstrap.macros 
 
 ${STANZA} core/stanza.proj compiler/stanza.proj stz/driver -o stanzatemp -macros bootstrap.macros -flags BOOTSTRAP -build-from-source
