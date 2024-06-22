@@ -488,6 +488,69 @@ defn main-constructor (form:DefStructForm,
     `printer-and-writer => printer-and-writer(form)])
 
 ;============================================================
+;=================== Simple Constructor =====================
+;============================================================
+
+;Generates the "simple constructor" for the struct.
+;The simple constructor is used when the pattern satisfies
+;the common case where the struct is extremely simple.
+;Requirements:
+;- No fields with default values.
+;- If any field has an updater then:
+;  - No ensures.
+;  - No inits.
+defn simple-constructor (form:DefStructForm,
+                         constructor:Symbol|Token) -> ? :
+
+  val template = `(
+
+    defn Constructor<targs{name}> (fields{init?{}{name:type}}) :
+           
+      ;Initialize 'init' fields.
+      fields{
+        init?{
+          voidable?{
+            var name:type
+          }{
+            val name:type = init-value
+          }          
+        }{}
+      }
+
+      ;Check preconditions.
+      fields{
+        ensure?{
+          voidable?{}{
+            ;If it is not void, then check it
+            #if-not-defined(OPTIMIZE) :
+              ensure(description, name)            
+          }
+        }{}
+      }
+
+      ;Define mutable local variables.
+      fields{
+        setter?{
+          var local-name:type = name
+        }{}
+      }
+
+      ;Create struct.
+      new Struct<targs{name}> :
+
+        ;Getters, setters, and updaters for each field.      
+        getters-setters-updaters
+        
+        ;Printer and writer
+        printer-and-writer
+  )
+
+  splice $ substitute(template, [
+    `Constructor => constructor
+    `getters-setters-updaters => getters-setters-updaters(constructor)
+    `printer-and-writer => printer-and-writer(form)])
+
+;============================================================
 ;================= Positional Constructor ===================
 ;============================================================
 
@@ -572,23 +635,71 @@ defn positional-constructor (constructor:Symbol|Token,
 
 ;Compile the entire DefStruct form.
 public defn compile (form:DefStructForm) -> ? :
-  val main-constructor-name = gensym(form.name)
-  val template = `(
-    deftype-and-multis
-    meta-utils-methods
-    hashable-equalable-methods
-    main-constructor
-    positional-constructor
-  )
-  fill-template(template, [
+
+  ;Accumulate bindings
+  val bindings = Vector<KeyValue>()
+  defn add-bindings (entries:KeyValue ...) :
+    add-all(bindings, entries)
+
+  ;Retrieve the desired name of the constructor.
+  val constructor-name = form.constructor.value?(form.name)
+
+  ;Fill default bindings.
+  add-bindings(
     `Struct => deep(form.name)
     `targs => deep(repeated([`name => form.targs]))
-    `fields => deep(bindings(form.fields, form.name))
+    `fields => deep(/bindings(form.fields, form.name))
     `x => deep(gensym(`x))
     `Uninitialized => deep(`core/Uninitialized)
     `uninitialized => deep(`core/uninitialized)
     `deftype-and-multis => deftype-and-multis(form)
     `meta-utils-methods => meta-utils-methods(form)
-    `hashable-equalable-methods => hashable-equalable-methods(form)
-    `main-constructor => main-constructor(form, main-constructor-name)
-    `positional-constructor => positional-constructor(form.name, main-constructor-name)])
+    `hashable-equalable-methods => hashable-equalable-methods(form))
+
+  ;Determine which form of the constructor to use.
+  if use-simple-constructor?(form) :
+    
+    val template = `(
+      deftype-and-multis
+      meta-utils-methods
+      hashable-equalable-methods
+      simple-constructor
+    )
+
+    add-bindings(
+      `simple-constructor => simple-constructor(form, constructor-name))      
+    fill-template(template, bindings)
+  
+  else :
+
+    ;Generate the name of the main constructor.
+    val main-constructor-name = gensym(form.name)
+
+    val template = `(
+      deftype-and-multis
+      meta-utils-methods
+      hashable-equalable-methods
+      main-constructor
+      positional-constructor
+    )
+
+    add-bindings(
+      `main-constructor => main-constructor(form, main-constructor-name)
+      `positional-constructor => positional-constructor(constructor-name, main-constructor-name))
+    fill-template(template, bindings)    
+
+;Helper: Return true if the DefStruct form can use
+;the simplified constructor.
+defn use-simple-constructor? (form:DefStructForm) -> True|False :
+  defn no-defaults () :
+    all?({_.default.empty?}, form.fields)
+  defn any-updaters () :
+    any?({not _.updater.empty?}, form.fields)
+  defn no-ensures () :
+    all?({_.ensure.empty?}, form.fields)
+  defn no-inits () :
+    all?({_.init.empty?}, form.fields)
+
+  if no-defaults() :
+    if any-updaters() : no-ensures() and no-inits()
+    else : true
