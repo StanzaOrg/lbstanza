@@ -7,4 +7,4 @@
 #   like 1.23.45
 #
 # Use version 0.17.56 to compile 0.18.0
-0.18.69
+0.18.79
