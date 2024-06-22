@@ -639,6 +639,15 @@ defn positional-constructor (constructor:Symbol|Token,
     `value! => `core/value!
     `value? => `core/value?])
 
+;Generate the positional constructor with overridden
+;fields bindings.
+defn positional-constructor (constructor:Symbol|Token,
+                             main-constructor:Symbol|Token,
+                             fields:Nested) -> ? :
+  substitute(`constructor, [
+    `fields => deep(fields)
+    `constructor => positional-constructor(constructor, main-constructor)])
+
 ;============================================================
 ;================== Keyword Constructor =====================
 ;============================================================
@@ -730,80 +739,57 @@ defn keyword-constructor (constructor:Symbol|Token,
     `value? => `core/value?])
 
 ;============================================================
-;============== Main Generation Algorithm ===================
+;=================== All Constructors =======================
 ;============================================================
 
-;Compile the entire DefStruct form.
-public defn compile (form:DefStructForm) -> ? :
-
-  ;Accumulate bindings
-  val bindings = Vector<KeyValue>()
-  defn add-bindings (entries:KeyValue ...) :
-    add-all(bindings, entries)
+;Generates all the constructors for the given defstruct form.
+defn all-constructors (form:DefStructForm) -> ? :
+  val template = `(
+    simple-constructor?{
+      simple-constructor
+    }{
+      main-constructor
+      positional-constructor
+      keyword-constructor?{
+        keyword-constructor
+      }{}
+    }
+  )
 
   ;Retrieve the desired name of the constructor.
   val constructor-name = form.constructor.value?(form.name)
 
-  ;Fill default bindings.
-  add-bindings(
-    `Struct => deep(form.name)
-    `targs => deep(repeated([`name => form.targs]))
-    `fields => deep(/bindings(form.fields, form.name))
-    `x => deep(gensym(`x))
-    `Uninitialized => deep(`core/Uninitialized)
-    `uninitialized => deep(`core/uninitialized)
-    `deftype-and-multis => deftype-and-multis(form)
-    `meta-utils-methods => meta-utils-methods(form)
-    `hashable-equalable-methods => hashable-equalable-methods(form))
+  ;Compute the simple constructor.
+  val simple-constructor =
+    if form.use-simple-constructor? : One(simple-constructor(form, constructor-name))
+    else : None()
 
-  ;Determine which form of the constructor to use.
-  if use-simple-constructor?(form) :
-    
-    val template = `(
-      deftype-and-multis
-      meta-utils-methods
-      hashable-equalable-methods
-      simple-constructor
-    )
+  ;Generate the name of the main constructor.
+  val main-constructor-name = gensym(form.name)
 
-    add-bindings(
-      `simple-constructor => simple-constructor(form, constructor-name))      
-    fill-template(template, bindings)
-  
-  else :
+  ;Retrieve the name of the keyword constructor.
+  val keyword-constructor-name = match(form.keyword-constructor.value?.unwrap-token) :
+    (c:Symbol) : form.keyword-constructor.value!
+    (c:True) : form.name
+    (c:False) : false
 
-    ;Generate the name of the main constructor.
-    val main-constructor-name = gensym(form.name)
-
-    ;Retrieve the name of the keyword constructor.
-    val keyword-constructor-name = match(form.keyword-constructor.value?.unwrap-token) :
-      (c:Symbol) : form.keyword-constructor.value!
-      (c:True) : form.name
-      (c:False) : false
-
-    val template = `(
-      deftype-and-multis
-      meta-utils-methods
-      hashable-equalable-methods
-      main-constructor
-      positional-constructor
-      keyword-constructor?
-    )
-
-    add-bindings(
-      `main-constructor => main-constructor(form, main-constructor-name)
-      `positional-constructor => positional-constructor(constructor-name, main-constructor-name))
-
-    if keyword-constructor-name is False :
-      add-bindings(
-        `keyword-constructor? => splice(List()))
+  ;Compute the keyword constructor.
+  val keyword-constructor =
+    match(keyword-constructor-name:Symbol|Token) :
+      One(keyword-constructor(keyword-constructor-name, main-constructor-name))
     else :
-      add-bindings(
-        `keyword-constructor? => keyword-constructor(
-                                   keyword-constructor-name as Symbol|Token,
-                                   main-constructor-name))
+      None()
 
-    fill-template(template, bindings)    
+  ;Compute the positional constructor.
+  val positional-constructor = positional-constructor(constructor-name, main-constructor-name)
+
+  splice $ substitute(template, [
+    `simple-constructor? => choice(not simple-constructor.empty?)
+    `simple-constructor => simple-constructor.value?
+    `main-constructor => main-constructor(form, main-constructor-name)
+    `keyword-constructor? => choice(not keyword-constructor.empty?)
+    `keyword-constructor => keyword-constructor.value?
+    `positional-constructor => positional-constructor])
 
 ;Helper: Return true if the DefStruct form can use
 ;the simplified constructor.
@@ -822,3 +808,29 @@ defn use-simple-constructor? (form:DefStructForm) -> True|False :
   if no-defaults() and no-keyword-constructor() :
     if any-updaters() : no-ensures() and no-inits()
     else : true
+
+;============================================================
+;============== Main Generation Algorithm ===================
+;============================================================
+
+;Compile the entire DefStruct form.
+public defn compile (form:DefStructForm) -> ? :
+  
+  val template = `(
+    deftype-and-multis
+    meta-utils-methods
+    hashable-equalable-methods
+    constructors)
+
+  fill-template(template, [
+    `Struct => deep(form.name)
+    `targs => deep(repeated([`name => form.targs]))
+    `fields => deep(/bindings(form.fields, form.name))
+    `x => deep(gensym(`x))
+    `Uninitialized => deep(`core/Uninitialized)
+    `uninitialized => deep(`core/uninitialized)
+    `deftype-and-multis => deftype-and-multis(form)
+    `meta-utils-methods => meta-utils-methods(form)
+    `hashable-equalable-methods => hashable-equalable-methods(form)
+    `constructors => all-constructors(form)])
+
