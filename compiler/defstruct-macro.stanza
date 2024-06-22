@@ -464,7 +464,9 @@ defn hashable-equalable-methods (form:DefStructForm) -> ? :
     `equal? => `core/equal?
     `hash => `core/hash
     `lhs => gensym(`lhs)
-    `rhs => gensym(`rhs)])
+    `rhs => gensym(`rhs)
+    `has-fields? => choice(not form.fields.empty?)
+    `Struct-name => form.name.to-string])
 
 ;============================================================
 ;=============== Field Multi Declarations ===================
