@@ -257,13 +257,13 @@ defsyntax defstruct-syntax :
 
   ;Syntax of each option.
   defproduction struct-option!:StructOption
-  defrule struct-option! = (constructor => ?name:#bool-or-id!) : Constructor(name)
-  defrule struct-option! = (keyword-constructor => ?name:#bool-or-id!) : KeywordConstructor(name)
-  defrule struct-option! = (printer => ?v:#bool!) : GenPrinter(v.unwrap-token)
-  defrule struct-option! = (writer => ?v:#bool!) : GenWriter(v.unwrap-token)
-  defrule struct-option! = (equalable => ?v:#bool!) : GenEqual(v.unwrap-token)
-  defrule struct-option! = (hashable => ?v:#bool!) : GenHash(v.unwrap-token)
-  defrule struct-option! = (meta-utils => ?v:#bool!) : GenMetaUtils(v.unwrap-token)
+  defrule struct-option! = (constructor ?name:#bool-id-setting) : Constructor(name)
+  defrule struct-option! = (keyword-constructor ?name:#bool-id-setting) : KeywordConstructor(name)
+  defrule struct-option! = (printer ?v:#bool-setting) : GenPrinter(v)
+  defrule struct-option! = (writer ?v:#bool-setting) : GenWriter(v)
+  defrule struct-option! = (equalable ?v:#bool-setting) : GenEqual(v)
+  defrule struct-option! = (hashable ?v:#bool-setting) : GenHash(v)
+  defrule struct-option! = (meta-utils ?v:#bool-setting) : GenMetaUtils(v)
   fail-if struct-option! = (?name:#id =>) : CSE(closest-info(), "Unsupported defstruct option '%~'." % [name])
   fail-if struct-option! = () : CSE(closest-info(), "Illegal syntax for struct option.")
 
@@ -286,29 +286,29 @@ defsyntax defstruct-syntax :
 
   ;Individual field option.
   defproduction field-option!:FieldOption
-  defrule field-option! = (as-method => ?v:#bool!) : AsMethod(v.unwrap-token)
-  defrule field-option! = (setter => ?v:#bool-or-id!) : Setter(v)
-  defrule field-option! = (updater => ?v:#bool-or-id!) : Updater(v)
+  defrule field-option! = (as-method ?v:#bool-setting) : AsMethod(v)
+  defrule field-option! = (setter ?v:#bool-id-setting) : Setter(v)
+  defrule field-option! = (updater ?v:#bool-id-setting) : Updater(v)
   defrule field-option! = (ensure => ?v:#exp!) : Ensure(v)
   defrule field-option! = (init => ?v:#exp!) : Init(v)
   defrule field-option! = (default => ?v:#exp!) : Default(v)
   fail-if field-option! = (?name:#id =>) : CSE(closest-info(), "Unsupported field option '%~'." % [name])
   fail-if field-option! = () : CSE(closest-info(), "Illegal syntax for field option.")
 
-  ;Primitive bool.
-  defproduction bool : Token|True|False
-  defrule bool = (?v:true)
-  defrule bool = (?v:false)
+  ;Arrow to bool
+  defproduction bool-setting : True|False
+  defrule bool-setting = (=> ?v:true) : true
+  defrule bool-setting = (=> ?v:false) : false
+  fail-if bool-setting = (=>) : CSE(closest-info(), "Expected a true/false value here.")
+  defrule bool-setting = () : true
 
-  ;Forced bool.
-  defproduction bool! : Token|True|False
-  defrule bool! = (?v:#bool)
-  fail-if bool! = () : CSE(closest-info(), "Expected a true/false value here.")
-
-  ;Bool or id!
-  defproduction bool-or-id! : Token|True|False|Symbol
-  defrule bool-or-id! = (?v:#bool)
-  defrule bool-or-id! = (?v:#id!)
+  ;Arrow to bool-or-id.
+  defproduction bool-id-setting : Token|True|False|Symbol
+  defrule bool-id-setting = (=> ?v:true)
+  defrule bool-id-setting = (=> ?v:false)
+  defrule bool-id-setting = (=> ?v:#id)
+  fail-if bool-id-setting = (=>) : CSE(closest-info(), "Expected a true/false or symbol here.")
+  defrule bool-id-setting = () : true
 
 ;Shorthand for CoreSyntaxError
 defn CSE (info:FileInfo|False, msg) :
@@ -1029,17 +1029,6 @@ defn void? (x:Maybe) -> True|False :
 ;Returns true if x.unwrap-token is False.
 defn false? (x:Token|True|False|Symbol) -> True|False :
   x.unwrap-token is False
-
-;Retrieve setting of a particular option.
-defn retrieve<T,?S> (os:Tuple<FieldOption>,
-                     pred:FieldOption -> True|False,
-                     value:T -> ?S,
-                     default:?S) -> S :
-  val o = find(pred, os)
-  match(o:FieldOption) :
-    value(o as T)
-  else :
-    default
 
 ;Ensure no option appears more than once.
 defn ensure-no-duplicate-options! (info:FileInfo|False,
