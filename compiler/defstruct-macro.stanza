@@ -59,7 +59,7 @@ public defstruct StructField :
   updater:Maybe<Token|Symbol>
   ensure:Maybe
   init:Maybe
-  default:Maybe
+  default:Maybe with: (updater => sub-default)
 
 ;============================================================
 ;====================== Parsing =============================
@@ -644,7 +644,7 @@ defn positional-constructor (constructor:Symbol|Token,
 defn positional-constructor (constructor:Symbol|Token,
                              main-constructor:Symbol|Token,
                              fields:Nested) -> ? :
-  substitute(`constructor, [
+  splice $ substitute(`(constructor), [
     `fields => deep(fields)
     `constructor => positional-constructor(constructor, main-constructor)])
 
@@ -781,7 +781,13 @@ defn all-constructors (form:DefStructForm) -> ? :
       None()
 
   ;Compute the positional constructor.
-  val positional-constructor = positional-constructor(constructor-name, main-constructor-name)
+  ;Detects whether there is ambiguity case, and treats it specially.
+  val positional-constructor =
+    if positional-vs-keyword-ambiguity?(form) :
+      val new-fields = bindings(form.force-required-field, form.name)
+      positional-constructor(constructor-name, main-constructor-name, new-fields)
+    else :
+      positional-constructor(constructor-name, main-constructor-name)
 
   splice $ substitute(template, [
     `simple-constructor? => choice(not simple-constructor.empty?)
@@ -808,6 +814,27 @@ defn use-simple-constructor? (form:DefStructForm) -> True|False :
   if no-defaults() and no-keyword-constructor() :
     if any-updaters() : no-ensures() and no-inits()
     else : true
+
+;Helper: Return true if the DefStruct form contains an ambiguous
+;overlap between the positional and keyword constructor.
+;Happens if there is a keyword constructor requested, and there
+;exists no required fields.
+defn positional-vs-keyword-ambiguity? (form:DefStructForm) -> True|False :
+  if not form.keyword-constructor.empty? :
+    for f in form.fields none? :
+      not f.init.empty? and
+      not f.default.empty?      
+
+;Return new fields from form with one field forcibly making
+;one of the fields to be required.
+defn force-required-field (form:DefStructForm) -> List<StructField> :
+  var processed = false
+  for f in form.fields map :
+    if processed or f.default.empty? :
+      f
+    else :
+      processed = true
+      f.sub-default(None())
 
 ;============================================================
 ;============== Main Generation Algorithm ===================
