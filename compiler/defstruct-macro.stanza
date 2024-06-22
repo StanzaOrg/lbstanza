@@ -34,7 +34,7 @@ public defstruct DefStructForm :
   fields:List<StructField>
   constructor:Token|True|False|Symbol
   keyword-constructor:Token|True|False|Symbol
-  printer?: True|False
+  printer?: True|False|ForwardToWriter
   writer?: True|False
   equalable?: True|False
   hashable?: True|False
@@ -68,6 +68,10 @@ public defstruct StructField :
   ensure:Maybe
   init:Maybe
   default:Maybe with: (updater => sub-default)
+
+;Flag to indicate for the generated printer
+;to forward to writer.
+public defstruct ForwardToWriter
 
 ;============================================================
 ;====================== Options =============================
@@ -177,7 +181,7 @@ public defn DefStructForm (info:FileInfo|False,
   ;Process the options.
   var constructor = true
   var keyword-constructor = false
-  var printer? = false
+  var printer? = None()
   var writer? = false
   var equalable? = false
   var hashable? = false
@@ -186,11 +190,16 @@ public defn DefStructForm (info:FileInfo|False,
     match(o) :
       (o:Constructor) : constructor = o.value
       (o:KeywordConstructor) : keyword-constructor = o.value
-      (o:GenPrinter) : printer? = o.value
+      (o:GenPrinter) : printer? = One(o.value)
       (o:GenWriter) : writer? = o.value
       (o:GenEqual) : equalable? = o.value
       (o:GenHash) : hashable? = o.value
       (o:GenMetaUtils) : meta-utils? = o.value
+
+  ;Set printer to forward to writer unless explicitly
+  ;given.
+  if writer? and printer? is None :
+    printer? = One(ForwardToWriter())
 
   ;Ensure that there is some constructor.
   if constructor.false? and keyword-constructor.false? :
@@ -215,7 +224,7 @@ public defn DefStructForm (info:FileInfo|False,
                 fields,
                 constructor,
                 keyword-constructor,
-                printer?,
+                printer?.value?,
                 writer?,
                 equalable?,
                 hashable?,
@@ -569,6 +578,12 @@ defn printer-and-writer (form:DefStructForm) -> ? :
         ]
         print(o, "%~(%,)" % [`Struct, print-items])
     }{}
+
+    forward-to-writer?{
+      defmethod print (o:OutputStream, this) :
+        write(o, this)
+    }{}
+    
     writer?{
       defmethod write (o:OutputStream, this) :
         val write-items = Vector<?>()
@@ -587,7 +602,8 @@ defn printer-and-writer (form:DefStructForm) -> ? :
   )
 
   splice $ substitute(template, [
-    `printer? => choice(form.printer?)
+    `printer? => choice(form.printer? is True)
+    `forward-to-writer? => choice(form.printer? is ForwardToWriter)
     `writer? => choice(form.writer?)
     `OutputStream => `core/OutputStream
     `Vector => `collections/Vector
