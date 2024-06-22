@@ -28,6 +28,7 @@ public defstruct DefStructForm :
   parent:Maybe
   fields:List<StructField>
   constructor:Maybe<Token|Symbol>
+  keyword-constructor:Maybe<Token|Symbol|True>
   printer?: True|False
   writer?: True|False
   equalable?: True|False
@@ -72,12 +73,15 @@ defsyntax defstruct-syntax :
                             ?fields:#struct-fields
                             ?options:#struct-options) :
     val constructor = lookup?(options, `constructor, None())
+    val keyword-constructor = lookup?(options, `keyword-constructor, None())
     val printer = unwrap-token(value?(lookup?(options, `printer, None())))
     val writer = unwrap-token(value?(lookup?(options, `writer, None())))
     val equalable = unwrap-token(value?(lookup?(options, `equalable, None())))
     val hashable = unwrap-token(value?(lookup?(options, `hashable, None())))
     val meta-utils = unwrap-token(value?(lookup?(options, `meta-utils, None())))
-    DefStructForm(name, targs, parent, fields, constructor, printer, writer, equalable, hashable, meta-utils)
+    DefStructForm(name, targs, parent, fields,
+                  constructor, keyword-constructor,
+                  printer, writer, equalable, hashable, meta-utils)
 
   defproduction struct-targs:List
   defrule struct-targs = ((@of ?xs:#id! ...))
@@ -100,6 +104,7 @@ defsyntax defstruct-syntax :
 
   defproduction struct-option!:KeyValue<Symbol,?>
   defrule struct-option! = (constructor => ?name:#id!) : `constructor => One(name)
+  defrule struct-option! = (keyword-constructor => ?name:#id-or-true!) : `keyword-constructor => One(name)
   defrule struct-option! = (printer => ?v:#bool!) : `printer => One(v)
   defrule struct-option! = (writer => ?v:#bool!) : `writer => One(v)
   defrule struct-option! = (equalable => ?v:#bool!) : `equalable => One(v)
@@ -156,6 +161,10 @@ defsyntax defstruct-syntax :
   defproduction bool! : Token|True|False
   defrule bool! = (?v:#bool)
   fail-if bool! = () : CSE(closest-info(), "Expected a true/false value here.")
+
+  defproduction id-or-true! : Token|Symbol|True
+  defrule id-or-true! = (?v:true)
+  defrule id-or-true! = (?v:#id!)
 
 ;Shorthand for CoreSyntaxError
 defn CSE (info:FileInfo|False, msg) :
@@ -495,6 +504,7 @@ defn main-constructor (form:DefStructForm,
 ;The simple constructor is used when the pattern satisfies
 ;the common case where the struct is extremely simple.
 ;Requirements:
+;- No keyword constructor.
 ;- No fields with default values.
 ;- If any field has an updater then:
 ;  - No ensures.
@@ -630,6 +640,96 @@ defn positional-constructor (constructor:Symbol|Token,
     `value? => `core/value?])
 
 ;============================================================
+;================== Keyword Constructor =====================
+;============================================================
+
+;Generate the keyword constructor.
+defn keyword-constructor (constructor:Symbol|Token,
+                          main-constructor:Symbol|Token) -> ? :
+
+  val template = `(
+    defn Constructor<targs{name}> (--
+           fields{
+             init?{}{
+               name:type default?{= ?}{}
+             }
+           }) :
+
+      ;Store incoming arguments in arg-names.
+      fields{
+        init?{}{
+          val arg-name = name
+        }
+      }
+
+      ;Introduce new scope, so that names can be
+      ;shadowed.
+      let :
+
+        ;Compute initial values for all fields.
+        fields{
+          init?{
+            voidable?{
+              var name:type
+            }{
+              val name:type = init-value
+            }
+          }{
+            default?{
+              voidable?{
+                var name:type
+                if not empty?(arg-name) :
+                  name = value!(arg-name)
+              }{
+                val name:type =
+                  if empty?(arg-name) : default-value
+                  else : value!(arg-name)
+              }
+            }{
+              val name:type = arg-name
+            }
+          }
+        }
+
+        ;Check preconditions.
+        #if-not-defined(OPTIMIZE) :
+          fields{
+            ensure?{
+              initialized?{
+                ;Case: Always initialized.
+                ensure(description, name)
+              }{
+                ;Case: Never initialized.
+              }{
+                ;Case: Selectively initialized.
+                if not empty?(arg-name) :
+                  ensure(description, name)
+              }
+            }{}
+          }
+
+        ;Call the main constructor.
+        MainConstructor<targs{name}>(
+          fields{
+            initialized?{
+              name
+            }{
+              uninitialized
+            }{
+              value?(arg-name, uninitialized)
+            }
+          }
+        )
+  )
+
+  splice $ substitute(template, [
+    `Constructor => constructor
+    `MainConstructor => main-constructor
+    `empty? => `core/empty?
+    `value! => `core/value!
+    `value? => `core/value?])
+
+;============================================================
 ;============== Main Generation Algorithm ===================
 ;============================================================
 
@@ -675,17 +775,34 @@ public defn compile (form:DefStructForm) -> ? :
     ;Generate the name of the main constructor.
     val main-constructor-name = gensym(form.name)
 
+    ;Retrieve the name of the keyword constructor.
+    val keyword-constructor-name = match(form.keyword-constructor.value?.unwrap-token) :
+      (c:Symbol) : form.keyword-constructor.value!
+      (c:True) : form.name
+      (c:False) : false
+
     val template = `(
       deftype-and-multis
       meta-utils-methods
       hashable-equalable-methods
       main-constructor
       positional-constructor
+      keyword-constructor?
     )
 
     add-bindings(
       `main-constructor => main-constructor(form, main-constructor-name)
       `positional-constructor => positional-constructor(constructor-name, main-constructor-name))
+
+    if keyword-constructor-name is False :
+      add-bindings(
+        `keyword-constructor? => splice(List()))
+    else :
+      add-bindings(
+        `keyword-constructor? => keyword-constructor(
+                                   keyword-constructor-name as Symbol|Token,
+                                   main-constructor-name))
+
     fill-template(template, bindings)    
 
 ;Helper: Return true if the DefStruct form can use
@@ -693,6 +810,8 @@ public defn compile (form:DefStructForm) -> ? :
 defn use-simple-constructor? (form:DefStructForm) -> True|False :
   defn no-defaults () :
     all?({_.default.empty?}, form.fields)
+  defn no-keyword-constructor () :
+    form.keyword-constructor.empty?
   defn any-updaters () :
     any?({not _.updater.empty?}, form.fields)
   defn no-ensures () :
@@ -700,6 +819,6 @@ defn use-simple-constructor? (form:DefStructForm) -> True|False :
   defn no-inits () :
     all?({_.init.empty?}, form.fields)
 
-  if no-defaults() :
+  if no-defaults() and no-keyword-constructor() :
     if any-updaters() : no-ensures() and no-inits()
     else : true
