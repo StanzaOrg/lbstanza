@@ -79,6 +79,8 @@ defsyntax defstruct-syntax :
     val equalable = unwrap-token(value?(lookup?(options, `equalable, None())))
     val hashable = unwrap-token(value?(lookup?(options, `hashable, None())))
     val meta-utils = unwrap-token(value?(lookup?(options, `meta-utils, None())))
+    if not keyword-constructor.empty? :
+      ensure-at-least-one-named-arg(closest-info(), name, fields)
     DefStructForm(name, targs, parent, fields,
                   constructor, keyword-constructor,
                   printer, writer, equalable, hashable, meta-utils)
@@ -169,6 +171,16 @@ defsyntax defstruct-syntax :
 ;Shorthand for CoreSyntaxError
 defn CSE (info:FileInfo|False, msg) :
   CoreSyntaxError(info,msg)
+
+;Ensure at least one of the fields is a named argument.
+defn ensure-at-least-one-named-arg (info:FileInfo|False,
+                                    struct-name:Token|Symbol,
+                                    fields:List<StructField>) :
+  val has-named-arg? = for f in fields any? : f.init.empty?
+  if not has-named-arg? :
+    val msg = "Keyword constructor requested for defstruct '%~', but no fields are \
+               passed to the constructor as arguments." % [struct-name]
+    throw(CSE(info, msg))
 
 ;Return all of the duplicate items in xs.
 defn duplicates<?T> (xs:Seqable<?T&Equalable&Hashable>) -> Tuple<T> :
