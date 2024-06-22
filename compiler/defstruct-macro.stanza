@@ -697,7 +697,11 @@ defn simple-constructor (form:DefStructForm,
       ;Define mutable local variables.
       fields{
         setter?{
-          var local-name:type = name
+          voidable?{
+            var local-name:local-type = uninitialized
+          }{
+            var local-name:type = name
+          }
         }{}
       }
 
