@@ -1737,10 +1737,15 @@ defsyntax core :
 
    ;                      defenum
    ;                      =======
-   defrule exp4 = (defenum ?name:#id! ?parent:#struct-parent #:! (?args:#id! ...)) :
+   defrule exp4 = (defenum ?name:#id! ?parent:#enum-parent #:! (?args:#id! ...)) :
      val def = EnumDef(name, parent, to-tuple(args))
      parse-syntax[core / #exp!](compile(def))
    defrule id != (defenum)
+
+   ;Optional enum parent.
+   defproduction enum-parent:Maybe
+   defrule enum-parent = (<: ?p:#type!) : One(p)
+   defrule enum-parent = () : None()
 
    ;                      #define
    ;                      #======
