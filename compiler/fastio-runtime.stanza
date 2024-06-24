@@ -41,13 +41,20 @@ public defn FastObjectIO<?S,?T> (serializer:?S&FastIOSerializer,
 ;============================================================
 
 ;Use the given serializer to write an object to a file.
+;Calls 'yield' every time the buffer is flushed
 public defn write-to-file<?T,?S> (filename:String,
                                   serializer:?S&FastIOSerializer,
                                   writer:(S, T, FastIOBuffer) -> False,
-                                  obj:?T) -> False :
+                                  obj:?T --
+                                  buffer-size:Int = 16384,
+                                  yield:(() -> ?) = {false}) -> False :
   val stream = FileOutputStream(filename)
+  defn flush (buffer:FastIOBuffer) -> False :
+    flush-to-file(buffer, stream)
+    yield()
+    false
   try :
-    val buffer = FastIOBuffer(16 * 1024, stream)
+    val buffer = FastIOBuffer(buffer-size, flush)
     try :
       writer(serializer, obj, buffer)
       flush(buffer)
@@ -57,12 +64,19 @@ public defn write-to-file<?T,?S> (filename:String,
     close(stream)
 
 ;Use the given object-io to write an object to a file.
+;Calls 'yield' every time the buffer is flushed
 public defn write-to-file<?T> (filename:String,
                                io:FastObjectIO<?T>
-                               obj:T) -> False :
+                               obj:T --
+                               buffer-size:Int = 16384,
+                               yield:(() -> ?) = {false}) -> False :
   val stream = FileOutputStream(filename)
+  defn flush (buffer:FastIOBuffer) -> False :
+    flush-to-file(buffer, stream)
+    yield()
+    false
   try :
-    val buffer = FastIOBuffer(16 * 1024, stream)
+    val buffer = FastIOBuffer(buffer-size, flush)
     try :
       write(io, buffer, obj)
       flush(buffer)

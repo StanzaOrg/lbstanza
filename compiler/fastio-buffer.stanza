@@ -74,7 +74,7 @@ defn forbid-flush (buf:FastIOBuffer) -> False :
   fatal("Flush cannot run for a read-only buffer.")
 
 ;Helper: Flush function that writes buffer output to file.
-lostanza defn flush-to-file (buffer:ref<FastIOBuffer>, stream:ref<FileOutputStream>) -> ref<False> :
+public lostanza defn flush-to-file (buffer:ref<FastIOBuffer>, stream:ref<FileOutputStream>) -> ref<False> :
   val num-bytes = buffer.head - buffer.data
   call-c clib/fwrite(buffer.data, 1, num-bytes, stream.file)
   return false
