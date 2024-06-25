@@ -37,7 +37,7 @@ lostanza deftype FlushResult :
 public lostanza defn FastIOBuffer (length:ref<Int>, flush:ref<(FastIOBuffer -> ?)>) -> ref<FastIOBuffer> :
   val len = length.value
   val data = call-c clib/malloc(len)
-  val end = data + len - MAX-ATOM
+  val end = data + len
   return new FastIOBuffer{len, data, end, data, flush, 0, 67108864, fn(empty-notifier)}
 
 ;Free all memory in the buffer.
@@ -63,7 +63,7 @@ public defn FastIOBuffer (length:Int, file:FileOutputStream) -> FastIOBuffer :
 
 ;Create a FastIOBuffer with a preallocated memory buffer.
 public lostanza defn FastIOBuffer (length:long, data:ptr<?>, flush:ref<(FastIOBuffer -> ?)>) -> ref<FastIOBuffer> :
-  val end = data + length - MAX-ATOM
+  val end = data + length
   return new FastIOBuffer{length, data, end, data, flush, 0, 67108864, fn(empty-notifier)}
 
 ;Create a FastIOBuffer that doubles in size when full.
@@ -95,7 +95,7 @@ public lostanza defn set-read-limit (b:ref<FastIOBuffer>, limit:ref<Int>) -> ref
   return false
 
 ;Helper: Empty notifier
-public defn empty-notifier () -> False :
+defn empty-notifier () -> False :
   false
 
 ;Helper: Flush that just calls fatal.
@@ -116,10 +116,6 @@ lostanza defn reallocating-flush (buffer:ref<FastIOBuffer>) -> ref<FlushResult> 
   val new-head = new-data + (buffer.head - buffer.data)
   return new FlushResult{new-length, new-head, new-data}
 
-;Size in bytes of the largest atom that can be written
-;to a buffer.
-lostanza val MAX-ATOM:long = 8
-
 ;Flush the contents of the buffer and reset it.
 public lostanza defn flush (buffer:ref<FastIOBuffer>) -> ref<False> :
   if buffer.head > buffer.data :
@@ -129,16 +125,36 @@ public lostanza defn flush (buffer:ref<FastIOBuffer>) -> ref<False> :
         buffer.length = result.length
         buffer.head = result.head
         buffer.data = result.data
-        buffer.end = buffer.data + buffer.length - MAX-ATOM
+        buffer.end = buffer.data + buffer.length
       (result) :
         buffer.head = buffer.data
-        buffer.end = buffer.data + buffer.length - MAX-ATOM
+        buffer.end = buffer.data + buffer.length
   return false
 
-;Flush the buffer contents if the buffer is full.
-lostanza defn flush? (buffer:ref<FastIOBuffer>) -> ref<False> :
-  if buffer.head > buffer.end : flush(buffer)
-  return false
+;Get the write pointer for writing 'num-bytes' to the buffer.
+;The buffer is flushed if necessary to secure space.
+lostanza defn get-write-pointer (buffer:ref<FastIOBuffer>,
+                                 num-bytes:long) -> ptr<?> :
+  var current-head:ptr<?> = buffer.head
+  var new-head:ptr<?> = current-head + num-bytes
+  if new-head > buffer.end :
+    flush(buffer)
+    current-head = buffer.head
+    new-head = current-head + num-bytes
+  buffer.head = new-head
+  return current-head
+
+;Get the read pointer for reading 'num-bytes' from the buffer.
+;An exception is thrown if we attempt to read past the end of the
+;buffer.
+lostanza defn get-read-pointer (buffer:ref<FastIOBuffer>,
+                                num-bytes:long) -> ptr<?> :
+  val current-head = buffer.head
+  val new-head = current-head + num-bytes
+  if new-head > buffer.end :
+    throw(FastIOReadPastLimitError())
+  buffer.head = new-head
+  return current-head
 
 ;Increase the number of bytes processed in the buffer.
 ;Call the buffer notifier if num-bytes-processed is greater than
@@ -158,9 +174,9 @@ lostanza defn inc-num-bytes-processed (buffer:ref<FastIOBuffer>, num-bytes:long)
       num-bytes in [1 2 4 8 4 8]) :
       
   public lostanza defn write-ls-xxx (buffer:ref<FastIOBuffer>, x:type) -> ref<False> :
-    [buffer.head as ptr<type>] = x
-    buffer.head = buffer.head + num-bytes
-    flush?(buffer)
+    val head = get-write-pointer(buffer, num-bytes)
+    [head as ptr<type>] = x
+    inc-num-bytes-processed(buffer, num-bytes)
     return false
 
   public lostanza defn write-xxx (buffer:ref<FastIOBuffer>, x:ref<Type>) -> ref<False> :
@@ -175,9 +191,8 @@ lostanza defn inc-num-bytes-processed (buffer:ref<FastIOBuffer>, num-bytes:long)
       num-bytes in [1, 2, 4, 8, 4, 8]) :
 
   public lostanza defn read-ls-xxx (buffer:ref<FastIOBuffer>) -> type :
-    val result = [buffer.head as ptr<type>]
-    buffer.head = buffer.head + num-bytes
-    if buffer.head > buffer.end : throw(FastIOReadPastLimitError())
+    val head = get-read-pointer(buffer, num-bytes)
+    val result = [head as ptr<type>]
     inc-num-bytes-processed(buffer, num-bytes)
     return result and-mask
 
@@ -190,9 +205,7 @@ lostanza defn inc-num-bytes-processed (buffer:ref<FastIOBuffer>, num-bytes:long)
 public lostanza defn read-ls-bytes (store:ptr<byte>
                                     buffer:ref<FastIOBuffer>,
                                     num-bytes:long) -> ref<False> :
-  val head = buffer.head
-  buffer.head = buffer.head + num-bytes
-  if buffer.head > buffer.end : throw(FastIOReadPastLimitError())
+  val head = get-read-pointer(buffer, num-bytes)
   call-c clib/memcpy(store, head, num-bytes)
   inc-num-bytes-processed(buffer, num-bytes)
   return false
@@ -213,8 +226,7 @@ public lostanza defn read-bytes (store:ref<ByteArray>,
 
 ;LoStanza skip bytes function.
 public lostanza defn skip-ls (buffer:ref<FastIOBuffer>, num-bytes:long) -> ref<False> :
-  buffer.head = buffer.head + num-bytes
-  if buffer.head > buffer.end : throw(FastIOReadPastLimitError())
+  get-read-pointer(buffer, num-bytes)  
   inc-num-bytes-processed(buffer, num-bytes)
   return false
 
