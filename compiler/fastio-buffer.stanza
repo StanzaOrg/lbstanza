@@ -95,7 +95,7 @@ public lostanza defn set-read-limit (b:ref<FastIOBuffer>, limit:ref<Int>) -> ref
   return false
 
 ;Helper: Empty notifier
-defn empty-notifier () -> False :
+public defn empty-notifier () -> False :
   false
 
 ;Helper: Flush that just calls fatal.
