@@ -44,10 +44,15 @@ public defn FastObjectIO<?S,?T> (serializer:?S&FastIOSerializer,
 public defn write-to-file<?T,?S> (filename:String,
                                   serializer:?S&FastIOSerializer,
                                   writer:(S, T, FastIOBuffer) -> False,
-                                  obj:?T) -> False :
+                                  obj:?T --
+                                  buffer-size:Int = 16 * 1024,
+                                  notify-after-num-bytes:Long = 64L * 1024L,
+                                  notifier:() -> ? = empty-notifier) -> False :
   val stream = FileOutputStream(filename)
   try :
-    val buffer = FastIOBuffer(16 * 1024, stream)
+    val buffer = FastIOBuffer(buffer-size, stream)
+    set-notify-after-num-bytes(buffer, notify-after-num-bytes)
+    set-notifier(buffer, notifier)
     try :
       writer(serializer, obj, buffer)
       flush(buffer)
@@ -59,10 +64,15 @@ public defn write-to-file<?T,?S> (filename:String,
 ;Use the given object-io to write an object to a file.
 public defn write-to-file<?T> (filename:String,
                                io:FastObjectIO<?T>
-                               obj:T) -> False :
+                               obj:T --
+                               buffer-size:Int = 16 * 1024,
+                               notify-after-num-bytes:Long = 64L * 1024L,
+                               notifier:() -> ? = empty-notifier) -> False :
   val stream = FileOutputStream(filename)
   try :
     val buffer = FastIOBuffer(16 * 1024, stream)
+    set-notify-after-num-bytes(buffer, notify-after-num-bytes)
+    set-notifier(buffer, notifier)
     try :
       write(io, buffer, obj)
       flush(buffer)
@@ -74,10 +84,15 @@ public defn write-to-file<?T> (filename:String,
 ;Use the given serializer to read an object from a file.
 public defn read-from-file<?T,?S> (filename:String,
                                    serializer:?S&FastIOSerializer,
-                                   reader:(S, FastIOBuffer) -> ?T) -> T :
+                                   reader:(S, FastIOBuffer) -> ?T --
+                                   buffer-size:Int = 16 * 1024,
+                                   notify-after-num-bytes:Long = 64L * 1024L,
+                                   notifier:() -> ? = empty-notifier) -> T :
   val file = RandomAccessFile(filename, false)
   try :
     val buffer = read-into-buffer(file)
+    set-notify-after-num-bytes(buffer, notify-after-num-bytes)
+    set-notifier(buffer, notifier)
     try :
       reader(serializer, buffer)
     finally :
@@ -186,11 +201,7 @@ public defn read-from-memory<?T> (memory:FastIOBuffer,
 ;Convenience: Call with pointer.
 public lostanza defn read-from-memory<?T> (memory:ptr<?>,
                                            io:ref<FastObjectIO<?T>>) -> ref<T> :
-  val buffer = new FastIOBuffer{4,
-                                memory,
-                                memory + 4,
-                                memory,
-                                fn(forbid-flush)}
+  val buffer = read-from(4, memory)
   return read-from-memory(buffer, io)
 
 ;============================================================

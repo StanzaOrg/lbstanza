@@ -8,12 +8,23 @@ defpackage stz/fastio-buffer :
 ;- head: The tip of the buffer to write to.
 ;- end: The end of the buffer. The buffer is flushed when head passes end.
 ;- data: The start of the buffer's memory.
+;- flush: Flushing function called whenever head surpasses end.
+;Notification parameters:
+;- num-bytes-processed: The number of bytes processed since
+;  the previous call to the notifier.
+;- notify-after-num-bytes: The limit at which the notifier is called.
+;- notifier: Notification function called whenever num-bytes-processed
+;  surpasses notify-after-num-bytes.
 public lostanza deftype FastIOBuffer :
   var length:long
   var head:ptr<?>
   var end:ptr<?>
   var data:ptr<?>
   flush:ref<(FastIOBuffer -> ?)>
+  
+  var num-bytes-processed:long
+  var notify-after-num-bytes:long
+  var notifier:ref<(() -> ?)>
 
 ;The optional result of a flush representing the new
 ;parameters of the buffer. Used internally for implementing reallocating-buffer.
@@ -27,12 +38,22 @@ public lostanza defn FastIOBuffer (length:ref<Int>, flush:ref<(FastIOBuffer -> ?
   val len = length.value
   val data = call-c clib/malloc(len)
   val end = data + len - MAX-ATOM
-  return new FastIOBuffer{len, data, end, data, flush}
+  return new FastIOBuffer{len, data, end, data, flush, 0, 67108864, fn(empty-notifier)}
 
 ;Free all memory in the buffer.
 public lostanza defn free (b:ref<FastIOBuffer>) -> ref<False> :
   call-c clib/free(b.data)
   b.data = null
+  return false
+
+;Set the buffer notifier. 
+public lostanza defn set-notifier (b:ref<FastIOBuffer>, notifier:ref<(() -> ?)>) -> ref<False> :
+  b.notifier = notifier
+  return false
+
+;Set number of bytes to process before calling notifier.
+public lostanza defn set-notify-after-num-bytes (b:ref<FastIOBuffer>, num-bytes:ref<Long>) -> ref<False> :
+  b.notify-after-num-bytes = num-bytes.value
   return false
 
 ;Create a FastIOBuffer with the given length that automatically flushes to
@@ -43,7 +64,7 @@ public defn FastIOBuffer (length:Int, file:FileOutputStream) -> FastIOBuffer :
 ;Create a FastIOBuffer with a preallocated memory buffer.
 public lostanza defn FastIOBuffer (length:long, data:ptr<?>, flush:ref<(FastIOBuffer -> ?)>) -> ref<FastIOBuffer> :
   val end = data + length - MAX-ATOM
-  return new FastIOBuffer{length, data, end, data, flush}
+  return new FastIOBuffer{length, data, end, data, flush, 0, 67108864, fn(empty-notifier)}
 
 ;Create a FastIOBuffer that doubles in size when full.
 public lostanza defn FastIOBuffer (length:ref<Int>) -> ref<FastIOBuffer> :
@@ -52,6 +73,10 @@ public lostanza defn FastIOBuffer (length:ref<Int>) -> ref<FastIOBuffer> :
 ;Create a FastIOBuffer that reads from the given buffer.
 public lostanza defn read-from (b:ref<FastIOBuffer>) -> ref<FastIOBuffer> :
   return FastIOBuffer(b.length, b.data, fn(forbid-flush))
+
+;Create a FastIOBuffer that reads from the given memory pointer.
+public lostanza defn read-from (length:long, data:ptr<?>) -> ref<FastIOBuffer> :
+  return FastIOBuffer(length, data, fn(forbid-flush))
 
 ;Reset the head of the buffer to the beginning again.
 public lostanza defn reset (b:ref<FastIOBuffer>) -> ref<False> :
@@ -68,6 +93,10 @@ public lostanza defn position (b:ref<FastIOBuffer>) -> ref<Int> :
 public lostanza defn set-read-limit (b:ref<FastIOBuffer>, limit:ref<Int>) -> ref<False> :
   b.end = b.data + limit.value
   return false
+
+;Helper: Empty notifier
+public defn empty-notifier () -> False :
+  false
 
 ;Helper: Flush that just calls fatal.
 defn forbid-flush (buf:FastIOBuffer) -> False :
@@ -111,6 +140,16 @@ lostanza defn flush? (buffer:ref<FastIOBuffer>) -> ref<False> :
   if buffer.head > buffer.end : flush(buffer)
   return false
 
+;Increase the number of bytes processed in the buffer.
+;Call the buffer notifier if num-bytes-processed is greater than
+;notify-after-num-bytes.
+lostanza defn inc-num-bytes-processed (buffer:ref<FastIOBuffer>, num-bytes:long) -> ref<False> :
+  buffer.num-bytes-processed = buffer.num-bytes-processed + num-bytes
+  if buffer.num-bytes-processed > buffer.notify-after-num-bytes :
+    [buffer.notifier]()
+    buffer.num-bytes-processed = 0
+  return false
+
 ;Define the primitive writing functions.
 #for (write-ls-xxx in [write-ls-byte, write-ls-short, write-ls-int, write-ls-long, write-ls-float, write-ls-double],
       write-xxx in [write-byte, write-short, write-int, write-long, write-float, write-double],
@@ -133,15 +172,17 @@ lostanza defn flush? (buffer:ref<FastIOBuffer>) -> ref<False> :
       type in [byte, int, int, long, float, double],
       Type in [Byte, Int, Int, Long, Float, Double],
       and-mask in splice([() (& 0xFFFF) () () () ()]),
-      num-bytes in [1 2, 4 8 4 8]) :
+      num-bytes in [1, 2, 4, 8, 4, 8]) :
 
   public lostanza defn read-ls-xxx (buffer:ref<FastIOBuffer>) -> type :
     val result = [buffer.head as ptr<type>]
     buffer.head = buffer.head + num-bytes
     if buffer.head > buffer.end : throw(FastIOReadPastLimitError())
+    inc-num-bytes-processed(buffer, num-bytes)
     return result and-mask
 
   public lostanza defn read-xxx (buffer:ref<FastIOBuffer>) -> ref<Type> :
+    inc-num-bytes-processed(buffer, num-bytes)
     return new Type{read-ls-xxx(buffer)}
   
 ;Read 'num-bytes' bytes into the given 'store' from
@@ -153,6 +194,7 @@ public lostanza defn read-ls-bytes (store:ptr<byte>
   buffer.head = buffer.head + num-bytes
   if buffer.head > buffer.end : throw(FastIOReadPastLimitError())
   call-c clib/memcpy(store, head, num-bytes)
+  inc-num-bytes-processed(buffer, num-bytes)
   return false
 
 ;Fill the given string with characters from the buffer.
@@ -173,6 +215,7 @@ public lostanza defn read-bytes (store:ref<ByteArray>,
 public lostanza defn skip-ls (buffer:ref<FastIOBuffer>, num-bytes:long) -> ref<False> :
   buffer.head = buffer.head + num-bytes
   if buffer.head > buffer.end : throw(FastIOReadPastLimitError())
+  inc-num-bytes-processed(buffer, num-bytes)
   return false
 
 ;LoStanza skip bytes function.

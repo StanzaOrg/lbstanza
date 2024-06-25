@@ -11089,7 +11089,7 @@ public defmulti name (t:TypeObject) -> String
 defpackage math :
    import core
 
-public lostanza val PI:ref<Double> = new Double{3.141592653589793}
+public lostanza val PI:ref<Double> = new Double{3.141592653589793115997963468544185161590576171875}
 public lostanza val PI-F:ref<Float> = new Float{3.1415927f}
 
 public lostanza defn exp (x:ref<Double>) -> ref<Double> :
@@ -11183,8 +11183,7 @@ public lostanza defn round (x:ref<Float>) -> ref<Float> :
    return new Float{call-c clib/round(x.value) as float}
 
 public lostanza defn to-radians (degrees:ref<Double>) -> ref<Double> :
-   val pi = 3.141592653589793
-   return new Double{degrees.value * pi / 180.0}
+   return new Double{degrees.value * PI.value / 180.0}
 
 public lostanza defn to-degrees (radians:ref<Double>) -> ref<Double> :
    val pi = 3.141592653589793
