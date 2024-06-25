@@ -502,7 +502,7 @@ public defn TypeErrorFormatter (namemap:NameMap, hier:TypeHierarchy) :
         (e:BadCapture) :
           val ctxt = ctxt(exp(e))
           "%_Could not capture type variables for function '%_'%_." % [
-          info-str(exp(e)), def-name(n(e)), ctxt-description(ctxt as Context)]
+          info-str(exp(e)), def-name(n(e)), ctxt-description(ctxt as Context|LSContext)]
           
         (e:ExtraKeywordsInCall) :
           val msg = "%_Function '%~' does not accept keyword arguments %,. \
