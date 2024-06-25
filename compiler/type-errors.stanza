@@ -42,6 +42,16 @@ public defmessages TypeError :
   with:
     format: "%*" % [join(errors, "\n\n")]
 
+  ;Occur when the parent type contains a type variable
+  ;in the wrong position.
+  defmessage TVarInParent :
+    info:AbsoluteFileInfo|False
+    name:Symbol
+  with:
+    format:
+      "%_Type variable '%~' cannot be used as parent \
+       type." % [info-str(info), name]
+
   ;Occurs when there is a cycle in the type hierarchy.
   defmessage TypeCycle :
     types:Tuple<DefinedType>

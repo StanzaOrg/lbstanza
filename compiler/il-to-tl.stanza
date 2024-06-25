@@ -1,3 +1,4 @@
+#use-added-syntax(dot-operator)
 defpackage stz/il-to-tl :
   import core
   import collections
@@ -159,7 +160,6 @@ defn to-tpackage (ipackage:IPackage) -> TPackage :
       add(tcomms, comm)
   TPackage(to-packageio(ipackage), to-tuple(tcomms))
 
-
 defn to-imported-package (i:IImport) -> ImportedPackage :
   defn convert-prefix (i:IPrefix) -> ImportPrefix :
     ImportPrefix(names(i), prefix(i))
@@ -194,12 +194,16 @@ defn to-tcomm (return:TComm -> ?,
       to-tcomm(return, exp(e))
     ;Create a TDefType.
     (e:IDefType) :
-      return $ TDefType(
-        info(e)
-        n!(class(e))
-        ns!(args(e))
-        to-type(parent(e))
-        to-tuple(seq(to-child{_ as IDefChild}, children(e))))
+      val parent-type = to-type(parent(e))
+      val child-exps = children(e) as List<IDefChild>
+      val children = child-exps.seq?(to-child).to-tuple
+      if ensure-valid-parent-type(info(e), parent-type) :
+        return $ TDefType(
+          info(e)
+          n!(class(e))
+          ns!(args(e))
+          parent-type
+          children)
     ;Destructure any nested tuples in IDef.
     (e:IDef) :
       destructure-def(return, e)
@@ -284,12 +288,15 @@ defn to-tcomm (return:TComm -> ?,
       if rfield(e) is-not INone :
         add(field-list, to-rfield(rfield(e) as ILSDefField))
 
-      return $ TLDefType(
-        info(e),
-        n!(name(e)),
-        ns!(args(e)),
-        to-type(parent(e)),
-        to-tuple(field-list))
+      ;Convert parent and check whether valid.
+      val parent-type = to-type(parent(e))
+      if ensure-valid-parent-type(info(e), parent-type) :
+        return $ TLDefType(
+          info(e),
+          n!(name(e)),
+          ns!(args(e)),
+          parent-type,
+          to-tuple(field-list))
     ;Extern definition.
     (e:ILSExtern) :
       val n = n!(name(e))
@@ -356,13 +363,15 @@ defn to-tcomm (return:TComm -> ?,
       fatal("%_ is not a valid top-level command." % [object-type(e)])
 
 ;Helper: Create a child specifier.
-defn to-child (e:IDefChild) -> Child :
+;Returns None if parent is not valid.
+defn to-child (e:IDefChild) -> Maybe<Child> :
   val arg-ns = ns!(args(e))
   ensure-correct-tarity(info(e), n!(name(e)), map(TVar,arg-ns))
-  Child(
-    n!(name(e)),
-    arg-ns,
-    to-type!(parent(e)))
+  val parent-type = to-type!(parent(e))
+  if ensure-valid-parent-type(info(e), parent-type) :
+    One(Child(n!(name(e)), arg-ns, parent-type))
+  else :
+    None()
 
 ;Create a Type.
 ;Returns false if e is INone.
@@ -797,6 +806,24 @@ defn split-targs (es:List<IExp>) -> [Tuple<Int>, Tuple<Int>] :
       (e:VarN) : add(targs, n(e))
       (e:ICap) : add(cargs, n!(name(e)))
   [to-tuple(targs), to-tuple(cargs)]
+
+;Check whether the given type is a valid parent type.
+;If not, an error is added to the collector, and false
+;is returned.
+defn ensure-valid-parent-type (info:AbsoluteFileInfo|False,
+                               t:Type|False) -> True|False :
+  let check (t:Type|False = t) :
+    match(t) :
+      (t:False) :
+        true
+      (t:TOf) :
+        true
+      (t:TAnd) :
+        check(t.a) and check(t.b)
+      (t:TVar) :
+        val err = TVarInParent(info, get-defined-name(t.n))
+        add-type-error(err)
+        false
 
 ;============================================================
 ;================== Convenience Conversions =================
