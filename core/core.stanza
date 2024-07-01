@@ -10021,6 +10021,32 @@ public defn rand-double () : next-double(RANDOM)
 public defn rand (n:Int) : next-int(RANDOM, n)
 public defn rand (r:Range) : next-int(RANDOM, r)
 
+;Fisher-Yates shuffle
+public defn permute-random<?T> (xs:Seqable<?T>) -> Tuple<T> :
+  val p = to-array<T>(xs)
+  val n = length(p)
+  for i in (0 to (n - 1)) do :
+    val j = i + (rand() % (n - i))
+    val tmp = p[i]
+    p[i] = p[j]
+    p[j] = tmp
+  to-tuple(p)
+
+;Fisher-Yates shuffle in place
+public defn permute-random! (xs:IndexedCollection) -> False :
+  val n = length(xs)
+  for i in (0 to (n - 1)) do :
+    val j = i + (rand() % (n - i))
+    val tmp = xs[i]
+    xs[i] = xs[j]
+    xs[j] = tmp
+
+public defn random-permutation (n:Int) -> Tuple<Int> :
+  permute-random(0 to n)
+
+public defn random-permutation (r:Range) -> Tuple<Int> :
+  permute-random(r)
+
 ;============================================================
 ;======================== Sleep =============================
 ;============================================================
