@@ -1132,9 +1132,9 @@ defsyntax core :
    ;                 ====
    defproduction for-binding : ForBinding
    defrule for-binding = (?x:#id in [?vs ...]) :
-     ForBinding(unwrap-token(x), vs)
+     ForBinding(unwrap-token(x), unwrap-all(vs))
    defrule for-binding = (?x:#id in splice([?vs ...])) :
-     ForBinding(unwrap-token(x), map(splice, vs))
+     ForBinding(unwrap-token(x), map(splice, unwrap-all(vs)))
    fail-if for-binding = (?x:#id in) :
      CSE(closest-info(), "Expected a list of expressions for binding.")
 
