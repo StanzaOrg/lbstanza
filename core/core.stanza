@@ -5769,7 +5769,7 @@ public defn SymLinkError (target:String, linkpath:String, msg:String) :
 
 public defn copy-file (old-path:String, new-path:String) :
   val old-file = RandomAccessFile(old-path, false)
-  val new-file = RandomAccessFile(new-path, true)  
+  val new-file = RandomAccessFile(new-path, true)
   try :
     set-length(new-file, 0L)
     val buffer = ByteArray(1042 * 1024)
@@ -5970,7 +5970,7 @@ public defn to-extended-path-syntax (path-str:String) -> String|False :
   ;Helper: Ensure that the given path is an
   ;absolute path. Returns false if it is an invalid path, or
   ;if it is a relative path, and the system cannot determine
-  ;the current working directory.  
+  ;the current working directory.
   defn to-absolute-path (path-str:String) -> String|False :
     try :
       val path = parse-path(path-str, Windows)
@@ -5992,7 +5992,7 @@ public defn to-extended-path-syntax (path-str:String) -> String|False :
 
 ;Preprocesses the given path such that if it may exceed
 ;Windows 260 character limit, we use the Windows "extended path"
-;syntax. 
+;syntax.
 public defn condition-long-paths (path-str:String) -> String :
   #if-defined(PLATFORM-WINDOWS) :
     if length(path-str) >= 180 :
@@ -6070,7 +6070,7 @@ lostanza deftype StringList :
 
 extern list_dir: ptr<byte> -> ptr<StringList>
 public lostanza defn dir-files (dirname:ref<String>, include-parents?:ref<True|False>) -> ref<Tuple<String>> :
-  val processed-dirname = condition-long-paths(dirname)  
+  val processed-dirname = condition-long-paths(dirname)
   ;Call list dir
   val list = call-c list_dir(addr!(processed-dirname.chars))
   val null = 0L as ptr<?>
@@ -9492,7 +9492,7 @@ public defn cat-all<?T> (input-xss:Seqable<Seqable<?T>>) -> Seq<T> :
 
 public defn seq-cat<?T,?R> (xs:Seqable<?T>, f:T -> Seqable<?R>) -> Seq<R> :
   seq-cat(f,xs)
-  
+
 public defn seq-cat<?T,?R> (f:T -> Seqable<?R>, xs:Seqable<?T>) -> Seq<R> :
    cat-all(seq(f, xs))
 
@@ -10022,6 +10022,34 @@ public defn rand (n:Int) : next-int(RANDOM, n)
 public defn rand (r:Range) : next-int(RANDOM, r)
 
 ;============================================================
+;====================== Permutations ========================
+;============================================================
+
+;Randomly shuffle the elements within 'xs' in-place.
+;Implements the Fisher-Yates algorithm.
+public defn shuffle!<?T> (xs:IndexedCollection<?T>) -> False :
+  val n = length(xs)
+  for i in 0 to (n - 1) do :
+    val j = i + rand(n - i)
+    val tmp = xs[i]
+    xs[i] = xs[j]
+    xs[j] = tmp
+
+;Return a shuffled tuple of xs.
+public defn shuffle<?T> (xs:Seqable<?T>) -> Tuple<T> :
+  val p = to-array<T>(xs)
+  shuffle!(p)
+  to-tuple(p)
+
+;Return a random permutation of the numbers from 0 to n.
+public defn random-permutation (n:Int) -> Tuple<Int> :
+  shuffle(0 to n)
+
+;Return a random permutation of the numbers in the given range.
+public defn random-permutation (r:Range) -> Tuple<Int> :
+  shuffle(r)
+
+;============================================================
 ;======================== Sleep =============================
 ;============================================================
 
@@ -10331,7 +10359,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
 
   ;Finalizer for notifying that Process struct in driver
   ;can safely be freed.
-  
+
   ;Mirrors the ProcessStatus structure in 'process.h'.
   lostanza deftype ProcessStatus :
     code-set:int
