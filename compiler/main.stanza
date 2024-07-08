@@ -1089,7 +1089,10 @@ defn defs-db-command () :
       "The name of the output definitions file.")
     Flag("merge-with", OneFlag, OptionalFlag,
       "The path to an existing definitions file, with which to merge \
-       the newly generated definitions.")]
+       the newly generated definitions.")
+    Flag("stanza-files", AtLeastOneFlag, OptionalFlag,
+      "The set of .stanza files from which to build the \
+        definitions database")]
 
   ;Verify arguments
   defn verify-args (cmd-args:CommandArgs) :
@@ -1116,7 +1119,8 @@ defn defs-db-command () :
         map(to-symbol, get?(cmd-args, "flags", [])),  ;flags
         flag?(cmd-args, "optimize")                   ;optimize?
         get?(cmd-args, "merge-with", false)           ;merge-db?
-        get?(cmd-args, "macros", []))                 ;macro-plugin
+        get?(cmd-args, "macros", [])                 ;macro-plugin
+        get?(cmd-args, "stanza-files", false))
 
     ;Launch!
     within run-with-timing-log(cmd-args) :

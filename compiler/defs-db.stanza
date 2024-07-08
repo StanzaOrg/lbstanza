@@ -42,6 +42,7 @@ public defstruct DefsDbInput :
   optimize?: True|False
   merge-db?: String|False
   macro-plugins: Tuple<String>
+  stanza-files: False|Tuple<String>
 with :
   printer => true
 
@@ -80,9 +81,16 @@ public defn defs-db (input:DefsDbInput, filename:String) :
 ;object summarizing the results.
 
 protected-when(TESTING) defn analyze-input (input:DefsDbInput) -> DependencyResult :
+
   ;Read all listed packages from given project files
   val proj-file = read-proj-files(proj-files(input), platform(input), default-link-type(false), StandardProjEnv())
-  val stanza-files = all-package-files(proj-file)
+  val stanza-files = ;all-package-files(proj-file)
+    match(stanza-files(input)) :
+      (fs:Tuple)  : fs
+      (otherwise) : all-package-files(proj-file) ; default to all .stanza files
+
+  ;println(".stanza files: %_" % [stanza-files])
+
   val proj-and-stanza-files = to-tuple $
     cat(proj-files(input), stanza-files)
 
