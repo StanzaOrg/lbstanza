@@ -273,8 +273,9 @@ public defn fill-template (v) :
               if single?(h) : wrap-info?(head(subbed), info(h))
               else : wrap-info?(subbed, info(h))
             cons(wrapped, substitute(rest,bs))
-          (h) :
-            cons(h, substitute(rest, bs))      
+          (v) :
+            cons(sub-token-item?(h,v),
+                 substitute(rest, bs))      
       (h*) :
         cons(substitute(h, bs), substitute(rest, bs))
 
