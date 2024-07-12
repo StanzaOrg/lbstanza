@@ -1,3 +1,4 @@
+#use-added-syntax(dot-operator)
 defpackage stz/defs-db :
   import core
   import collections
@@ -35,6 +36,9 @@ defpackage stz/defs-db :
 ;- merge-db?: If given, this is the filename of a previously
 ;  existing database, that we want to merge our current entries
 ;  with.
+;- stanza-files: If given, the definitions database will scan
+;  only the provided files instead of every file reachable via
+;  the proj files.
 public defstruct DefsDbInput :
   proj-files: Tuple<String>
   platform: Symbol
@@ -42,6 +46,7 @@ public defstruct DefsDbInput :
   optimize?: True|False
   merge-db?: String|False
   macro-plugins: Tuple<String>
+  stanza-files: False|Tuple<String>
 with :
   printer => true
 
@@ -80,15 +85,10 @@ public defn defs-db (input:DefsDbInput, filename:String) :
 ;object summarizing the results.
 
 protected-when(TESTING) defn analyze-input (input:DefsDbInput) -> DependencyResult :
-  ;Read all listed packages from given project files
-  val proj-file = read-proj-files(proj-files(input), platform(input), default-link-type(false), StandardProjEnv())
-  val stanza-files = all-package-files(proj-file)
-  val proj-and-stanza-files = to-tuple $
-    cat(proj-files(input), stanza-files)
 
   ; Compute the build settings (input to the compiler)
   val build-settings = BuildSettings(
-    BuildPackages(proj-and-stanza-files),   ;inputs
+    input.build-inputs,                     ;inputs
     [],                                     ;vm-packages
     platform(input),                        ;platform
     false,                                  ;assembly
@@ -107,6 +107,34 @@ protected-when(TESTING) defn analyze-input (input:DefsDbInput) -> DependencyResu
 
   ;Compute dependencies (compiles to IL-IR)
   dependencies(build-settings)
+
+;Compute the set of files to analyze.
+;If explicit stanza files are provided by the user, we scan
+;those files, otherwise we scan every file reachable by the
+;.proj files.
+defn build-inputs (input:DefsDbInput) -> BuildPackages :
+  match(input.stanza-files) :
+  
+    ;Case 1: Explicit Stanza files are provided.
+    (files:Tuple<String>) :
+      val all-files = cat(input.proj-files, files).to-tuple
+      BuildPackages(all-files)
+      
+    ;Case 2: Scan all reachable files from .proj file.
+    (f:False) :
+      ;Read the .proj files.
+      val proj-file = read-proj-files(
+                        proj-files(input),
+                        platform(input),
+                        default-link-type(false),
+                        StandardProjEnv())
+                        
+      ;Compute all reachable files.
+      val reachable-files = all-package-files(proj-file)
+
+      ;Concatenate everything.
+      val all-files = cat(input.proj-files, reachable-files).to-tuple
+      BuildPackages(all-files)
 
 ;============================================================
 ;============= Building the Database ========================
