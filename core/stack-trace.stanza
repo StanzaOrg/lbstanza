@@ -150,7 +150,7 @@ lostanza defmethod run (f:ref<TraceFinalizer>) -> ref<False> :
 
   trace.reference-count = trace.reference-count - 1
   if trace.reference-count == 0 :
-    call-c clib/free(trace)
+    call-c clib/stz_free(trace)
   return false
 
 ;============================================================
@@ -271,7 +271,7 @@ public defn add-entry (b:StackTraceBuilder, e:StackTraceEntry) -> False :
 public lostanza defn pack (b:ref<StackTraceBuilder>) -> ptr<PackedStackTrace> :
   val buffer = pack-buffer(b)
   val len = length(buffer).value
-  val mem:ptr<PackedStackTrace> = call-c clib/malloc(len)
+  val mem:ptr<PackedStackTrace> = call-c clib/stz_malloc(len)
   call-c clib/memcpy(mem, data(buffer), len)
   return mem
 

@@ -358,9 +358,9 @@ public defn VirtualMachine (dylibs:LoadedDynamicLibraries) :
       VirtualMachine(dylibs, X64Backend())
 
 public lostanza defn VirtualMachine (dylibs:ref<LoadedDynamicLibraries>, backend:ref<Backend>) -> ref<VirtualMachine> :
-  val vmstate:ptr<VMState> = call-c clib/malloc(sizeof(VMState))
-  vmstate.registers = call-c clib/malloc(8 * 256)
-  vmstate.system-registers = call-c clib/malloc(8 * 256)
+  val vmstate:ptr<VMState> = call-c clib/stz_malloc(sizeof(VMState))
+  vmstate.registers = call-c clib/stz_malloc(8 * 256)
+  vmstate.system-registers = call-c clib/stz_malloc(8 * 256)
   ;Initialize heap
   val initial-heap-size = 8 * 1024L * 1024L
   val heap = addr(vmstate.heap)

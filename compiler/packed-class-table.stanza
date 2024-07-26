@@ -161,8 +161,8 @@ public defn pack (records:Collection<ClassTableRecord>, class-table:StableByteAr
 lostanza defn ensure-class-entry-deleted (table:ref<StableByteArray>, index:ref<Int>) -> ref<False> :
   val descriptors = table.data as ptr<ClassDescriptor>
   val p = addr(descriptors[index.value])
-  call-c clib/free(p.full-layout)
-  call-c clib/free(p.field-names)
+  call-c clib/stz_free(p.full-layout)
+  call-c clib/stz_free(p.field-names)
   [p] = ClassDescriptor{0, 0, null, null}
   return false
 
@@ -309,7 +309,7 @@ defn num-bytes (r:PackedClassRecord) -> Int :
 lostanza defn pack (r:ref<PackedClassRecord>) -> ptr<?> :
   ;Malloc the correct number of bytes
   val num-bytes = num-bytes(r).value
-  val record:ptr<?> = call-c clib/malloc(num-bytes)
+  val record:ptr<?> = call-c clib/stz_malloc(num-bytes)
   var p:ptr<?> = record
 
   ;Store ints
@@ -367,7 +367,7 @@ defn pack (packer:FieldNamePacker, r:ClassTableRecord) -> False :
 lostanza defn pack-field-names (r:ref<ClassTableRecord>) -> ptr<?> :
   val num-fields = num-field-names(r).value
   val num-bytes = num-fields * sizeof(ptr<?>) + num-bytes-for-field-names(r).value
-  val packed-fields:ptr<ptr<byte>> = call-c clib/malloc(num-bytes)
+  val packed-fields:ptr<ptr<byte>> = call-c clib/stz_malloc(num-bytes)
   val packed-names:ptr<byte> = addr(packed-fields[num-fields]) as ptr<byte>
   val packer = new FieldNamePacker{packed-fields, packed-names}
   pack(packer, r)

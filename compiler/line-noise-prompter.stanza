@@ -95,7 +95,7 @@ lostanza defn line-noise (prompt:ref<String>) -> ref<String|False> :
     return false
   else :
     val str = String(s)
-    call-c clib/free(s)
+    call-c clib/stz_free(s)
     return str
 
 ;============================================================

@@ -36,13 +36,13 @@ lostanza deftype FlushResult :
 ;Create a FastIOBuffer with the given length and the given flush function.
 public lostanza defn FastIOBuffer (length:ref<Int>, flush:ref<(FastIOBuffer -> ?)>) -> ref<FastIOBuffer> :
   val len = length.value
-  val data = call-c clib/malloc(len)
+  val data = call-c clib/stz_malloc(len)
   val end = data + len
   return new FastIOBuffer{len, data, end, data, flush, 0, 67108864, fn(empty-notifier)}
 
 ;Free all memory in the buffer.
 public lostanza defn free (b:ref<FastIOBuffer>) -> ref<False> :
-  call-c clib/free(b.data)
+  call-c clib/stz_free(b.data)
   b.data = null
   return false
 

@@ -587,10 +587,10 @@ lostanza deftype LSLongVector :
   var items: ptr<long>
 
 lostanza defn LSLongVector (capacity:int) -> ptr<LSLongVector> :
-  val v:ptr<LSLongVector> = call-c clib/malloc(sizeof(LSLongVector))
+  val v:ptr<LSLongVector> = call-c clib/stz_malloc(sizeof(LSLongVector))
   v.capacity = capacity
   v.length = 0
-  v.items = call-c clib/malloc(capacity * sizeof(long))
+  v.items = call-c clib/stz_malloc(capacity * sizeof(long))
   return v
 
 lostanza defn LSLongVector () -> ptr<LSLongVector> :
@@ -611,8 +611,8 @@ lostanza defn add (v:ptr<LSLongVector>, x:long) -> int :
   return 0
 
 protected lostanza defn free (v:ptr<LSLongVector>) -> int :
-  call-c clib/free(v.items)
-  call-c clib/free(v)
+  call-c clib/stz_free(v.items)
+  call-c clib/stz_free(v)
   return 0
 
 ;============================================================
@@ -910,7 +910,7 @@ lostanza defn allocate-stack-frames-for-freelist (heap:ptr<Heap>) -> ref<False> 
   val stack-block-size = INITIAL-STACK-SIZE * stacks-in-block
 
   ;Allocate all the memory for the block
-  var block:ptr<long> = call-c clib/malloc(stack-block-size)
+  var block:ptr<long> = call-c clib/stz_malloc(stack-block-size)
   if block == null : fatal!("Cannot allocate stack block")
 
   ;Put stack frames on freelist.
@@ -929,7 +929,7 @@ lostanza defn allocate-stack-frames (size:long, heap:ptr<Heap>) -> ptr<StackFram
     heap.free-stacks = [frames] as ptr<long>
     return frames as ptr<StackFrame>
   else :
-    val frames:ptr<StackFrame> = call-c clib/malloc(size)
+    val frames:ptr<StackFrame> = call-c clib/stz_malloc(size)
     if frames == null : fatal!("Cannot allocate stack frames")
     return frames
 
@@ -939,7 +939,7 @@ lostanza defn free-stack-frames (frames:ptr<StackFrame>, size:long, heap:ptr<Hea
     [frames as ptr<long>] = heap.free-stacks as long
     heap.free-stacks = frames as ptr<long>
   else :
-    call-c clib/free(frames)
+    call-c clib/stz_free(frames)
   return false
 
 lostanza defn extend-stack-frames (frames:ptr<StackFrame>, size:long, new-size:long, heap:ptr<Heap>) -> ptr<StackFrame> :
@@ -4554,7 +4554,7 @@ public defmulti put (o:OutputStream, x) -> False
 ;                Default Implementations
 ;                =======================
 
-lostanza val CONVERSION-BUFFER: ptr<byte> = call-c clib/malloc(64)
+lostanza val CONVERSION-BUFFER: ptr<byte> = call-c clib/stz_malloc(64)
 
 lostanza defn print-conversion-buffer-float (o:ref<OutputStream>, n:int) -> ref<False> :
   labels :
@@ -5791,7 +5791,7 @@ public defn copy-file (old-path:String, new-path:String) :
 lostanza defn ptr-to-string? (p:ptr<byte>) -> ref<String|False> :
   if p != null :
     val s = String(p)
-    call-c clib/free(p)
+    call-c clib/stz_free(p)
     return s
   else :
     return false
@@ -9864,12 +9864,12 @@ public lostanza defn set-command-line-arguments (args:ref<Tuple<String>>) -> ref
     val n = clib/input_argc
     val ss = clib/input_argv
     for (var i:int = 0, i < n, i = i + 1) :
-      call-c clib/free(ss[i])
-    call-c clib/free(ss)
+      call-c clib/stz_free(ss[i])
+    call-c clib/stz_free(ss)
 
   ;Malloc array for new arguments
   val n = length(args).value
-  val argvs:ptr<ptr<byte>> = call-c clib/malloc((n + 1) * sizeof(ptr<?>))
+  val argvs:ptr<ptr<byte>> = call-c clib/stz_malloc((n + 1) * sizeof(ptr<?>))
 
   ;Copy strings to new array
   for (var i:int = 0, i < n, i = i + 1) :
@@ -9888,7 +9888,7 @@ public lostanza defn set-command-line-arguments (args:ref<Tuple<String>>) -> ref
 
 lostanza defn copy-chars (s:ref<String>) -> ptr<byte> :
   val n = length(s).value + 1
-  val p:ptr<byte> = call-c clib/malloc(n)
+  val p:ptr<byte> = call-c clib/stz_malloc(n)
   call-c clib/memcpy(p, addr!(s.chars), n)
   return p
 
@@ -10232,7 +10232,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     val launch_success = call-c clib/launch_process(
       addr!(command-line.chars), input_v, output_v, error_v, working-dir-chars, env-var-string, addr!([proc]))
     ;Free any malloc'd memory.
-    if env-var-string != null : call-c clib/free(env-var-string)
+    if env-var-string != null : call-c clib/stz_free(env-var-string)
     ;Throw an exception if launch failed.
     if launch_success != 0 :
       throw(ProcessLaunchError(filename, windows-error-msg()))
@@ -10291,7 +10291,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     val output_v = value(output).value
     val error_v = value(error).value
     val nargs = args.length
-    val argvs:ptr<ptr<byte>> = call-c clib/malloc((nargs + 1) * sizeof(ptr<?>))
+    val argvs:ptr<ptr<byte>> = call-c clib/stz_malloc((nargs + 1) * sizeof(ptr<?>))
     argvs[nargs] = null
     for (var i:long = 0, i < nargs, i = i + 1) :
       argvs[i] = addr!(args.items[i].chars)
@@ -10332,7 +10332,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
       (env-vars:ref<Tuple<KeyValue<String,String>>>) :
         val n = env-vars.length
         val scratch = ByteBuffer()
-        val env-array:ptr<ptr<byte>> = call-c clib/malloc((n + 1) * sizeof(ptr<?>))
+        val env-array:ptr<ptr<byte>> = call-c clib/stz_malloc((n + 1) * sizeof(ptr<?>))
         for (var i:int = 0, i < n, i = i + 1) :
           env-array[i] = to-env-var-entry(scratch, env-vars.items[i])
         env-array[n] = null
@@ -10343,9 +10343,9 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     if str != null :
       var i:int = 0
       while str[i] != null :
-        call-c clib/free(str[i])
+        call-c clib/stz_free(str[i])
         i = i + 1
-      call-c clib/free(str)
+      call-c clib/stz_free(str)
     return false
 
   ;Return a malloc'd string representing the given key-value pair.
@@ -10383,7 +10383,7 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
 lostanza defn copy-buffer-to-stable-memory (buffer:ref<ByteBuffer>) -> ptr<byte> :
   val n = length(buffer).value
   val data = data(buffer)
-  val copy = call-c clib/malloc(n)
+  val copy = call-c clib/stz_malloc(n)
   call-c clib/memcpy(copy, data, n)
   return copy
 
@@ -10601,7 +10601,7 @@ public lostanza defn replace-current-process (path:ref<String>,
                                               resolve-path?:ref<True|False>) -> ref<Void> :
   ;Create null-terminated C-array of arguments
   val len = length(args).value
-  val argvs:ptr<ptr<byte>> = call-c clib/malloc((len + 1) * sizeof(ptr<byte>))
+  val argvs:ptr<ptr<byte>> = call-c clib/stz_malloc((len + 1) * sizeof(ptr<byte>))
   for (var i:long = 0L, i < len, i = i + 1) :
     argvs[i] = addr!(args.items[i].chars)
   argvs[len] = null
