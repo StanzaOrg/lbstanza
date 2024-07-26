@@ -27,7 +27,6 @@
 
 #include <stanza/platform.h>
 #include <stanza/types.h>
-#include <stanza/>
 
 #include "process.h"
 #include "stzmem.h"
