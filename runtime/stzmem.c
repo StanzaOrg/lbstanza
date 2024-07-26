@@ -1,4 +1,4 @@
-#include "stdmem.h"
+#include "stzmem.h"
 
 void* stz_malloc (stz_long size){
   void* result = malloc(size);
