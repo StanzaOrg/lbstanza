@@ -19,7 +19,7 @@ defn current-backend () -> Backend :
 
 ;Hold the arguments here.
 lostanza val NUM-ARGS:long = 12
-lostanza val ARGS:ptr<long> = call-c clib/malloc(NUM-ARGS * 8)
+lostanza val ARGS:ptr<long> = call-c clib/stz_malloc(NUM-ARGS * 8)
 
 ;Print out the entry point.
 extern defn myentrypoint (f:long) -> long :

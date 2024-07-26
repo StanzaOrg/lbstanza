@@ -13,10 +13,10 @@ public lostanza defn realloc (p:ptr<?>, size*:long) -> ptr<?> :
   return p*
 
 public lostanza defn LSLongVector (capacity:int) -> ptr<LSLongVector> :
-  val v:ptr<LSLongVector> = call-c clib/malloc(sizeof(LSLongVector))
+  val v:ptr<LSLongVector> = call-c clib/stz_malloc(sizeof(LSLongVector))
   v.capacity = capacity
   v.length = 0
-  v.items = call-c clib/malloc(capacity * sizeof(long))
+  v.items = call-c clib/stz_malloc(capacity * sizeof(long))
   return v
 
 public lostanza defn LSLongVector () -> ptr<LSLongVector> :
@@ -29,8 +29,8 @@ public lostanza defn add (v:ptr<LSLongVector>, x:long) -> int :
   return 0
 
 public lostanza defn free (v:ptr<LSLongVector>) -> int :
-  call-c clib/free(v.items)
-  call-c clib/free(v)
+  call-c clib/stz_free(v.items)
+  call-c clib/stz_free(v)
   return 0
 
 lostanza defn ensure-capacity (v:ptr<LSLongVector>, new-capacity:int) -> int :

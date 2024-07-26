@@ -3,6 +3,7 @@
 #include <stanza/types.h>
 #include <spawn.h>
 #include "process.h"
+#include "stzmem.h"
 
 //============================================================
 //================= ChildProcess Registration ================
@@ -38,7 +39,7 @@ volatile ChildProcessList * child_processes = NULL;
 // Add a new ChildProcess to the global 'child_processes' list.
 // Precondition: SIGCHLD is blocked
 void add_child_process (ChildProcess* child) {
-  ChildProcessList * new_node = (ChildProcessList*)malloc(sizeof(ChildProcessList));
+  ChildProcessList * new_node = (ChildProcessList*)stz_malloc(sizeof(ChildProcessList));
   new_node->proc = child;
   new_node->next = child_processes;
   child_processes = new_node;
@@ -46,9 +47,9 @@ void add_child_process (ChildProcess* child) {
 
 // Free the ChildProcessList* node, and accompanying structures.
 void free_child_process (ChildProcessList* node){
-  free(node->proc->pstatus);
-  free(node->proc);
-  free(node);
+  stz_free(node->proc->pstatus);
+  stz_free(node->proc);
+  stz_free(node);
 }
 
 // Return the ChildProcess with the given process id.
@@ -75,14 +76,14 @@ static void register_child_process (
               ProcessStatus** status) {
 
   // Initialize and save ProcessStatus struct.
-  ProcessStatus* st = (ProcessStatus*)malloc(sizeof(ProcessStatus));
+  ProcessStatus* st = (ProcessStatus*)stz_malloc(sizeof(ProcessStatus));
   st->code_set = 0;
   st->status_code = -1;
   st->referenced_from_stanza = 1;
   *status = st;
 
   // Initialize ChildProcess struct.
-  ChildProcess* child = (ChildProcess*)malloc(sizeof(ChildProcess));
+  ChildProcess* child = (ChildProcess*)stz_malloc(sizeof(ChildProcess));
   child->pid = pid;
   child->fin = fin;
   child->fout = fout;
@@ -215,7 +216,7 @@ void install_autoreaping_sigchld_handler () {
   sigaddset(&sigchld_mask, SIGCHLD);
 
   //Allocate stack and initialize struct for handler
-  char* sighandler_stack = (char*)malloc(SIGSTKSZ);
+  char* sighandler_stack = (char*)stz_malloc(SIGSTKSZ);
   stack_t ss = {
     .ss_size = SIGSTKSZ,
     .ss_sp = sighandler_stack
