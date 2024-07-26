@@ -18,5 +18,5 @@ build
 *.o
 *.exe
 stanza.aux
-stanza
+./stanza
 repl-history.txt

@@ -8,6 +8,8 @@
 
 defpackage clib
 
+protected extern stz_malloc: long -> ptr<?>
+protected extern stz_free: ptr<?> -> int
 protected extern malloc: long -> ptr<?>
 protected extern free: ptr<?> -> int
 protected extern realloc: (ptr<?>, long) -> ptr<?>

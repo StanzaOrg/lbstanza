@@ -27,14 +27,13 @@
 
 #include <stanza/platform.h>
 #include <stanza/types.h>
+#include <stanza/>
 
 #include "process.h"
+#include "stzmem.h"
 
 //       Forward Declarations
 //       ====================
-
-void* stz_malloc (stz_long size);
-void stz_free (void* ptr);
 
 #ifdef PLATFORM_WINDOWS
 char* get_windows_api_error() {
@@ -487,13 +486,7 @@ stz_int sleep_ms (stz_long ms){
 //================= Stanza Memory Allocator ==================
 //============================================================
 
-void* stz_malloc (stz_long size){
-  return malloc(size);
-}
-
-void stz_free (void* ptr){
-  free(ptr);
-}
+#include "stzmem.c"
 
 //============================================================
 //============= Stanza Memory Mapping on POSIX ===============
