@@ -7,6 +7,7 @@ defpackage stz/macro-master :
   import stz/sexp-serializer
   import stz/sexp-checker
   import stz/params
+  import stz/verbose
 
 ;============================================================
 ;========================= API ==============================
@@ -67,7 +68,10 @@ public defn load-macro-plugin (filename:String,
   new MacroPlugin :
     defmethod macroexpand (this, form, overlays:List<Symbol>) -> ? :
       check-valid-sexp(form)
-      call-entry(interface, lib, "macroexpand", [form, overlays])
+      vprintln("Calling external macro plugin %~." % [filename])
+      val result = call-entry(interface, lib, "macroexpand", [form, overlays])
+      vprintln("Returned from external macro plugin.")
+      result
     defmethod syntax-packages (this) -> Tuple<Symbol> :
       supported-packages
     defmethod filename (this) :

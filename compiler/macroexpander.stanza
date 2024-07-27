@@ -7,6 +7,7 @@ defpackage stz/macroexpander :
   import stz/core-macros
   import stz/proj-manager
   import stz/proj-ir
+  import stz/verbose
 
 ;============================================================
 ;====================== API =================================
@@ -85,6 +86,10 @@ public defn StanzaMacroexpander (sys:MacroSystem,
   defn load-macro-from-file (source:MacroSource,
                              filename:String,
                              expected-packages:Maybe<Tuple<Symbol>>) -> LoadedMacros :
+    vprintln("Loading macro from %~. Requested %_." % [filename, src-str]) where :
+      val src-str = switch(source) :
+        LoadedFromProj: "by .proj file"
+        LoadedFromFile: "as explicit macro plugin"      
     build-macro(filename)
     val plugin = load-macro-plugin(filename, expected-packages)
     val loaded = LoadedMacros(source, plugin)    
@@ -145,6 +150,8 @@ public defn StanzaMacroexpander (sys:MacroSystem,
     ;(*) If the macro plugin has already been loaded from a proj
     ;    Then don't load it twice.
     label<MacroPlugin|False|MissingPackages> return :
+      vprintln("find-plugin %_" % [packages])
+      
       ;1) Find a macro loaded from a file.
       val lm = find-loaded-macro()
       match(lm:LoadedMacros) :
@@ -185,12 +192,15 @@ public defn StanzaMacroexpander (sys:MacroSystem,
       proj-manager = proj
 
     defmethod macroexpand (this, form, overlay-specifiers:List<Symbol>) :
+      vprintln("Macroexpand using overlays %,." % [overlay-specifiers])
       ;Compute the complete set of overlays.
       val overlays = compute-overlays(`core, overlay-specifiers, false)
       match(find-plugin(overlays)) :
         (p:MacroPlugin) :
+          vprintln("Expand using macro plugin %~." % [filename(p)])
           macroexpand(p, form, names(overlays))
         (f:False) :
+          vprintln("Expand using core macroexpander.")
           within parser/core-macroexpander/with-core-macroexpander(this) :
             syntax-parse(`core, names(overlays), List(form), `exp, false)
         (e:MissingPackages) :
@@ -240,7 +250,12 @@ defn relevance (lm:LoadedMacros) -> Comparable :
 ;Returns true if the given loaded macros supports the
 ;given syntax packages.
 defn supports? (lm:LoadedMacros, ps:Seqable<Symbol>) -> True|False :
-  subset?(ps, syntax-packages(plugin(lm)))
+  val ps-tuple = to-tuple(ps)
+  vprintln("Macroplugin %_ supports %_?" % [filename(plugin(lm)), ps-tuple])
+  val result = subset?(ps-tuple, syntax-packages(plugin(lm)))
+  vprintln("syntax-packages = %_" % [syntax-packages(plugin(lm))])
+  vprintln("Result = %_" % [result])
+  result
 
 ;Returns the number of syntax packages supported by the loaded macros.
 defn num-packages (lm:LoadedMacros) -> Int :
