@@ -68,9 +68,12 @@ public defn load-macro-plugin (filename:String,
       vprintln("Supported packages contains %_? = %_" % [p, contains?(supported-packages, p)])
     println("subset = %_" % [subset?(value!(expected-packages), supported-packages)])
     if not subset?(value!(expected-packages), supported-packages) :
+      println("Throw exception.")
+      print-stack-trace()
       throw(UnexpectedPackagesInPlugin(filename,
                                        supported-packages,
                                        value!(expected-packages)))
+    println("AFter throw")
 
   ;Create the plugin
   new MacroPlugin :
