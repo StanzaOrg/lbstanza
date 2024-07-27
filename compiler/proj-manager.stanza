@@ -67,8 +67,11 @@ public defmulti find-package (l:ProjManager, name:Symbol) -> PkgLocation|False
 public defmulti conditional-imports (l:ProjManager, packages:Seqable<Symbol>) -> Tuple<Symbol>
 
 ;Given the set of syntax packages we need, find the name of the plugin
-;that supports all of them. Returns false if none could be found.
-public defmulti find-syntax-packages (l:ProjManager, names:Tuple<Symbol>) -> String|False
+;that supports all of them. If a plugin is found, then we return
+;[filename, stated-packages] where:
+;- filename: The filename of the macro plugin that supports the requested packages.
+;- stated-packages: The syntax packages that the macro plugin is stated to support.
+public defmulti find-syntax-packages (l:ProjManager, names:Tuple<Symbol>) -> Maybe<[String,Tuple<Symbol>]>
 
 ;Returns the list of all syntax-package groups listed in the
 ;.proj files.
@@ -201,7 +204,7 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile) :
       PkgLocation(name, src-path, pkg-file, read-pkg?)
 
   ;Find a set of syntax packages
-  defn find-syntax-packages (names:Tuple<Symbol>) -> String|False :
+  defn find-syntax-packages (names:Tuple<Symbol>) -> Maybe<[String,Tuple<Symbol>]> :
     ;Returns true if names is a superset of xs.
     defn superset-of-names? (xs:Seqable<Symbol>) -> True|False :
       val xs-set = to-hashset<Symbol>(xs)
@@ -214,9 +217,9 @@ public defn ProjManager (proj:ProjFile, params:ProjParams, auxfile:AuxFile) :
     ;Note: We implicitly add `core and `tests to the supported packages.
     ;These are implicitly supported by all plugins even if not
     ;listed by the user.
-    value? $ for stmt in syntax-packages first :
+    for stmt in syntax-packages first :
       val added-packages = cat(`(core tests), packages(stmt))
-      if superset-of-names?(added-packages) : One(filename(stmt))
+      if superset-of-names?(added-packages) : One([filename(stmt), packages(stmt)])
       else : None()
 
   ;Retrieve conditional imports

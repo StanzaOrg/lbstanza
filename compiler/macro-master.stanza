@@ -34,6 +34,9 @@ public defmulti filename (p:MacroPlugin) -> String
 ;  macro contains a superset of the expected packages.
 public defn load-macro-plugin (filename:String,
                                expected-packages:Maybe<Tuple<Symbol>>) -> MacroPlugin :
+  vprintln("load-macro-plugin %~" % [filename])
+  vprintln("expected-packages = %~" % [expected-packages])
+  
   ;Load the macro dynamic library.
   val lib =
     try :
@@ -53,12 +56,14 @@ public defn load-macro-plugin (filename:String,
   ;Retrieve the packages supported by the macro plugin.
   val supported-packages:Tuple<Symbol> = call-entry(
     interface, lib, "list_syntax_packages", false)
+  vprintln("supported-packages = %~" % [supported-packages])
 
   ;Initialize the compiler flags.
   call-entry(interface, lib, "add_compiler_flags", compiler-flags())
 
   ;Check that the plugin supports the expected packages.
   if not empty?(expected-packages) :
+    vprintln("Ensure expected packages are there.")
     if not subset?(value!(expected-packages), supported-packages) :
       throw(UnexpectedPackagesInPlugin(filename,
                                        supported-packages,
