@@ -64,6 +64,9 @@ public defn load-macro-plugin (filename:String,
   ;Check that the plugin supports the expected packages.
   if not empty?(expected-packages) :
     vprintln("Ensure expected packages are there.")
+    for p in value!(expected-packages) do :
+      vprintln("Supported packages contains %_? = %_" % [p, contains?(supported-packages, p)])
+    println("subset = %_" % [subset?(value!(expected-packages), supported-packages)])
     if not subset?(value!(expected-packages), supported-packages) :
       throw(UnexpectedPackagesInPlugin(filename,
                                        supported-packages,
