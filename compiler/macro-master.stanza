@@ -34,21 +34,11 @@ public defmulti filename (p:MacroPlugin) -> String
 ;  macro contains a superset of the expected packages.
 public defn load-macro-plugin (filename:String,
                                expected-packages:Maybe<Tuple<Symbol>>) -> MacroPlugin :
-  vprintln("load-macro-plugin %~" % [filename])
-  vprintln("expected-packages = %~" % [expected-packages])
+  ;Report macro plugin.
+  vprintln("Load macro plugin %~." % [filename])
   
   ;Load the macro dynamic library.
   val lib = load-macro-dylib(filename)
-;    try :
-;      dynamic-library-open(ensure-slash(filename))
-;    catch (e:Exception) :
-;      throw(ErrorLoadingMacroPlugin(filename, e))
-;
-;  ;Test that it's a valid macro plugin
-;  test-validity(lib)
-;
-;  ;Call its main function for initialization.
-;  call-main(lib)
 
   ;Create the interface for communicating with it.
   val interface = PluginInterface(SExpIO())
@@ -56,42 +46,30 @@ public defn load-macro-plugin (filename:String,
   ;Retrieve the packages supported by the macro plugin.
   val supported-packages:Tuple<Symbol> = call-entry(
     interface, lib, "list_syntax_packages", false)
-  vprintln("supported-packages = %~" % [supported-packages])
 
   ;Initialize the compiler flags.
   call-entry(interface, lib, "add_compiler_flags", compiler-flags())
 
   ;Check that the plugin supports the expected packages.
   if not empty?(expected-packages) :
-    vprintln("Ensure expected packages are there.")
-    for p in value!(expected-packages) do :
-      vprintln("Supported packages contains %_? = %_" % [p, contains?(supported-packages, p)])
-    println("subset = %_" % [subset?(value!(expected-packages), supported-packages)])
-    if not subset?(value!(expected-packages), supported-packages) :
-      println("Throw exception.")
-      print-stack-trace()
-      throw(UnexpectedPackagesInPlugin(filename,
-                                       supported-packages,
-                                       value!(expected-packages)))
-    println("AFter throw")
+    val missing = difference(value!(expected-packages), supported-packages)
+    if not empty?(missing) :
+      throw(UnexpectedPackagesInPlugin(filename, missing))
 
   ;Create the plugin
   new MacroPlugin :
     defmethod macroexpand (this, form, overlays:List<Symbol>) -> ? :
       check-valid-sexp(form)
-      vprintln("Calling external macro plugin %~." % [filename])
-      val result = call-entry(interface, lib, "macroexpand", [form, overlays])
-      vprintln("Returned from external macro plugin.")
-      result
+      call-entry(interface, lib, "macroexpand", [form, overlays])
     defmethod syntax-packages (this) -> Tuple<Symbol> :
       supported-packages
     defmethod filename (this) :
       filename
 
-;Helper: Return true if xs is a subset of ys.
-defn subset? (xs:Seqable<Symbol>, ys:Seqable<Symbol>) -> True|False :
+;Helper: Return all items in 'xs' that does not exist in 'ys'.
+defn difference (xs:Seqable<Symbol>, ys:Seqable<Symbol>) -> Tuple<Symbol> :
   val ys-set = to-hashset<Symbol>(ys)
-  for x in xs all? : ys-set[x]
+  to-tuple $ for x in xs filter : not ys-set[x]
 
 ;============================================================
 ;================== Already Loaded Set ======================
@@ -105,14 +83,26 @@ val LOADED-LIBRARIES = HashTable<String,DynamicLibrary>()
 ;Load and initialize the given dynamic library.
 defn load-macro-dylib (filename:String) -> DynamicLibrary :
   try :
+    ;Resolve the full path first.
     val path = resolve-path!(ensure-slash(filename))
+
+    ;Test whether the library has already been loaded.
     match(get?(LOADED-LIBRARIES, path)) :
+      ;Case: If the library has already been loaded, then
+      ;just return it directly.
       (dylib:DynamicLibrary) :
         dylib
+      ;Case: The library hasn't been loaded, so load and
+      ;initialize it.
       (f:False) :
+        ;Load the library.
         val dylib = dynamic-library-open(path)
+        ;Ensure it is a macro plugin by running a simple
+        ;handshake function.
         test-validity(dylib)
+        ;Initialize the macro.
         call-main(dylib)
+        ;And store it into the table.
         LOADED-LIBRARIES[path] = dylib
         dylib        
   catch (e:Exception) :
@@ -188,13 +178,11 @@ defmethod print (o:OutputStream, e:InvalidMacroPlugin) :
 ;packages.
 public defstruct UnexpectedPackagesInPlugin <: MacroPluginError :
   filename:String
-  supported-packages:Tuple<Symbol>
-  expected-packages:Tuple<Symbol>
+  missing:Tuple<Symbol>
 
 defmethod print (o:OutputStream, e:UnexpectedPackagesInPlugin) :
-  print(o, "Unexpected packages supported by macro plugin %~. The plugin \
-            supports packages %_, but it was expected to support %_." % [
-           filename(e), quotes(supported-packages(e)), quotes(expected-packages(e))])
+  print(o, "The macro plugin %~ is missing syntax packages. It is stated to contain the \
+            %_ syntax packages but does not." % [filename(e), quotes(missing(e))])
 
 ;Helper: Add quotes and commas around names.
 defn quotes (ss:Seqable<Symbol>) -> ? :
