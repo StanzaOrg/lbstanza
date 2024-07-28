@@ -7,6 +7,7 @@ defpackage stz/macroexpander :
   import stz/core-macros
   import stz/proj-manager
   import stz/proj-ir
+  import stz/verbose
 
 ;============================================================
 ;====================== API =================================
@@ -116,9 +117,10 @@ public defn StanzaMacroexpander (sys:MacroSystem,
     ;Helper: Find a macro plugin using the proj file.
     defn find-using-proj () -> MacroPlugin|False :
       match(proj-manager:ProjManager) :
-        val filename = find-syntax-packages(proj-manager, packages)
-        match(filename:String) :
-          plugin(load-macro-from-file(LoadedFromProj, filename, One(packages)))
+        val plugin-details = find-syntax-packages(proj-manager, packages)
+        if not empty?(plugin-details) :
+          val [filename, stated-packages] = value!(plugin-details)
+          plugin(load-macro-from-file(LoadedFromProj, filename, One(stated-packages)))
 
     ;Helper: Return true if the root expander
     ;supports the given packages.
