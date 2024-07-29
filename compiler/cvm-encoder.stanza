@@ -121,8 +121,7 @@ public defn encode (func:VMFunction,
   defn type-is-final? (t:TypeSet) :
     match(t) :
       (t:SingleType) : /type-is-final?(resolver, type(t))
-      (t:OrType) : all?(type-is-final?, types(t))
-      (t:AndType) : any?(type-is-final?, types(t))
+      (t:OrType|AndType) : all?(type-is-final?, types(t))
       (t:TopType) : true
 
   ;Convert a TypeSet to an ISet assuming that the TypeSet represents a final type.

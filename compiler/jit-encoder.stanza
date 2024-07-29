@@ -256,8 +256,7 @@ defn split-types-and-dests (bs:Tuple<VMBranch>) -> [Tuple<Tuple<TypeSet>>, Tuple
 defn type-is-final? (resolver:EncodingResolver, t:TypeSet) :
   match(t) :
     (t:SingleType) : type-is-final?(resolver, type(t))
-    (t:OrType) : all?(type-is-final?{resolver, _}, types(t))
-    (t:AndType) : any?(type-is-final?{resolver, _}, types(t))
+    (t:OrType|AndType) : all?(type-is-final?{resolver, _}, types(t))
     (t:TopType) : true
 
 ;Check whether all types in branch are final.
