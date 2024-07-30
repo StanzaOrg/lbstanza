@@ -5955,7 +5955,7 @@ public defn file-exists? (filename:String) -> True|False :
   try :
     file-type(filename, false)
     true
-  catch (e:FileTypeException) :
+  catch (e:FileTypeException|PathResolutionError) :
     false
 
 ;---------------------------------------------------------
