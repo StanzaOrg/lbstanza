@@ -79,6 +79,7 @@ public defstruct BuildStmt <: ProjStmt :
   ccflags: Tuple<String|Tuple<String>>
   flags: Tuple<Symbol>
   optimize: True|False
+  debug: True|False
 with:
   printer => true
 
