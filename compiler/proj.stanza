@@ -65,7 +65,7 @@ public defn read-proj-files (filenames:Seqable<String>,
     fn (v, t:ValueType, projpath:String, errors:Vector<ProjFileError>) -> ProjValue :
       v $> translate-to-proj-value
         $> variable-substitution{_, vartable, errors}
-        $> normalize{_, platform, link-type, workdir(env), projpath}
+        $> normalize{_, platform, link-type, workdir(env), stanzadir(env), projpath}
 
   ;Stage: Finish all postprocessing stages to get files into final form.
   defn sub-variables-and-finish-processing (files:Tuple<ProjFileS0>,

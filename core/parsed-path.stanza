@@ -163,12 +163,8 @@ defmethod parse-path (path:String, platform:OS-X|Linux) -> ParsedPath :
           make-path-element()
           loop(i + 1)
         '\\' :
-          if i + 1 < len :
-            add(buffer, path[i + 1])
-            loop(i + 2)
-          else :
-            add(buffer, c)
-            loop(i + 1)
+          make-path-element()
+          loop(i + 1)
         else :
           add(buffer, c)
           loop(i + 1)

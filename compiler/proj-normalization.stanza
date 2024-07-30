@@ -37,8 +37,9 @@ public defn normalize (v:ProjValue,
                        current-platform:Symbol,
                        current-link-type:Symbol,
                        workdir:String,
+                       stanzadir:String,
                        proj-path:String) -> ProjValue :
-  val dirtable = SpecialDirTable(workdir, proj-path)
+  val dirtable = SpecialDirTable(proj-path, workdir = workdir, stanzadir = stanzadir)
   normalize(v, current-platform, current-link-type, dirtable)
 
 ;============================================================
