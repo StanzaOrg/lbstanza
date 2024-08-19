@@ -3,6 +3,7 @@ defpackage stz/dl :
   import collections
   import stz/dl-ir
   import stz/utils
+  import stz/printing-utils
 
 ;<doc>=======================================================
 ;====================== Documentation =======================
@@ -302,6 +303,7 @@ public defn DEnv () :
     do(check-imports, ps)
         
     ;Check all the dependencies from the live objects
+    println("Live recs%_" % [colon-field-list(live-recs)])
     do(check-dependency{LiveObject(), _, match?{_, _, false}}, live-recs)
 
   ;<doc>================================================

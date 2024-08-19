@@ -346,6 +346,22 @@ public defn DAnd? (ts:Seqable<DType>) :
 ;============================================================
 
 ;------------------------------------------------------------
+;----------------------- RecFromPackage ---------------------
+;------------------------------------------------------------
+
+;This bundles a Rec together with the package that it was
+;originally defined in.
+;This is important because there can be multiple TypeDecl
+;referencing the same type from different packages, and they
+;may have different child listings.
+public defstruct RecFromPackage :
+  package:Symbol
+  rec:Rec
+
+defmethod print (o:OutputStream, p:RecFromPackage) :
+  print(o, "%_ : %_" % [package(p), rec(p)])
+
+;------------------------------------------------------------
 ;--------------- Equality on Ids and Recs -------------------
 ;------------------------------------------------------------
 defmethod equal? (x:TypeId, y:TypeId) :
@@ -393,19 +409,34 @@ defmethod hash (x:FnId) :
 ;Given the package io, returns a predicate that can test
 ;whether an imported record is consistent against an exported
 ;record from a parent package.
+;
+;  match? (x, y) -> m
+;
+;  x: An imported record from 'io'.
+;  y: A proposed redefined record from another package.
+;  m: True if x is consistent against y.
+
 public defn match? (io:PackageIO) -> (Rec,Rec) -> True|False :
-  ;Compute all the referenced types in the given PackageIO.
-  ;If it exists in types-in-io, then this type is referenced.
+
+  ;Compute the set of all defined types in the given PackageIO.
+  ;These include both exported and imported types.
   defn type-id? (r:Rec) -> Maybe<TypeId> :
     match(r:StructRec|TypeRec|TypeDecl) : One(id(r) as TypeId)
     else : None()
   val types-in-io = to-hashset<TypeId> $
     seq?(type-id?{rec(_)}, cat(imports(io), exports(io)))
+    
   ;Return curried function.
   match?{_, _, types-in-io}
 
-;Returns true if the two ValRec records match.
-public defn match? (x:Rec, y:Rec, types-in-io:HashSet<TypeId>|False) -> True|False :
+;Returns true if the two records match.
+;- x: The record corresponding to an existing dependency.
+;- y: The record that is being introduced/redefined. We are checking whether the visible
+;     dependency 'x' is consistent against the refined definition 'y'.
+;- types-in-io: Assuming that the record 'x' was defined (either imported or exported)
+;  from package 'P', this set holds all defined types in package 'P'.
+;  Needed to check whether TypeDecl is consistent.
+public defn match? (x:Rec, y:Rec, types-in-io:HashSet<TypeId>) -> True|False :
   match(x, y) :
     (x:ValRec, y:ValRec) :
       type(x) == type(y) and
@@ -433,9 +464,6 @@ public defn match? (x:Rec, y:Rec, types-in-io:HashSet<TypeId>|False) -> True|Fal
       parent(x) == parent(y) and
       children(x) == children(y)
     (x:TypeDecl, y:TypeRec) :
-      ;Assert that types-in-io is given.
-      fatal("Type set in current PackageIO must be given.") when types-in-io is False
-      val types-in-io = types-in-io as HashSet<TypeId>
       if ntargs(x) == ntargs(y) and parent(x) == parent(y) :
         ;Condition 1) All children in x, must also be children in y, and must match the definition.
         ;Condition 2) All children in y must either be children of x, or not a type in io.
@@ -448,6 +476,8 @@ public defn match? (x:Rec, y:Rec, types-in-io:HashSet<TypeId>|False) -> True|Fal
           val cond2 = for c in children(y) all? :
             key?(xchildren, id(c)) or not types-in-io[id(c)]
           cond1 and cond2
+    (x, y:TypeDecl) :
+      fatal("Illegal argument. The type being newly declared is never a TypeDecl.")
     (x, y) :
       false
 
@@ -471,6 +501,7 @@ public defmulti package (t:IOTable) -> Symbol
 public defmulti get (t:IOTable, n:Int) -> Rec
 public defmulti key? (t:IOTable, n:Int) -> True|False
 public defmulti get (t:IOTable, id:RecId) -> Import|Export
+public defmulti rec (t:IOTable, n:Int) -> RecFromPackage
 
 public defn IOTable (io:PackageIO) :
   val idtable = to-hashtable(id{rec(_)}, cat(imports(io), exports(io)))
@@ -480,6 +511,7 @@ public defn IOTable (io:PackageIO) :
     defmethod get (this, n:Int) : rec(ntable[n])
     defmethod get (this, id:RecId) : idtable[id]
     defmethod key? (this, n:Int) : key?(ntable,n)
+    defmethod rec (this, n:Int) : RecFromPackage(package(io), rec(ntable[n]))
 
 public defn n (iotable:IOTable, id:RecId) :
   n(iotable[id])

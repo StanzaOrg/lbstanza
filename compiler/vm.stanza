@@ -63,7 +63,7 @@ Examples:
 
 # Compute the current live records #
 
-  compute-live (vm:VirtualMachine, exclude:Seqable<Symbol>) -> Tuple<Rec>
+  compute-live (vm:VirtualMachine, exclude:Seqable<Symbol>) -> Tuple<RecFromPackage>
 
 Example: Suppose the user wishes to reload packages stz/algorithms and
 stz/parser. This means that all the global variables in these two
@@ -635,7 +635,7 @@ lostanza defn num-slots (f:ptr<StackFrame>, vm:ref<VirtualMachine>) -> int :
 ;============================================================
 
 val EMPTY-TUPLE = []
-public lostanza defn compute-live (vm:ref<VirtualMachine>, exclude:ref<Seqable<Symbol>>) -> ref<Tuple<Rec>> :
+public lostanza defn compute-live (vm:ref<VirtualMachine>, exclude:ref<Seqable<Symbol>>) -> ref<Tuple<RecFromPackage>> :
   ;If virtual machine is not yet initialized, then return empty tuple.
   if vm.core-loaded? == false : return EMPTY-TUPLE
 
@@ -694,8 +694,9 @@ public lostanza defn compute-live (vm:ref<VirtualMachine>, exclude:ref<Seqable<S
   ;Return ids
   return to-tuple(live-recs)
 
-defn RecSet () :
-  HashSet<Rec>(hash{id(_)}, {id(_) == id(_)})
+defn RecSet () -> HashSet<RecFromPackage> :
+  defn key (p:RecFromPackage) : [package(p), id(rec(p))]
+  HashSet<RecFromPackage>(hash{key(_)}, {key(_) == key(_)})
 
 ;============================================================
 ;===================== Debugging ============================

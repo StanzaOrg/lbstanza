@@ -43,12 +43,10 @@ For fn-recs, global-recs, class-recs, the array index is the
 identifier of the definition, and the array value is the record id of
 the definition it refers to.
 
-
-
 # State for Dependency Tracking #
 
-  function-dependencies:Vector<Tuple<Rec>>
-  class-dependencies:Vector<Tuple<Rec>>
+  function-dependencies:Vector<Tuple<RecFromPackage>>
+  class-dependencies:Vector<Tuple<RecFromPackage>>
 
 The array index is the identifier of the definition, the array values
 are the set of definitions that it depends upon.
@@ -61,8 +59,8 @@ are the set of definitions that it depends upon.
 ;============================================================
 
 public deftype VMIds
-public defmulti function-dependencies (ids:VMIds, f:Int) -> Tuple<Rec>
-public defmulti class-dependencies (ids:VMIds, c:Int) -> Tuple<Rec>
+public defmulti function-dependencies (ids:VMIds, f:Int) -> Tuple<RecFromPackage>
+public defmulti class-dependencies (ids:VMIds, c:Int) -> Tuple<RecFromPackage>
 public defmulti load-packages (ids:VMIds, pkgs:Collection<VMPackage>) -> LoadUnit
 public defmulti class-rec (ids:VMIds, global-id:Int) -> StructRec|TypeRec|False
 public defmulti package-init (ids:VMIds, package:Symbol) -> Int|False
@@ -107,8 +105,8 @@ public defn VMIds (dylibs:LoadedDynamicLibraries,
   val global-id-counter = id-counter({_ is ValId})
   
   ;Dependency Tracking
-  val function-dependencies = Vector<Tuple<Rec>>()
-  val class-dependencies = Vector<Tuple<Rec>>()
+  val function-dependencies = Vector<Tuple<RecFromPackage>>()
+  val class-dependencies = Vector<Tuple<RecFromPackage>>()
 
   ;Utility Tables
   val fixed-ids-table = to-hashtable<RecId,Int>(fixed-ids)
@@ -284,14 +282,14 @@ public defn VMIds (dylibs:LoadedDynamicLibraries,
     ;Record class dependencies
     defn record-dependencies (iotable:IOTable, local-to-global-map:IntTable<Int>, classes:Tuple<VMClass>) :
       for c in filter-by<VMArrayClass|VMLeafClass>(classes) do :
-        val ds = map({iotable[_]}, dependencies(c))
+        val ds = map(rec{iotable,_}, dependencies(c))
         val global-id = local-to-global-map[id(c)]
         put(class-dependencies, global-id, ds, [])
         
     ;Record function dependencies
     defn record-dependencies (iotable:IOTable, local-to-global-map:IntTable<Int>, funcs:Tuple<VMDefn>) :
       for f in funcs do :
-        val ds = map({iotable[_]}, dependencies(f))
+        val ds = map(rec{iotable,_}, dependencies(f))
         val global-id = local-to-global-map[id(f)]
         put(function-dependencies, global-id, ds, [])
 
