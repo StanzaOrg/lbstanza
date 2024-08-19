@@ -114,9 +114,10 @@ public defn DEnv () :
   ;Initialize package table and live set
   val packages = Vector<PackageIO>()
   val package-indices = HashTable<Symbol,Int>()
+  val package-matchers = HashTable<Symbol,((Rec,Rec) -> True|False)>()
 
   ;Packages
-  defn add-package (p:PackageIO) :
+  defn add-package (p:PackageIO) -> False :
     match(get?(package-indices,package(p))) :
       (i:Int) :
         packages[i] = p
@@ -124,6 +125,8 @@ public defn DEnv () :
         val i = length(packages)
         add(packages, p)
         package-indices[package(p)] = i
+    remove(package-matchers, package(p))
+    false
 
   ;============================
   ;==== Ensure Consistency ====
@@ -366,6 +369,7 @@ public defn DEnv () :
       match(load-result:LoadSuccess) :
         ;Remove from package vector
         remove-when({unload-set[package(_)]}, packages)
+        for p in unload-set: remove(package-matchers, p)
         ;Recompute package indices
         clear(package-indices)
         for (io in packages, i in 0 to false) do :
