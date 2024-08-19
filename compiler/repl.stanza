@@ -443,7 +443,7 @@ public defn REPL (macro-plugins:Tuple<String>,
     compute-live(vm, seq(package,ios))
 
   defn compile-to-vmpackages (inputs:Tuple<String|Symbol|IPackage>,
-                              live-recs: Tuple<PackageIO> -> Tuple<Rec>,
+                              live-recs: Tuple<PackageIO> -> Tuple<RecFromPackage>,
                               repl-package?:Symbol|False) -> Tuple<VMPackage> :
     ;Compile to epackages
     val proj-manager = proj-manager()

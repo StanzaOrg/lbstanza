@@ -1,3 +1,4 @@
+#use-added-syntax(dot-operator)
 defpackage stz/dl :
   import core
   import collections
@@ -30,7 +31,7 @@ to the environment.
 
 # Loading new packages #
 
-  load (e:DEnv, ps:Collection<PackageIO>, live-recs:Tuple<Rec>) -> LoadResult
+  load (e:DEnv, ps:Collection<PackageIO>, live-recs:Tuple<RecFromPackage>) -> LoadResult
 
 Loads the given packages into the environment. The operation succeeds
 and returns LoadSuccess only if the new packages are consistent with
@@ -43,7 +44,7 @@ signature of a function that is still in active use.
 
 # Updating existing packages #
 
-  update (e:DEnv, ps:Collection<PackageIO>, live-recs:Tuple<Rec>) -> LoadResult
+  update (e:DEnv, ps:Collection<PackageIO>, live-recs:Tuple<RecFromPackage>) -> LoadResult
   
 Updates the given packages in the environment. This is meant to be
 used to update code definitions in the environment without
@@ -54,7 +55,7 @@ cannot change the type of any global variable.
 
 # Unloading existing packages #
 
-  unload (e:DEnv, packages:Collection<Symbol>, live-recs:Tuple<Rec>) -> LoadResult
+  unload (e:DEnv, packages:Collection<Symbol>, live-recs:Tuple<RecFromPackage>) -> LoadResult
 
 Unload the given packages from the environment. 
 
@@ -76,9 +77,9 @@ public :
   deftype DEnv
   defmulti packageios (e:DEnv) -> Collection<PackageIO>
   defmulti packageio (e:DEnv, name:Symbol) -> PackageIO|False
-  defmulti load (e:DEnv, ps:Collection<PackageIO>, live-recs:Tuple<Rec>) -> LoadResult
-  defmulti update (e:DEnv, ps:Collection<PackageIO>, live-recs:Tuple<Rec>) -> LoadResult
-  defmulti unload (e:DEnv, ps:Collection<Symbol>, live-recs:Tuple<Rec>) -> LoadResult
+  defmulti load (e:DEnv, ps:Collection<PackageIO>, live-recs:Tuple<RecFromPackage>) -> LoadResult
+  defmulti update (e:DEnv, ps:Collection<PackageIO>, live-recs:Tuple<RecFromPackage>) -> LoadResult
+  defmulti unload (e:DEnv, ps:Collection<Symbol>, live-recs:Tuple<RecFromPackage>) -> LoadResult
   defmulti check-imports-defined (e:DEnv, packageio:PackageIO) -> LoadResult
 
   deftype LoadResult
@@ -110,291 +111,325 @@ public :
 ;=============== Descriptor Environment =====================
 ;============================================================
 
-public defn DEnv () :
-  ;Initialize package table and live set
-  val packages = Vector<PackageIO>()
-  val package-indices = HashTable<Symbol,Int>()
-  val package-matchers = HashTable<Symbol,((Rec,Rec) -> True|False)>()
+;Define the DL Environment.
+defstruct DEnvTables <: DEnv :
+  packages:HashTable<Symbol,PackageIO> with:
+    init => HashTable<Symbol,PackageIO>()
+  matchers:HashTable<Symbol,((Rec,Rec) -> True|False)> with:
+    init => HashTable-init<Symbol,((Rec,Rec) -> True|False)>(
+              fn (package) : packages[package].match?)
 
-  ;Packages
-  defn add-package (p:PackageIO) -> False :
-    match(get?(package-indices,package(p))) :
-      (i:Int) :
-        packages[i] = p
-      (_:False) :
-        val i = length(packages)
-        add(packages, p)
-        package-indices[package(p)] = i
-    remove(package-matchers, package(p))
-    false
+;Construct the DL environment.
+public defn DEnv () -> DEnv :
+  DEnvTables()
 
-  ;============================
-  ;==== Ensure Consistency ====
-  ;============================
-  ;Sanity consistency check
-  defn ensure-consistency () :
-    #if-not-defined(OPTIMIZE) :
-      ;Ensure that all imported records match the exported records exactly.
-      val rec-table = to-hashtable<RecId,Rec> $
-        seq-cat(exported-entries, packages)
-      for package in packages do :
-        val match? = match?(package)
-        for import in imports(package) do :
-          if not transient?(import) :
-            val r = rec(import)
-            match(get?(rec-table, id(r))) :
-              (r2:Rec) : fatal("Mismatched dependency: %_ != %_" % [r, r2]) when not match?(r, r2)
-              (r2:False) : fatal("Missing dependency: %_" % [id(r)])
-    false
+;============================================================
+;=================== Simple Accessors =======================
+;============================================================
 
-  ;<doc>===========================
-  ;==== Error Checking Utility ====
-  ;================================
-  For anything that may create errors, call it like this:
+;Add a new package to the environment.
+defn add (env:DEnvTables, package:PackageIO) -> False :
+  env.packages[package.package] = package
+  env.matchers.remove(package.package)
+  false
 
-    within check-for-errors() :
-      my-body()
-      if there-is-error? :
-        error!()
+;Remove a package from the environment.
+defn remove (env:DEnvTables, package:Symbol) -> False :
+  env.packages.remove(package)
+  env.matchers.remove(package)
+  false
 
-  And the block above will return a LoadResult.
-  ;================================
-  ;===========================<doc>
+;Retrieve the package ios in the environment.
+defmethod packageios (env:DEnvTables) -> Collection<PackageIO> :
+  to-collection({env.packages.values.to-seq})
 
-  ;Accumulate any detected errors in buffer
-  val error-accum = Vector<LoadError>()
-  defn error! (e:LoadError) : add(error-accum, e)
-  defn check-for-errors (f:() -> False) -> LoadResult :
-    f()
-    if empty?(error-accum) :
-      LoadSuccess()
-    else :
-      val e = LoadErrors(to-tuple(error-accum))
-      clear(error-accum)
-      e
+;Retrieve a specific PackageIO in the environment.
+defmethod packageio (env:DEnvTables, name:Symbol) -> PackageIO|False :
+  env.packages.get?(name)
 
-  ;<doc>==========================
-  ;==== Check Imports Defined ====
-  ;===============================
-  Check whether all the imports required by the given packageio are
-  defined in the environment.
+;Return a predicate that checks for Rec consistency.
+defn matcher (env:DEnvTables, name:Symbol) -> (Rec,Rec) -> True|False :
+  env.matchers[name]
 
-  Input:
-    packageio: PackageIO
-    denv: DEnv
-  ;===============================
-  ;==========================<doc>
-  defn check-imports-defined (packageio:PackageIO) :
-    val match? = match?(packageio)
-    val src = LoadedPackage(package(packageio))
-    for group in group-by(package{id(rec(_))}, imports(packageio)) do :
-      val package = key(group)
-      val imports = value(group)
+;============================================================
+;================ Ensure Consistency ========================
+;============================================================
 
-      match(get?(package-indices, package))  :
-        (i:Int) :
-          val io = packages[i]
-          val export-table = to-hashtable(id{rec(_)}, exports(io))
-          for i in imports do :
-            match(get?(export-table, id(rec(i)))) :
-              (e:Export) :
-                if not match?(rec(i), rec(e)) :
-                  error! $ MismatchedDependency(src, rec(i), rec(e))
-              (_:False) :
-                error! $ MissingDependency(src, rec(i))
-        (_:False) :
-          for i in imports do :          
-            error! $ MissingDependency(src, rec(i))
-
-  ;<doc>=============================
-  ;=== Check For Changed Globals ====
-  ;==================================
-  When updating packages, we preserve the state of the existing global
-  variables, and thus we cannot change their type signature. This pass
-  ensures that we do not change the type signatures of any global in
-  the given packages.
-  
-  Since this is used during updating, it is assumed that these
-  packages all have been loaded before.
-  ;==================================
-  ;=============================<doc>
-
-  ;Check whether globals have been redefined.
-  ;During updating, globals are not allowed to change their types.
-  ;- packageios: The set of packages that we are preparing to load
-  ;  and replace the existing set of packages. 
-  defn check-for-changed-globals (packageios:Collection<PackageIO>) :
-    ;Retrieve all exported global records in packageio
-    defn global-recs (io:PackageIO) :
-      for e in exports(io) seq? :
-        match(id(rec(e))) :
-          (id:ValId) : One(rec(e) as ValRec)
-          (id) : None()    
-
-    ;Check against previous definitions
-    for new-io in packageios do :
-      ;Get old IO
-      val index = package-indices[package(new-io)]
-      val old-io = packages[index]
+;Sanity consistency check
+defn ensure-consistency (env:DEnvTables) -> False :
+  #if-not-defined(OPTIMIZE) :
+    ;Ensure that all imported records match the exported records exactly.
+    val rec-table = env.packageios
+                       .seq-cat(exported-entries)
+                       .to-hashtable<RecId,Rec>()
       
-      ;Create a table to quickly lookup the new definition by id.
-      val new-rec-table = to-hashtable(id, global-recs(new-io))
-
-      ;Compare the old globals to the new globals
-      val src = LoadedPackage(package(new-io))
-      for old-r in global-recs(old-io) do :
-        match(get?(new-rec-table, id(old-r))) :
-          ;Case: The global is no longer defined. That is okay.
-          (_:False) : false
-          ;Case: The global is defined. Ensure that it matches.
-          (new-r:Rec) :
-            if not match?(new-r, old-r, false) :
-              error! $ ChangedGlobal(src, old-r, new-r)
-
-  ;<doc>=========================================
-  ;=== Check New Exports Against Old Imports ====
-  ;==============================================
-  Check whether environment will remaining consistent if given
-  packages are loaded into the environment.
-  ;==============================================
-  ;=========================================<doc>
-
-  defn check-load-consistency (ps:Collection<PackageIO>, live-recs:Tuple<Rec>) :
-    ;Construct export table
-    val export-table = HashTable<RecId,Rec>()
-    val in-export-table = HashSet<Symbol>()
-    defn add-to-export-table (packageio:PackageIO) :
-      if add(in-export-table, package(packageio)) :
-        for e in exports(packageio) do :
-          val r = rec(e)
-          export-table[id(r)] = r
-    do(add-to-export-table, ps)
-    do(add-to-export-table, packages)
-
-    ;Check whether the imported record, imported, from 'src'
-    ;is satisfied by the reloaded-packages.
-    ;- match?(import, export): A predicate that checks whether the imported
-    ;  record 'import' is consistent against the provided record 'export'. 
-    defn check-dependency (src:DependencySource, imported:Rec,
-                           match?:(Rec, Rec) -> True|False) :
-      val rid = id(imported)
-      match(get?(export-table, rid)) :
-        (exported:Rec) :
-          if not match?(imported, exported) :
-            error! $ MismatchedDependency(src, imported, exported)
-        (_:False) :
-          error! $ MissingDependency(src, imported)
-
-    ;Return true if the given package p is an existing package that
-    ;has a possibility of being inconsistent against the proposed
-    ;reload set.
-    val reloaded-packages = to-hashset<Symbol>(seq(package,ps))
-    defn affected? (p:PackageIO) :
-      defn reloaded? (name:Symbol) : reloaded-packages[name]
-      if not reloaded?(package(p)) :
-        any?(reloaded?{package-name(_)}, imported-packages(p))
-
-    ;Check imports in package
-    defn check-imports (p:PackageIO) :
-      val src = LoadedPackage(package(p))
-      val match? = match?(p)
-      for import in imports(p) do :
-        check-dependency(src, rec(import), match?) when not transient?(import)
-
-    ;Check imports of existing packages and of reloaded packages
-    do(check-imports, filter(affected?, packages))
-    do(check-imports, ps)
-        
-    ;Check all the dependencies from the live objects
-    println("Live recs%_" % [colon-field-list(live-recs)])
-    do(check-dependency{LiveObject(), _, match?{_, _, false}}, live-recs)
-
-  ;<doc>================================================
-  ;==== Check Deleting Exports against Kept Imports ====
-  ;=====================================================
-  Consider removing the given set of packages, and determine whether
-  this can be done without leaving hanging dependencies. Look at all
-  the imports from the packages that will be remaining after the
-  prune, and see whether they import anything from the packages that
-  will be removed.
-  ;=====================================================
-  ;================================================<doc>
-  
-  defn check-removing-exports-against-old-imports (remove-set:HashSet<Symbol>, live-recs:Tuple<Rec>) :
-    ;Return true if the given package p may possibly be affected by the remove set,
-    ;ie. if it is not itself one of the packages to be removed, but it imports from a package
-    ;to be removed.
-    defn affected? (p:PackageIO) :
-      not remove-set[package(p)] and any?({remove-set[package-name(_)]}, imported-packages(p))
-    ;Check whether the given record creates a dependency
-    defn check-dependency (src:DependencySource, imported:Rec) :
-      if remove-set[package(id(imported))] :
-        error! $ HangingDependency(src, imported)
-    ;Check all (non-transient) dependencies from affected packages
-    for p in filter(affected?, packages) do :
-      val src = LoadedPackage(package(p))
-      for import in imports(p) do :
-        check-dependency(src, rec(import)) when not transient?(import)
-    ;Check dependencies from live objects
-    do(check-dependency{LiveObject(), _}, live-recs)
-
-  ;================================
-  ;==== Return new Environment ====
-  ;================================
-  new DEnv :
-    defmethod packageios (this) :
-      packages
-    defmethod packageio (this, name:Symbol) :
-      val i = get?(package-indices, name)
-      match(i:Int) : packages[i]
-    defmethod load (this, pkgs:Collection<PackageIO>, live-recs:Tuple<Rec>) :
-      val load-result = within check-for-errors() :
-        check-load-consistency(pkgs, live-recs)
-      match(load-result:LoadSuccess) :
-        do(add-package, pkgs)
-        ensure-consistency()
-      load-result
-    defmethod update (this, pkgs:Collection<PackageIO>, live-recs:Tuple<Rec>) :
-      val load-result = within check-for-errors() :
-        check-for-changed-globals(pkgs)
-        check-load-consistency(pkgs, live-recs)
-      match(load-result:LoadSuccess) :
-        do(add-package, pkgs)
-        ensure-consistency()
-      load-result
-    defmethod unload (this, pkgnames:Collection<Symbol>, live-recs:Tuple<Rec>) :
-      val unload-set = to-hashset<Symbol>(pkgnames)
-      val load-result = within check-for-errors() :
-        check-removing-exports-against-old-imports(unload-set, live-recs)
-      match(load-result:LoadSuccess) :
-        ;Remove from package vector
-        remove-when({unload-set[package(_)]}, packages)
-        for p in unload-set: remove(package-matchers, p)
-        ;Recompute package indices
-        clear(package-indices)
-        for (io in packages, i in 0 to false) do :
-          package-indices[package(io)] = i
-        ;Ensure consistency
-        ensure-consistency()
-      load-result
-    defmethod check-imports-defined (this, packageio:PackageIO) :
-      within check-for-errors() :
-        check-imports-defined(packageio)
-
-;============================================================
-;======================= Utilities ==========================
-;============================================================
-
-public defn package-dependency-graph (env:DEnv) :
-  to-hashtable<Symbol,List<Symbol>> $
-    for io in packageios(env) seq :
-      package(io) => to-list(map(package-name, imported-packages(io)))
+    for package in env.packageios do :
+      val match? = env.matcher(package.package)
+      for import in imports(package) do :
+        if not transient?(import) :
+          val r = rec(import)
+          match(get?(rec-table, id(r))) :
+            (r2:Rec) : fatal("Mismatched dependency: %_ != %_" % [r, r2]) when not match?(r, r2)
+            (r2:False) : fatal("Missing dependency: %_" % [id(r)])
+  false
 
 ;Retrieve all exported entries from packageio
 defn exported-entries (p:PackageIO) :
   for e in exports(p) seq :
     val r = rec(e)
     id(r) => r
+
+;============================================================
+;================ Check Imports Defined =====================
+;============================================================
+;Check whether all the imports required by the given packageio are
+;defined in the environment.
+;
+;Input:
+;  packageio: PackageIO
+;  denv: DEnv
+
+defmethod check-imports-defined (env:DEnvTables, packageio:PackageIO) -> LoadResult :
+  val match? = match?(packageio)
+  val src = LoadedPackage(package(packageio))
+  within check-for-errors() :
+    for group in group-by({_.rec.id.package}, packageio.imports) do :
+      val package = group.key
+      val imports = group.value
+
+      match(env.packageio(packageio.package))  :
+        (io:PackageIO) :
+          val export-table = to-hashtable({_.rec.id}, io.exports)
+          for i in imports do :
+            match(export-table.get?(i.rec.id)) :
+              (e:Export) :
+                if not match?(i.rec, e.rec) :
+                  error!(MismatchedDependency(src, i.rec, e.rec))
+              (_:False) :
+                error!(MissingDependency(src, i.rec))
+        (_:False) :
+          for i in imports do :          
+            error!(MissingDependency(src, i.rec))
+
+;============================================================
+;================= Loading New Packages =====================
+;============================================================
+
+defmethod load (env:DEnvTables,
+                pkgs:Collection<PackageIO>,
+                live-recs:Tuple<RecFromPackage>) -> LoadResult :
+  val load-result = within check-for-errors() :
+    env.check-load-consistency(pkgs, live-recs)
+  match(load-result:LoadSuccess) :
+    pkgs.do(env.add{_})
+    env.ensure-consistency
+  load-result
+
+;============================================================
+;=================== Unloading Packages =====================
+;============================================================
+
+defmethod unload (env:DEnvTables,
+                  pkgnames:Collection<Symbol>,
+                  live-recs:Tuple<RecFromPackage>) -> LoadResult :
+                  
+  val unload-set = to-hashset<Symbol>(pkgnames)
+  val load-result = within check-for-errors() :
+    env.check-removing-exports-against-old-imports(unload-set, live-recs)    
+  match(load-result:LoadSuccess) :
+    pkgnames.do(env.remove{_})
+    env.ensure-consistency
+  load-result
+
+;============================================================
+;==================== Updating Packages =====================
+;============================================================
+
+defmethod update (env:DEnvTables,
+                  pkgs:Collection<PackageIO>,
+                  live-recs:Tuple<RecFromPackage>) -> LoadResult :
+                  
+  val load-result = within check-for-errors() :
+    env.check-for-changed-globals(pkgs)
+    env.check-load-consistency(pkgs, live-recs)
+  match(load-result:LoadSuccess) :
+    pkgs.do(env.add{_})
+    env.ensure-consistency
+  load-result
+
+;============================================================
+;=============== Check For Changed Globals ==================
+;============================================================
+;When updating packages, we preserve the state of the existing global
+;variables, and thus we cannot change their type signature. This pass
+;ensures that we do not change the type signatures of any global in
+;the given packages.
+;
+;Since this is used during updating, it is assumed that these
+;packages all have been loaded before.
+
+;Check whether globals have been redefined.
+;During updating, globals are not allowed to change their types.
+;- packageios: The set of packages that we are preparing to load
+;  and replace the existing set of packages. 
+defn check-for-changed-globals (env:DEnvTables, packageios:Collection<PackageIO>) -> False :
+  ;Retrieve all exported global records in packageio
+  defn global-recs (io:PackageIO) :
+    for e in io.exports seq? :
+      match(e.rec.id) :
+        (id:ValId) : One(e.rec as ValRec)
+        (id) : None()    
+
+  ;Check against previous definitions
+  for new-io in packageios :
+    ;Get old IO
+    val old-io = env.packageio(new-io.package) as PackageIO
+    
+    ;Create a table to quickly lookup the new definition by id.
+    val new-rec-table = to-hashtable(id, global-recs(new-io))
+
+    ;Compare the old globals to the new globals
+    val src = LoadedPackage(package(new-io))
+    for old-r in global-recs(old-io) :
+      match(new-rec-table.get?(old-r.id)) :
+        ;Case: The global is no longer defined. That is okay.
+        (_:False) : false
+        ;Case: The global is defined. Ensure that it matches.
+        (new-r:Rec) :
+          if not env.matcher(new-io.package)(new-r, old-r) :
+            error!(ChangedGlobal(src, old-r, new-r))
+
+
+;============================================================
+;========== Check New Exports Against Old Imports ===========
+;============================================================
+;Check whether environment will remaining consistent if given
+;packages are loaded into the environment.
+
+defn check-load-consistency (env:DEnvTables,
+                             ps:Collection<PackageIO>,
+                             live-recs:Tuple<RecFromPackage>) -> False :
+                             
+  ;Construct export table
+  val export-table = HashTable<RecId,Rec>()
+  val in-export-table = HashSet<Symbol>()
+  defn add-to-export-table (packageio:PackageIO) :
+    if add(in-export-table, package(packageio)) :
+      for e in exports(packageio) do :
+        val r = rec(e)
+        export-table[id(r)] = r
+  do(add-to-export-table, ps)
+  do(add-to-export-table, env.packageios)
+
+  ;Check whether the record, 'imported', imported by 'package' from 'src'
+  ;is satisfied by the reloaded-packages.
+  defn check-dependency (src:DependencySource,
+                         imported:Rec,
+                         match?:(Rec,Rec) -> True|False) :
+    val rid = id(imported)
+    match(get?(export-table, rid)) :
+      (exported:Rec) :
+        if not match?(imported,exported) :
+          error!(MismatchedDependency(src, imported, exported))
+      (_:False) :
+        error!(MissingDependency(src, imported))
+
+  ;Return true if the given package p is an existing package that
+  ;has a possibility of being inconsistent against the proposed
+  ;reload set.
+  val reloaded-packages = to-hashset<Symbol>(seq(package,ps))
+  defn affected? (p:PackageIO) :
+    defn reloaded? (name:Symbol) : reloaded-packages[name]
+    if not reloaded?(package(p)) :
+      any?(reloaded?{package-name(_)}, imported-packages(p))
+
+  ;Check imports in package
+  defn check-imports (p:PackageIO) :
+    val src = LoadedPackage(p.package)
+    val match? = p.match?
+    for import in p.imports :
+      check-dependency(src, import.rec, match?) when not import.transient?
+
+  ;Check imports of existing packages and of reloaded packages
+  do(check-imports, filter(affected?, env.packageios))
+  do(check-imports, ps)
+      
+  ;Check all the dependencies from the live objects
+  println("Live recs%_" % [colon-field-list(live-recs)])
+  for r in live-recs :
+    val match? = env.matcher(r.package)
+    check-dependency(LiveObject(), r.rec, match?)
+
+;============================================================
+;======= Check Deleting Exports against Kept Imports ========
+;============================================================
+;Consider removing the given set of packages, and determine whether
+;this can be done without leaving hanging dependencies. Look at all
+;the imports from the packages that will be remaining after the
+;prune, and see whether they import anything from the packages that
+;will be removed.
+
+defn check-removing-exports-against-old-imports (env:DEnvTables,
+                                                 remove-set:HashSet<Symbol>,
+                                                 live-recs:Tuple<RecFromPackage>) -> False :
+                                                 
+  ;Return true if the given package p may possibly be affected by the remove set,
+  ;ie. if it is not itself one of the packages to be removed, but it imports from a package
+  ;to be removed.
+  defn affected? (p:PackageIO) :
+    not remove-set[p.package] and
+    p.imported-packages.any?({remove-set[_.package-name]})
+  ;Check whether the given record creates a dependency
+  defn check-dependency (src:DependencySource, imported:Rec) :
+    if remove-set[imported.id.package] :
+      error! $ HangingDependency(src, imported)
+  ;Check all (non-transient) dependencies from affected packages
+  for p in filter(affected?, env.packageios) do :
+    val src = LoadedPackage(p.package)
+    for import in p.imports do :
+      check-dependency(src, import.rec) when not import.transient?
+  ;Check dependencies from live objects
+  for r in live-recs :
+    check-dependency(LiveObject(), r.rec)
+
+;============================================================
+;=============== Utility: Error Checking Utility ============
+;============================================================
+;For anything that may create errors, call it like this:
+;
+;  within check-for-errors() :
+;    my-body()
+;    if there-is-error? :
+;      error!()
+;
+;And the block above will return a LoadResult.
+
+;Accumulate any detected errors in buffer
+val ERROR-ACCUM = Vector<LoadError>()
+
+;Add a new error to the accumulator.
+defn error! (e:LoadError) : add(ERROR-ACCUM, e)
+
+;Execute a body with an error accumulator.
+defn check-for-errors (f:() -> False) -> LoadResult :
+  f()
+  if empty?(ERROR-ACCUM) :
+    LoadSuccess()
+  else :
+    val e = LoadErrors(to-tuple(ERROR-ACCUM))
+    clear(ERROR-ACCUM)
+    e
+
+;============================================================
+;======================= Utilities ==========================
+;============================================================
+
+public defn package-dependency-graph (env:DEnv) -> HashTable<Symbol,List<Symbol>> :
+  to-hashtable<Symbol,List<Symbol>> $
+    for io in env.packageios seq :
+      io.package => io.imported-packages
+                      .seq(package-name)
+                      .to-list
 
 ;============================================================
 ;===================== Printers =============================
