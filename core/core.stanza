@@ -62,6 +62,7 @@ protected extern file_write_block: (ptr<?>, ptr<byte>, long) -> long
 protected extern file_time_modified: ptr<byte> -> long
 protected extern execvp: (ptr<byte>, ptr<ptr<byte>>) -> int
 protected extern execv: (ptr<byte>, ptr<ptr<byte>>) -> int
+protected extern chmod: (ptr<byte>, long) -> int
 
 ;Path Resolution
 #if-defined(PLATFORM-WINDOWS) :
@@ -5707,14 +5708,25 @@ public defn StringBuffer () :
 ;==================== Remove File ===========================
 ;============================================================
 #if-defined(PLATFORM-WINDOWS) :
+
   lostanza defn delete-folder (path:ref<String>) -> ref<False> :
     val r = call-c clib/rmdir(addr!(path.chars))
     if r == -1 : throw(FileDeletionError(path, linux-error-msg()))
     return false
+    
   lostanza defn delete-plain-file (path:ref<String>) -> ref<False> :
-    val r = call-c clib/remove(addr!(path.chars))
-    if r == -1 : throw(FileDeletionError(path, linux-error-msg()))
+    ;Note: This implementation is coded to behave similar to POSIX.
+    ;In POSIX, we do not need write permissions to delete a file.
+    ;In Windows, the 'remove' function fails with 'Permission Denied'
+    ;if the file is in read-only mode.
+    ;Therefore we first call 'chmod' to give ourselves write permissions
+    ;and then call 'remove'.
+    val r1 = call-c clib/chmod(addr!(path.chars), 0o777)
+    if r1 == -1 : throw(FileDeletionError(path, linux-error-msg()))
+    val r2 = call-c clib/remove(addr!(path.chars))
+    if r2 == -1 : throw(FileDeletionError(path, linux-error-msg()))
     return false
+    
   public defn delete-file (path:String) :
     if file-exists?(path) and file-type(path) is DirectoryType :
       delete-folder(path)
@@ -5732,6 +5744,21 @@ public defn FileDeletionError (path:String, msg:String) :
       defmethod print (o:OutputStream, this) :
          print{o, _} $
          "Error when attempting to delete %_. %_." % [path, msg]
+
+;============================================================
+;================= Change File Permissions ==================
+;============================================================
+
+public lostanza defn chmod (path:ref<String>, value:ref<Int>) -> ref<False> :
+  val r = call-c clib/chmod(addr!(path.chars), 0o777)
+  if r == -1 : throw(ChangePermissionsError(path, linux-error-msg()))
+  return false
+
+public deftype ChangePermissionsError <: Exception
+public defn ChangePermissionsError (path:String, msg:String) :
+  new ChangePermissionsError :
+    defmethod print (o:OutputStream, this) :
+      print(o, "Error when attempting to change permissions of %_. %_." % [path, msg])
 
 ;============================================================
 ;====================== Rename a File =======================
