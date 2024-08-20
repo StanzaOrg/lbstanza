@@ -5750,7 +5750,7 @@ public defn FileDeletionError (path:String, msg:String) :
 ;============================================================
 
 public lostanza defn chmod (path:ref<String>, value:ref<Int>) -> ref<False> :
-  val r = call-c clib/chmod(addr!(path.chars), 0o777)
+  val r = call-c clib/chmod(addr!(path.chars), value.value)
   if r == -1 : throw(ChangePermissionsError(path, linux-error-msg()))
   return false
 
