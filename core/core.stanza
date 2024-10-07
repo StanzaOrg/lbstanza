@@ -10341,6 +10341,9 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     val launch_succ = call-c clib/launch_process(addr!(filename.chars), argvs,
       input_v, output_v, error_v, working-dir-chars, env-var-string, addr!([proc]))
 
+    ;Free the argvs array
+    call-c clib/free(argvs)
+
     ;Free the memory created using malloc.
     free-linux-env-var-string(env-var-string)
 
