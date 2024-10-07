@@ -81,6 +81,7 @@ public defstruct BuildStmtS0 <: ProjStmt :
   ccflags: Maybe<ProjValue>
   flags: Maybe<ProjValue>
   optimize: True|False
+  debug: True|False
 with: (printer => true)
 
 ;Example:
@@ -315,7 +316,7 @@ public defn map<?T> (f:ProjItem -> ProjItem, x:?T&ProjItem) -> T :
                                       h(dependencies(x)), h(foreign-packages(x)), h(commands(x)))
     (x:BuildStmtS0) : BuildStmtS0(info(x), name(x), type(x), h(inputs(x)), h(supported-vm-packages(x)),
                                   h(pkg(x)), h(output(x)), h(assembly(x)), h(external-dependencies(x)),
-                                  h(ccfiles(x)), h(ccflags(x)), h(flags(x)), optimize(x))
+                                  h(ccfiles(x)), h(ccflags(x)), h(flags(x)), optimize(x), debug(x))
     (x:SyntaxPackagesDefinedInStmtS0) : SyntaxPackagesDefinedInStmtS0(info(x), packages(x), h(filename(x)))
     (x:VarStmtS0) : VarStmtS0(info(x), name(x), h(value(x)))
     (x:ForeignPackageParamsStmtS0) : ForeignPackageParamsStmtS0(info(x), package-manager(x), h(projdir(x)), h(entries(x)))

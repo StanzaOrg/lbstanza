@@ -68,7 +68,7 @@ defn compute-build-settings (projenv:StandardProjEnv,
       ;Compute build optimization level
       val build-optimization = optimize?(settings) or optimize(s)
       ;Compute build optimization level
-      val build-debug = debug?(settings)
+      val build-debug = debug?(settings) or debug(s)
       ;Compute assembly
       val build-asm = string-or?(original-asm(settings), value?(assembly(s)))
       ;Compute output
