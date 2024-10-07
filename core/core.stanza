@@ -10318,10 +10318,6 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     val output_v = value(output).value
     val error_v = value(error).value
     val nargs = args.length
-    val argvs:ptr<ptr<byte>> = call-c clib/stz_malloc((nargs + 1) * sizeof(ptr<?>))
-    argvs[nargs] = null
-    for (var i:long = 0, i < nargs, i = i + 1) :
-      argvs[i] = addr!(args.items[i].chars)
 
     ;Create the array of environment variable strings.
     val full-env-vars = process-env-var-mode(env-vars, env-var-mode)
@@ -10332,6 +10328,14 @@ defn process-env-var-mode (env-vars:Tuple<KeyValue<String,String>>|False,
     match(working-dir) :
       (working-dir:ref<String>) : working-dir-chars = addr!(working-dir.chars)
       (working-dir:ref<False>) : working-dir-chars = null
+
+    ;Grab the argument strings
+    ;Do this as close to launch_process as possible to avoid pointers becoming
+    ;stale from garbage collection moving references around
+    val argvs:ptr<ptr<byte>> = call-c clib/stz_malloc((nargs + 1) * sizeof(ptr<?>))
+    argvs[nargs] = null
+    for (var i:long = 0, i < nargs, i = i + 1) :
+      argvs[i] = addr!(args.items[i].chars)
 
     ;Launch the process
     val launch_succ = call-c clib/launch_process(addr!(filename.chars), argvs,
