@@ -151,7 +151,7 @@ if [ "$CREATE_PACKAGE" == "true" ] ; then
       && mv ${STANZA_PLATFORMCHAR}pkgs pkgs
 
   if [ "$SIGN_EXECUTABLE" == "true" ] ; then
-      ../scripts/ci/sign-windows-release.bash
+      ../ci/sign-windows-release.bash
   fi
 
   #zip -r ../${STANZA_PLATFORMCHAR}stanza_${VERU}.zip *
