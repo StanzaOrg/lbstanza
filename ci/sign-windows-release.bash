@@ -38,7 +38,6 @@ echo "       SM_KEY_ALIAS:" "${SM_KEY_ALIAS}"
 "${SMCTL}" windows certsync --keypair-alias ${SM_KEY_ALIAS}
 "${SMCTL}" keypair ls --filter alias=${SM_KEY_ALIAS}
 
-cd jitpcb.release
 echo "   Signing files in:" "${PWD}"
 ls -l
 for file in "stanza.exe"
