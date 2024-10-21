@@ -16,6 +16,7 @@ echo "      CONAN_USER_HOME:" "${CONAN_USER_HOME:=${REPODIR}}"
 echo "       CREATE_ARCHIVE:" "${CREATE_ARCHIVE:=false}"
 echo "       CREATE_PACKAGE:" "${CREATE_PACKAGE:=false}"
 echo "         CREATE_CONAN:" "${CREATE_CONAN:=false}"
+echo "      SIGN_EXECUTABLE:" "${SIGN_EXECUTABLE:=false}"
 echo "         UPLOAD_CONAN:" "${UPLOAD_CONAN:=false}"
 echo "STANZA_BUILD_PLATFORM:" "${STANZA_BUILD_PLATFORM:=$(uname -s)}"  # linux|macos|windows
 echo "                  VER:" "${VER:=$(git -C ${REPODIR} describe --tags --abbrev=0)}"
@@ -148,6 +149,10 @@ if [ "$CREATE_PACKAGE" == "true" ] ; then
   [[ "${STANZA_PLATFORMCHAR}stanza" != "stanza" ]] \
       && mv ${STANZA_PLATFORMCHAR}stanza${STANZA_EXT} stanza${STANZA_EXT} \
       && mv ${STANZA_PLATFORMCHAR}pkgs pkgs
+
+  if [ "$SIGN_EXECUTABLE" == "true" ] ; then
+      ../scripts/ci/sign-windows-release.bash
+  fi
 
   #zip -r ../${STANZA_PLATFORMCHAR}stanza_${VERU}.zip *
   zip -r ../stanza-${PLATFORM_DESC}_${VER}.zip *
