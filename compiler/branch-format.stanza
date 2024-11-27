@@ -1,0 +1,33 @@
+#use-added-syntax(dot-operator)
+defpackage stz/branch-format :
+  import core
+  import stz/typeset
+
+;Represents a type-dependent dispatch format.
+;Used by BranchTable.
+public deftype BranchFormat <: Hashable&Equalable
+
+;Handles 'match' expressions.
+public defstruct MatchFormat <: BranchFormat :
+  branches: Tuple<Tuple<TypeSet>>
+with: (writer)
+
+;Handles generated 'dispatch' expressions from
+;function mixing.
+public defstruct DispatchFormat <: BranchFormat :
+  branches: Tuple<Tuple<TypeSet>>
+with: (writer)
+
+;Handles 'defmulti' declarations.
+public defstruct MultiFormat <: BranchFormat :
+  num-header-args: Int
+  methods: Tuple<Method>
+with: (printer)
+
+;Represents type information of one method.
+public defstruct Method :
+  fid:Int
+  types:Tuple<TypeSet>
+with: (printer)
+ 
+
