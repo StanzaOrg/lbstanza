@@ -8,7 +8,7 @@ defpackage stz/branch-table :
   import stz/utils
   import stz/vm-table
   import stz/typeset
-  import stz/trie-table
+  import stz/dag-encoder
   import stz/dispatch-dag with:
     prefix(BranchTable) => Dag
   import stz/set-utils
