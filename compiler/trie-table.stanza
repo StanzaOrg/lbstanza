@@ -1,2 +1,39 @@
+#use-added-syntax(dot-operator)
 defpackage stz/trie-table :
   import core
+  import collections
+  import stz/dispatch-dag
+  import stz/branch-dag
+  import stz/ptr-buffer
+  import stz/dag-encoder
+
+;Allows PtrBuffer to be used to hold the int-encoded tries
+;representing each BranchDag.
+
+;Add a new BranchDag to the table.
+public defn add (table:PtrBuffer, dag:BranchDag) -> False :
+  defn soln-id (s:Soln) -> Int :
+    match(s, dag) :
+      (s:NoSoln, dag:MatchDag) : 0
+      (s:UniqueSoln, dag:MatchDag) : s.index + 1
+      (s:NoSoln, dag:DispatchDag) : 0
+      (s:AmbSoln, dag:DispatchDag) : 1
+      (s:UniqueSoln, dag:DispatchDag) : s.index + 2
+      (s:NoSoln, dag:MultiDag) : 0
+      (s:AmbSoln, dag:MultiDag) : 1
+      (s:UniqueSoln, dag:MultiDag) : dag.methods[s.index] + 2    
+  val ints = dag.dag.encode-dag(soln-id)
+  store-in-table(table, dag.id, ints)
+
+;Store the given integers to the ptr buffer.
+lostanza defn store-in-table (table:ref<PtrBuffer>, i:ref<Int>, ints:ref<Vector<Int>>) -> ref<False> :
+  set(table, i.value, to-int-ptr(ints))
+  return false
+
+;Conversion of a Vector<int> into a ptr<int>
+lostanza defn to-int-ptr (xs:ref<Vector<Int>>) -> ptr<int> :
+  val n = length(xs).value
+  val p:ptr<int> = call-c clib/stz_malloc(n * sizeof(int))
+  for (var i:int = 0, i < n, i = i + 1) :
+    p[i] = get(xs, new Int{i}).value
+  return p

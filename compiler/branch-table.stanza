@@ -15,6 +15,7 @@ defpackage stz/branch-table :
   import stz/conversion-utils
   import stz/timing-log-api
   import stz/branch-format
+  import stz/branch-dag
   import stz/ptr-buffer
 
 ;============================================================
@@ -24,7 +25,7 @@ public deftype BranchTable
 public defmulti add (t:BranchTable, f:BranchFormat) -> Int
 public defmulti get (t:BranchTable, f:Int) -> BranchFormat
 public defmulti load-package-methods (t:BranchTable, package:Symbol, ms:Seqable<VMMethod>) -> False
-public defmulti update (t:BranchTable) -> False
+public defmulti update (t:BranchTable) -> Tuple<BranchDag>
 
 ;============================================================
 ;======================== Timers ============================
@@ -174,6 +175,7 @@ public defn BranchTable (ct:ClassTable) :
         (_:False) : add-format(f)
     defmethod update (this) :
       update-trie-table()
+      []
     defmethod trie-table (this) :
       trie-table
     defmethod load-package-methods (this, package:Symbol, ms:Seqable<VMMethod>) :

@@ -6,7 +6,7 @@ defpackage stz/code-table :
   import stz/typeset
   import stz/vm-structures
   import stz/trace-info
-  import stz/dispatch-dag
+  import stz/branch-dag
 
 ;============================================================
 ;===================== Code Table ===========================
@@ -51,10 +51,7 @@ with:
 ;============================================================
 
 ;Encode and store the DAG for performing the match/dispatch format with id 'id'.
-public defmulti encode-dispatch-dag (t:CodeTable, id:Int, dag:Dag) -> False
-
-;Encode and store the DAG for performing the multi format with id 'id'.
-public defmulti encode-multi-dag (t:CodeTable, id:Int, dag:Dag, method-ids:Tuple<Int>) -> False
+public defmulti encode-branch-dag (t:CodeTable, dag:BranchDag) -> False
 
 ;Returns the address of the DAG table.
 public defmulti dag-table (t:CodeTable) -> Long

@@ -1,0 +1,28 @@
+defpackage stz/branch-dag :
+  import core
+  import stz/dispatch-dag
+
+;The compiled DAG for implementing a branch.
+public deftype BranchDag
+
+;Retrieve the id of the branch format.
+public defmulti id (d:BranchDag) -> Int
+
+;Retrieve the Dag.
+public defmulti dag (d:BranchDag) -> Dag
+
+;For representing a match expression.
+public defstruct MatchDag <: BranchDag :
+  id:Int with: (as-method)
+  dag:Dag with: (as-method)
+
+;For representing a mixed-function call.
+public defstruct DispatchDag <: BranchDag :
+  id:Int with: (as-method)
+  dag:Dag with: (as-method)
+
+;For representing a defmulti dispatch.
+public defstruct MultiDag <: BranchDag :
+  id:Int with: (as-method)
+  dag:Dag with: (as-method)
+  methods:Tuple<Int>

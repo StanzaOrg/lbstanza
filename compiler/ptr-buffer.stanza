@@ -100,3 +100,7 @@ public lostanza defn remove (b:ref<PtrBuffer>, i:ref<Int>) -> ref<True|False> :
       return true
   else :
     return false
+
+;Retrieve the data-address of the table.
+public lostanza defn data-address (table:ref<PtrBuffer>) -> ref<Long> :
+  return new Long{table.data as long}
