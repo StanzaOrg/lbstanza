@@ -1,0 +1,102 @@
+#use-added-syntax(dot-operator)
+defpackage stz/ptr-buffer :
+  import core
+
+;<doc>=======================================================
+;================== PtrBuffer Datastructure =================
+;============================================================
+
+# Creation of PtrBuffer #
+
+Input:
+  n:ref<Int>
+Output:
+  buffer:ref<PtrBuffer>
+
+# Store new pointer into PtrBuffer #
+
+Input:
+  b:ref<PtrBuffer>
+  i:int
+  p:ptr<?>
+
+# Retrieve the data pointer of ref<PtrBuffer> #
+
+  p.data
+
+# Check whether key i exists in PtrBuffer #
+
+Input:
+  b:ref<PtrBuffer>
+  i:ref<Int>
+Output:
+  exists?:ref<True|False>
+
+# Remove an entry i from PtrBuffer #
+
+Input:
+  b:ref<PtrBuffer>
+  i:ref<Int>
+Output:
+  removed?:ref<True|False>
+
+;============================================================
+;=======================================================<doc>
+
+public lostanza deftype PtrBuffer :
+  var length: int
+  var data: ptr<ptr<?>>
+
+public lostanza defn PtrBuffer (n:ref<Int>) -> ref<PtrBuffer> :
+  val len = n.value
+  val data:ptr<ptr<?>> = call-c clib/stz_malloc(len * sizeof(ptr<?>))
+  for (var i:int = 0, i < len, i = i + 1) :
+    data[i] = null
+  return new PtrBuffer{len, data}
+
+public lostanza defn ensure-capacity (p:ref<PtrBuffer>, c:int) -> int :
+  val l0 = p.length
+  if l0 < c :
+    ;Compute new length
+    var l:int = l0
+    while l < c : l = l * 2
+    ;Allocate new data, and copy old stuff over
+    val data:ptr<ptr<?>> = call-c clib/stz_malloc(l * sizeof(ptr<?>))
+    call-c clib/memcpy(data, p.data, l0 * sizeof(ptr<?>))
+    ;Void out left over slots
+    for (var i:int = l0, i < l, i = i + 1) :
+      data[i] = null
+    ;Free old data, and set new data and length
+    call-c clib/stz_free(p.data)
+    p.data = data
+    p.length = l
+  return 0
+
+public lostanza defn set (p:ref<PtrBuffer>, i:int, p*:ptr<?>) -> int :
+  ensure-capacity(p, i + 1)
+  ;Free old ptr
+  val p0 = p.data[i]
+  if p0 != null : call-c clib/stz_free(p0)
+  ;Store new ptr
+  p.data[i] = p*
+  return 0
+
+public lostanza defn key? (b:ref<PtrBuffer>, i:ref<Int>) -> ref<True|False> :
+  if i.value < b.length :
+    val p = b.data[i.value]
+    if p == null : return false
+    else : return true
+  else :
+    return false
+
+public lostanza defn remove (b:ref<PtrBuffer>, i:ref<Int>) -> ref<True|False> :
+  if i.value < b.length :
+    val p = b.data[i.value]
+    if p == null :
+      return false
+    else :
+      call-c clib/stz_free(p)
+      b.data[i.value] = null
+      return true
+  else :
+    return false

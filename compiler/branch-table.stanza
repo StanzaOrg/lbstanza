@@ -15,6 +15,7 @@ defpackage stz/branch-table :
   import stz/conversion-utils
   import stz/timing-log-api
   import stz/branch-format
+  import stz/ptr-buffer
 
 ;============================================================
 ;=================== Public Interface =======================
@@ -31,36 +32,6 @@ public defmulti update (t:BranchTable) -> False
 
 public val BRANCH-TABLE-DISPATCH-DAG = TimerLabel("Branch Table Dispatch Dag")
 public val MAKE-BRANCH-TABLE = TimerLabel(BRANCH-TABLE-DISPATCH-DAG, suffix("make-branch-table"))
-
-;============================================================
-;================= Dispatch Format Creators  ================
-;============================================================
-
-;public defn MatchFormat (branches:Tuple<VMBranch>) -> [MatchFormat, Tuple<Int>] :
-;  val types* = map(types, branches)
-;  val format = MatchFormat(types*)
-;  val targets = map(n,branches)
-;  [format, targets]
-;
-;public defn DispatchFormat (branches:Tuple<VMBranch>) -> [DispatchFormat, Tuple<Int>] :
-;  val bs = to-array<VMBranch> $
-;    for b in branches seq :
-;      VMBranch(types(b), n(b))
-;  qsort!(types, bs)
-;  val format = DispatchFormat(to-tuple(seq(types,bs)))
-;  val targets = to-tuple(seq(n,bs))
-;  [format, targets]
-
-;============================================================
-;==================== Hashing and Equality ==================
-;============================================================
-
-;defmethod hash (f:MultiFormat) :
-;  hash $ [multi(f), num-header-args(f), num-args(f)]
-;defmethod equal? (a:MultiFormat, b:MultiFormat) :
-;  multi(a) == multi(b) and
-;  num-header-args(a) == num-header-args(b) and
-;  num-args(a) == num-args(b)
 
 ;============================================================
 ;================= Table Implementation =====================
@@ -266,105 +237,6 @@ defn multi-dependencies (f:BranchFormat) -> Tuple<Int> :
   match(f) :
     (f:MultiFormat) : [f.multi]
     (f:DispatchFormat|MatchFormat) : []
-
-;<doc>=======================================================
-;================== PtrBuffer Datastructure =================
-;============================================================
-
-# Creation of PtrBuffer #
-
-Input:
-  n:ref<Int>
-Output:
-  buffer:ref<PtrBuffer>
-
-# Store new pointer into PtrBuffer #
-
-Input:
-  b:ref<PtrBuffer>
-  i:int
-  p:ptr<?>
-
-# Retrieve the data pointer of ref<PtrBuffer> #
-
-  p.data
-
-# Check whether key i exists in PtrBuffer #
-
-Input:
-  b:ref<PtrBuffer>
-  i:ref<Int>
-Output:
-  exists?:ref<True|False>
-
-# Remove an entry i from PtrBuffer #
-
-Input:
-  b:ref<PtrBuffer>
-  i:ref<Int>
-Output:
-  removed?:ref<True|False>
-
-;============================================================
-;=======================================================<doc>
-
-public lostanza deftype PtrBuffer :
-  var length: int
-  var data: ptr<ptr<?>>
-
-lostanza defn PtrBuffer (n:ref<Int>) -> ref<PtrBuffer> :
-  val len = n.value
-  val data:ptr<ptr<?>> = call-c clib/stz_malloc(len * sizeof(ptr<?>))
-  for (var i:int = 0, i < len, i = i + 1) :
-    data[i] = null
-  return new PtrBuffer{len, data}
-
-lostanza defn ensure-capacity (p:ref<PtrBuffer>, c:int) -> int :
-  val l0 = p.length
-  if l0 < c :
-    ;Compute new length
-    var l:int = l0
-    while l < c : l = l * 2
-    ;Allocate new data, and copy old stuff over
-    val data:ptr<ptr<?>> = call-c clib/stz_malloc(l * sizeof(ptr<?>))
-    call-c clib/memcpy(data, p.data, l0 * sizeof(ptr<?>))
-    ;Void out left over slots
-    for (var i:int = l0, i < l, i = i + 1) :
-      data[i] = null
-    ;Free old data, and set new data and length
-    call-c clib/stz_free(p.data)
-    p.data = data
-    p.length = l
-  return 0
-
-lostanza defn set (p:ref<PtrBuffer>, i:int, p*:ptr<?>) -> int :
-  ensure-capacity(p, i + 1)
-  ;Free old ptr
-  val p0 = p.data[i]
-  if p0 != null : call-c clib/stz_free(p0)
-  ;Store new ptr
-  p.data[i] = p*
-  return 0
-
-lostanza defn key? (b:ref<PtrBuffer>, i:ref<Int>) -> ref<True|False> :
-  if i.value < b.length :
-    val p = b.data[i.value]
-    if p == null : return false
-    else : return true
-  else :
-    return false
-
-lostanza defn remove (b:ref<PtrBuffer>, i:ref<Int>) -> ref<True|False> :
-  if i.value < b.length :
-    val p = b.data[i.value]
-    if p == null :
-      return false
-    else :
-      call-c clib/stz_free(p)
-      b.data[i.value] = null
-      return true
-  else :
-    return false
 
 ;<doc>=======================================================
 ;================ Encoding of Branch Formats ================
