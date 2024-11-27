@@ -81,6 +81,22 @@ public defn BranchTable (ct:ClassTable) :
           fatal("Trie table %_ is stale." % [i])
     false
 
+  ;Compute the branch dag for format 'i'.
+  defn compute-branch-dag (i:Int) -> BranchDag :
+    within log-time(BRANCH-TABLE-DISPATCH-DAG) :
+      match(resolve-format(formats[i])) :
+        (f:MatchFormat) :
+          val dag = ct.make-branch-table(f.branches).compute-dispatch-dag(false)
+          MatchDag(i, dag)
+        (f:DispatchFormat) :
+          val dag = ct.make-branch-table(f.branches).compute-dispatch-dag(true)
+          DispatchDag(i, dag)
+        (f:ResolvedMultiFormat) :
+          val dag = ct.make-branch-table(f.methods.seq(types))
+                      .compute-dispatch-dag(true)
+                      .add-to-depth(f.num-header-args)
+          MultiDag(i, dag, f.methods.map(fid))
+
   ;==================================================
   ;========== Computing the Trie Table ==============
   ;==================================================
