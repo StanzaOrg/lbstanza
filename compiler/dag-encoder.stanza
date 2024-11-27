@@ -50,7 +50,7 @@ val VM-DAG-ENCODER = TimerLabel("VM Dag Encoder")
 ;============================================================
 
 ;Encode Dag into Int Vector
-public defn encode-dag (dag:Dag, start-depth:Int, soln-id:Soln -> Int) -> Vector<Int> :
+public defn encode-dag (dag:Dag, soln-id:Soln -> Int) -> Vector<Int> :
   ;Accumulator for storing encoded trie
   val accum = Vector<Int|TrieId>()
   defn emit (x:Int|TrieId) : accum.add(x)
@@ -82,7 +82,7 @@ public defn encode-dag (dag:Dag, start-depth:Int, soln-id:Soln -> Int) -> Vector
 
     ;Compute the table
     val n = entries.length
-    emit(start-depth + dag.depth)
+    emit(dag.depth)
     emit(n)
     if n <= 4 :
       for e in entries do :

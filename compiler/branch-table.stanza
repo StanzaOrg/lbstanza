@@ -293,7 +293,7 @@ defn encode-branch-format (ct:ClassTable, f:BranchFormat) -> Vector<Int> :
         match(s) :
           (s:NoSoln) : 0
           (s:UniqueSoln) : index(s) + 1
-      encode-dag(dag, 0, soln-id)
+      encode-dag(dag, soln-id)
     (f:DispatchFormat) :
       val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
         ct.make-branch-table(f.branches).compute-dispatch-dag(true)
@@ -302,17 +302,18 @@ defn encode-branch-format (ct:ClassTable, f:BranchFormat) -> Vector<Int> :
           (s:NoSoln) : 0
           (s:AmbSoln) : 1
           (s:UniqueSoln) : index(s) + 2
-      encode-dag(dag, 0, soln-id)
+      encode-dag(dag, soln-id)
     (f:ResolvedMultiFormat) :
       val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
         ct.make-branch-table(f.methods.seq(types))
           .compute-dispatch-dag(true)
+          .add-to-depth(f.num-header-args)
       defn soln-id (s:Soln) :
         match(s) :
           (s:NoSoln) : 0
           (s:AmbSoln) : 1
           (s:UniqueSoln) : f.methods[s.index].fid + 2
-      encode-dag(dag, f.num-header-args, soln-id)
+      encode-dag(dag, soln-id)
 
 ;Conversion of a Vector<int> into a ptr<int>
 lostanza defn to-int-ptr (xs:ref<Vector<Int>>) -> ptr<int> :
