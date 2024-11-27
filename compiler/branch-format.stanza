@@ -3,6 +3,10 @@ defpackage stz/branch-format :
   import core
   import stz/typeset
 
+;============================================================
+;====================== Format Definitions ==================
+;============================================================
+
 ;Represents a type-dependent dispatch format.
 ;Used by BranchTable.
 public deftype BranchFormat <: Hashable&Equalable
@@ -10,19 +14,26 @@ public deftype BranchFormat <: Hashable&Equalable
 ;Handles 'match' expressions.
 public defstruct MatchFormat <: BranchFormat :
   branches: Tuple<Tuple<TypeSet>>
-with: (writer)
+with: (writer, hashable, equalable)
 
 ;Handles generated 'dispatch' expressions from
 ;function mixing.
 public defstruct DispatchFormat <: BranchFormat :
   branches: Tuple<Tuple<TypeSet>>
-with: (writer)
+with: (writer, hashable, equalable)
 
-;Handles 'defmulti' declarations.
+;Handles 'defmulti' declarations before methods are known yet.
 public defstruct MultiFormat <: BranchFormat :
+  multi: Int
+  num-header-args: Int
+  num-args: Int
+with: (printer, hashable, equalable)
+
+;Handles 'defmulti' declarations after methods are known.
+public defstruct ResolvedMultiFormat <: BranchFormat :
   num-header-args: Int
   methods: Tuple<Method>
-with: (printer)
+with: (printer, hashable, equalable)
 
 ;Represents type information of one method.
 public defstruct Method :
@@ -30,4 +41,3 @@ public defstruct Method :
   types:Tuple<TypeSet>
 with: (printer)
  
-

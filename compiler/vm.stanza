@@ -26,6 +26,7 @@ defpackage stz/vm :
   import stz/absolute-info
   import stz/trace-info
   import core/stack-trace
+  import stz/branch-format
 
 ;<doc>=======================================================
 ;================= Virtual Machine Interface ================
