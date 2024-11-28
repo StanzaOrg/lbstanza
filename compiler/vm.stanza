@@ -107,6 +107,7 @@ val LOAD-DATAS = TimerLabel(LOAD-VM-PACKAGES, suffix("Load Datas"))
 val LOAD-CONSTS = TimerLabel(LOAD-VM-PACKAGES, suffix("Load Consts"))
 val LOAD-CALLBACKS = TimerLabel(LOAD-VM-PACKAGES, suffix("Load Callbacks"))
 val UPDATE-BRANCH-TABLE = TimerLabel(LOAD-VM-PACKAGES, suffix("Update Branch Table"))
+val LOAD-BRANCH-DAGS = TimerLabel(LOAD-VM-PACKAGES, suffix("Load Branch DAGS"))
 val UPDATE-VMSTATE = TimerLabel(LOAD-VM-PACKAGES, suffix("Update VMState"))
 val EXECUTE-INIT-CONSTS = TimerLabel(LOAD-VM-PACKAGES, suffix("Executing Init Consts"))
 
@@ -341,7 +342,7 @@ lostanza defn update-vmstate (vm:ref<VirtualMachine>) -> ref<False> :
   vms.data-offsets = vmt.data-positions.data
   vms.data-mem = vmt.data.mem
   vms.code-offsets = vmt.function-addresses.data
-  vms.trie-table = trie-table-data(branch-table(vm))
+  vms.trie-table = dag-table(vmt.code-table).value as ptr<byte> ;trie-table-data(branch-table(vm))
   vms.class-table = packed-class-table(vmt.class-table)
   return false
 
@@ -917,8 +918,11 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
 
       ;Update the virtual machine state
       vprintln("VM: Updating branch table")
-      within log-time(UPDATE-BRANCH-TABLE) :
+      val branch-dags = within log-time(UPDATE-BRANCH-TABLE) :
         update(branch-table(vm))
+      ;Update all branch dags in the code table.
+      within log-time(LOAD-BRANCH-DAGS) :
+        load-branch-dags(vmtable(vm), branch-dags)
       vprintln("VM: Updating VMState")
       within log-time(UPDATE-VMSTATE) :
         update-vmstate(vm)
