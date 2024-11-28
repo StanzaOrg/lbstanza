@@ -69,17 +69,14 @@ public defn BranchTable (ct:ClassTable) :
     do(invalidate-table, multi-formats[multi])
 
   defn update-trie-table () :
-    while not empty?(stale-trie-tables) :
-      val i = pop(stale-trie-tables)
-      compute-trie-table(i) when not key?(trie-table, i)
-    ensure-no-stale-tables!()
-
-  defn ensure-no-stale-tables! () :
-    #if-not-defined(OPTIMIZE) :
-      for i in 0 to length(formats) do :
-        if not key?(trie-table, i) :
-          fatal("Trie table %_ is stale." % [i])
-    false
+    val updated = IntSet()
+    val dags = Vector<BranchDag>()
+    for id in stale-trie-tables :
+      if updated.add(id) :
+        compute-trie-table(id)
+        dags.add(compute-branch-dag(id))
+    stale-trie-tables.clear
+    dags.to-tuple
 
   ;Compute the branch dag for format 'i'.
   defn compute-branch-dag (i:Int) -> BranchDag :
@@ -191,7 +188,6 @@ public defn BranchTable (ct:ClassTable) :
         (_:False) : add-format(f)
     defmethod update (this) :
       update-trie-table()
-      []
     defmethod trie-table (this) :
       trie-table
     defmethod load-package-methods (this, package:Symbol, ms:Seqable<VMMethod>) :
