@@ -7,6 +7,9 @@ defpackage stz/cvm-code-table :
   import stz/backend
   import stz/cvm-encoder
   import stz/vm-structures
+  import stz/ptr-buffer
+  import stz/branch-dag
+  import stz/trie-table
 
 ;============================================================
 ;=================== Struct Definition ======================
@@ -14,9 +17,10 @@ defpackage stz/cvm-code-table :
 
 public lostanza deftype CVMCodeTable <: CodeTable :
   bytecode:ref<Buffer>
+  dag-tables:ref<PtrBuffer>
 
 public lostanza defn CVMCodeTable () -> ref<CVMCodeTable> :
-  return new CVMCodeTable{Buffer()}
+  return new CVMCodeTable{Buffer(), PtrBuffer(new Int{8})}
 
 ;============================================================
 ;================== Instruction Memory ======================
@@ -55,6 +59,19 @@ lostanza defmethod load-function (table:ref<CVMCodeTable>,
 defn add-offset (trace-entries:Seqable<TraceTableEntry>, offset:Long) -> Vector<TraceTableEntry> :
   to-vector<TraceTableEntry> $ for e in trace-entries seq :
     TraceTableEntry(pc(e) + offset, entry(e))
+
+;============================================================
+;================== Branches/Dispatching ====================
+;============================================================
+
+;Encode and store the DAG  as Trie for performing the given DAG dispatch.
+lostanza defmethod encode-branch-dag (t:ref<CVMCodeTable>, dag:ref<BranchDag>) -> ref<False> :
+  add(t.dag-tables, dag)
+  return false
+
+;Returns the address of the DAG table.
+lostanza defmethod dag-table (t:ref<CVMCodeTable>) -> ref<Long> :
+  return data-address(t.dag-tables)
 
 ;============================================================
 ;================== Launch ==================================
