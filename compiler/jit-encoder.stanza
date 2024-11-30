@@ -76,9 +76,6 @@ extern call_collect_stack_trace: (ptr<?>, long) -> int
 lostanza defn c-trampoline-addr () -> ref<Long> :
   return new Long{addr!(c_trampoline) as long}
 
-lostanza defn read-dispatch-table-addr () -> ref<Long> :
-  return new Long{addr!(read_dispatch_table) as long}
-
 lostanza defn call-garbage-collector-addr () -> ref<Long> :
   return new Long{addr!(call_garbage_collector) as long}
 
@@ -1343,12 +1340,6 @@ defn AsmGen (code:CodeHolder,
     a.call(reg(Tmp1))
     a.mov(dst, reg(Tmp1))
     false
-    
-    
-
-;    mov(a, reg(Tmp1), format)
-;    val args = [reg(VMStateReg), reg(Tmp1)]
-;    simple-call-c-from-jit-context(dst, read-dispatch-table-addr(), args)
 
   ;Emit instructions for performing a dispatch according to the given format
   ;to the set of given labels.

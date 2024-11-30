@@ -10,7 +10,6 @@ defpackage stz/jit-code-table :
   import stz/jit-encoder
   import stz/vm-structures
   import stz/branch-dag
-  import stz/trie-table
   import stz/ptr-buffer
 
 ;============================================================
@@ -74,8 +73,6 @@ defmethod load-function (table:JITCodeTable,
 
 ;Encode and store the DAG  as Trie for performing the given DAG dispatch.
 defmethod encode-branch-dag (t:JITCodeTable, dag:BranchDag, resolver:EncodingResolver, backend:Backend) -> False :
-  ;t.dag-tables.add(dag)
-
   ;Release the old DAG function if being overwritten.
   val old-func = t.dag-funcs.get?(dag.id)
   match(old-func:Func) : t.runtime.release(old-func)
