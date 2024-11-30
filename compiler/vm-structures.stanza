@@ -92,6 +92,8 @@ public lostanza val VMSTATE-CURRENT-STACK-OFFSET:ref<Int> =
   new Int{addr(null-vmstate().heap.current-stack) as long as int}
 public lostanza val VMSTATE-SYSTEM-STACK-OFFSET:ref<Int> =
   new Int{addr(null-vmstate().heap.system-stack) as long as int}
+public lostanza val VMSTATE-TRIE-TABLE-OFFSET:ref<Int> =
+  new Int{addr(null-vmstate().trie-table) as long as int}
 
 lostanza defn null-stackframe () -> ptr<StackFrame> :
   return 0L as ptr<StackFrame>

@@ -497,6 +497,7 @@ defn AsmGen (code:CodeHolder,
                       get-vmstate-current-stack
                       get-vmstate-system-stack
                       get-vmstate-system-registers
+                      get-vmstate-trie-table
                       get-return
                       get-liveness-map
                       get-stack-size
@@ -518,6 +519,7 @@ defn AsmGen (code:CodeHolder,
                       set-vmstate-current-stack
                       set-vmstate-system-stack
                       set-vmstate-system-registers
+                      set-vmstate-trie-table
                       set-return
                       set-liveness-map
                       set-stack-size
@@ -525,6 +527,7 @@ defn AsmGen (code:CodeHolder,
                       set-stack-pointer
                       set-stack-pc]
         BaseReg in [VMStateReg
+                    VMStateReg
                     VMStateReg
                     VMStateReg
                     VMStateReg
@@ -560,6 +563,7 @@ defn AsmGen (code:CodeHolder,
                    VMSTATE-CURRENT-STACK-OFFSET
                    VMSTATE-SYSTEM-STACK-OFFSET
                    VMSTATE-SYSTEM-REGISTERS-OFFSET
+                   VMSTATE-TRIE-TABLE-OFFSET
                    STACK-FRAME-RETURN-OFFSET
                    STACK-FRAME-LIVENESS-MAP-OFFSET
                    STACK-SIZE-OFFSET
@@ -581,6 +585,7 @@ defn AsmGen (code:CodeHolder,
                    vmstate-current-stack-memptr
                    vmstate-system-stack-memptr
                    vmstate-system-registers-memptr
+                   vmstate-trie-table-memptr
                    stack-frame-return-memptr
                    stack-frame-liveness-map-memptr
                    stack-size-memptr
@@ -1333,9 +1338,17 @@ defn AsmGen (code:CodeHolder,
   ;values in the vmstate.registers array.
   ;Uses Tmp1 internally.
   defn read-dispatch-table (dst:Gp, format:Int) -> False :
-    mov(a, reg(Tmp1), format)
-    val args = [reg(VMStateReg), reg(Tmp1)]
-    simple-call-c-from-jit-context(dst, read-dispatch-table-addr(), args)
+    get-vmstate-trie-table(reg(Tmp1))
+    a.mov(reg(Tmp1), MemPtr(reg(Tmp1), format * SIZEOF-LONG))
+    a.call(reg(Tmp1))
+    a.mov(dst, reg(Tmp1))
+    false
+    
+    
+
+;    mov(a, reg(Tmp1), format)
+;    val args = [reg(VMStateReg), reg(Tmp1)]
+;    simple-call-c-from-jit-context(dst, read-dispatch-table-addr(), args)
 
   ;Emit instructions for performing a dispatch according to the given format
   ;to the set of given labels.

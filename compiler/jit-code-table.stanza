@@ -25,7 +25,7 @@ public defstruct JITCodeTable <: CodeTable :
   dag-funcs: Vector<Func|False> with:
     init => Vector<Func|False>()
   dag-tables: PtrBuffer with:
-    init => PtrBuffer(8)
+    init => PtrBuffer(8, autofree? = false)
 with:
   constructor => #JITCodeTable
 
@@ -74,7 +74,7 @@ defmethod load-function (table:JITCodeTable,
 
 ;Encode and store the DAG  as Trie for performing the given DAG dispatch.
 defmethod encode-branch-dag (t:JITCodeTable, dag:BranchDag, resolver:EncodingResolver, backend:Backend) -> False :
-  t.dag-tables.add(dag)
+  ;t.dag-tables.add(dag)
 
   ;Release the old DAG function if being overwritten.
   val old-func = t.dag-funcs.get?(dag.id)
