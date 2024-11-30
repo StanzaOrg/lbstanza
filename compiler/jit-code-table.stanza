@@ -83,6 +83,12 @@ defmethod encode-branch-dag (t:JITCodeTable, dag:BranchDag, resolver:EncodingRes
   ;Compile the new DAG function and store it in the table.
   val func = compile-dag(dag, t.runtime, resolver, backend)
   t.dag-funcs.put(dag.id, func)
+  t.dag-tables.store-in-table(dag.id, func)
+
+;Store the given Func pointer into the PtrBuffer.
+lostanza defn store-in-table (table:ref<PtrBuffer>, id:ref<Int>, func:ref<Func>) -> ref<False> :
+  set(table, id.value, func.value)
+  return false
 
 ;Returns the address of the DAG table.
 defmethod dag-table (t:JITCodeTable) -> Long :
