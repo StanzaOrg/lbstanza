@@ -1,3 +1,4 @@
+#use-added-syntax(dot-operator)
 defpackage stz/jit-encoder :
   import core
   import collections
@@ -19,6 +20,8 @@ defpackage stz/jit-encoder :
   import stz/shuffle
   import stz/timing-log-api
   import stz/trace-info
+  import stz/branch-dag
+  import stz/binary-tree
 
 ;============================================================
 ;===================== JIT Encoder ==========================
@@ -1352,6 +1355,164 @@ defn AsmGen (code:CodeHolder,
     ;TODO: Should be aligned?
     bind(a, targets)
     do(embed{a, _}, labels)
+
+  ;Emit instructions for executing DAG.
+  ;Assumes that input values are stored in vmstate.registers.
+  ;Stores resulting soln-id in Tmp1.
+  defn emit-dag (dag:BranchDag) -> False :
+
+    ;TODO: Remove need for this function.
+    defn soln-id (s:Soln) -> Int :
+      match(s, dag) :
+        (s:NoSoln, dag:MatchDag) : 0
+        (s:UniqueSoln, dag:MatchDag) : s.index + 1
+        (s:NoSoln, dag:DispatchDag) : 0
+        (s:AmbSoln, dag:DispatchDag) : 1
+        (s:UniqueSoln, dag:DispatchDag) : s.index + 2
+        (s:NoSoln, dag:MultiDag) : 0
+        (s:AmbSoln, dag:MultiDag) : 1
+        (s:UniqueSoln, dag:MultiDag) : dag.methods[s.index] + 2    
+
+    ;Pre-emptively calculate labels for all DAG entries.
+    ;We need to forward reference them in the code for each DAG.
+    val labels = dag.dag.entries.map({a.new-label})
+    val leaf-labels = IntTable<Label>()
+    defn to-label (v:Int|Soln) -> Label :
+      match(v) :
+        (v:Int) : labels[v]
+        (v:Soln) :
+          val id = soln-id(v)
+          match(get?(leaf-labels, id, false)) :
+            (lab:Label) :
+              lab
+            (lab:False) :
+              val new-lab = new-label(a)
+              leaf-labels[id] = new-lab
+              new-lab
+
+    ;Emit a single dag entry.
+    defn emit-dag-entry (dag-e:DagEntry) :
+      if dag-e.entries.empty? :
+        a.jmp(to-label(dag-e.default))
+      else :
+        ;Categorize branches
+        val prim-targets = Vector<KeyValue<Int,Label>>()
+        val marker-targets = Vector<KeyValue<Int,Label>>()
+        val ref-targets = Vector<KeyValue<Int,Label>>()
+        val default-target = to-label(dag-e.default)
+        for entry in dag-e.entries:
+          val tgt = to-label(entry.value)
+          for x in entry.key.values:
+            if x == BYTE-TYPE : prim-targets.add(x => tgt)
+            else if x == CHAR-TYPE : prim-targets.add(x => tgt)
+            else if x == INT-TYPE : prim-targets.add(x => tgt)
+            else if x == FLOAT-TYPE : prim-targets.add(x => tgt)
+            else if resolver.marker?(x) : marker-targets.add(x => tgt)
+            else : ref-targets.add(x => tgt)              
+
+        ;Registers
+        val OBJ = Tmp1
+        val BITS = Tmp2
+        val TAG = Tmp2
+
+        ;Load object into register.
+        ;TODO: Why not use the already-defined OBJ?
+        ;TODO: Why not use vm-register(dag-e.depth, OBJ)??
+        val object = a.mov(reg(Tmp3), vm-register(dag-e.depth))
+
+        ;Test the tag bits.
+        ;Use the following labels for each category of tag bits.
+        val marker-branches = a.new-label
+        val ref-branches = a.new-label
+        val prim-targets? = not prim-targets.empty?
+        val marker-targets? = not marker-targets.empty?
+        val ref-targets? = not ref-targets.empty?
+
+        ;Checking for primitives or references requires knowing the tag bits.
+        ;So create the tag bits if we have either case.
+        if prim-targets? or ref-targets? :
+          a.mov(reg(BITS), object)
+          a.and-op(reg(BITS), 7)
+
+        ;Jump to the appropriate primitive target if the object
+        ;is one of the given primitives.
+        for entry in prim-targets:
+          val x = entry.key
+          val target = entry.value
+          val tagbits = resolver.tagbits(x)
+          a.cmp(reg(BITS), tagbits)
+          a.je(target)
+
+        ;Skip the reference branches if the object is not a reference.
+        val label-after-refs = marker-branches when marker-targets?
+                          else default-target
+        if ref-targets? :
+          a.cmp(reg(BITS), 1)
+          a.jne(label-after-refs)
+        else if not marker-targets? :
+          a.jmp(label-after-refs)
+
+        ;Jump to the appropriate reference branches if the object
+        ;is one of the given references
+        if ref-targets? :
+          defn ref-tree () :
+            BinaryNode $ for e in ref-targets seq :
+              val tag-word = e.key
+              tag-word => e.value
+          a.bind(ref-branches)
+          a.mov(reg(TAG), MemPtr(object, -1))
+          let loop (tree:BinaryNode<Label> = ref-tree()) :
+            match(tree) :
+              (tree:InnerNode<Label>) :
+                val left-tree = a.new-label
+                a.cmp(reg(TAG), tree.value)
+                a.jbe(left-tree)
+                loop(tree.right)
+                a.bind(left-tree)
+                loop(tree.left)
+              (tree:LeafNode<Label>) :
+                for e in tree.entries:
+                  val x = e.key
+                  val target = e.value
+                  a.cmp(reg(TAG), x)
+                  a.je(target)
+                a.jmp(default-target)
+
+        ;Jump to the appropriate marker branches if the object is one
+        ;of the given marker branches.
+        if marker-targets? :
+          defn marker-tree () :
+            BinaryNode $ for e in marker-targets seq :
+              val marker-int = resolver.marker(e.key)
+              marker-int => e.value
+          a.bind(marker-branches)
+          let loop (tree:BinaryNode<Label> = marker-tree()) :
+            match(tree) :
+              (tree:InnerNode<Label>) :
+                val left-tree = a.new-label
+                a.cmp(object, tree.value)
+                a.jbe(left-tree)
+                loop(tree.right)
+                a.bind(left-tree)
+                loop(tree.left)
+              (tree:LeafNode<Label>) :
+                for e in tree.entries:
+                  val x = e.key
+                  val target = e.value
+                  a.cmp(object, x)
+                  a.je(target)
+                a.jmp(default-target)
+
+    ;Generate code for all Dag entries.
+    for (e in dag.dag.entries, l in labels) :
+      a.bind(l)
+      emit-dag-entry(e)
+
+    ;Generate leaf actions.
+    for entry in leaf-labels :
+      a.bind(entry.value)
+      a.mov(reg(Tmp1), entry.key)
+      a.ret
 
   ;=========================================================
   ;=============== Reserve and Alloc =======================
