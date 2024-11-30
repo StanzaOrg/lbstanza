@@ -396,10 +396,13 @@ public lostanza defn load-function (vmt:ref<VMTable>,
 ;================= Branch Dag Loading =======================
 ;============================================================
 
-public defn load-branch-dags (vmt:VMTable, dags:Tuple<BranchDag>) -> False :
+public defn load-branch-dags (vmt:VMTable,
+                              dags:Tuple<BranchDag>,
+                              resolver:EncodingResolver,
+                              backend:Backend) -> False :
   val ct = vmt.code-table
   for dag in dags :
-    ct.encode-branch-dag(dag)
+    ct.encode-branch-dag(dag, resolver, backend)
 
 ;============================================================
 ;========================= Utility ==========================

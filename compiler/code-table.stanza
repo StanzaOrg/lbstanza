@@ -51,7 +51,7 @@ with:
 ;============================================================
 
 ;Encode and store the DAG for performing the match/dispatch format with id 'id'.
-public defmulti encode-branch-dag (t:CodeTable, dag:BranchDag) -> False
+public defmulti encode-branch-dag (t:CodeTable, dag:BranchDag, resolver:EncodingResolver, backend:Backend) -> False
 
 ;Returns the address of the DAG table.
 public defmulti dag-table (t:CodeTable) -> Long

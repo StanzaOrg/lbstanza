@@ -348,6 +348,7 @@ defmulti emit-function-prelude (gen:AsmGen, args:Tuple<Local|VMType>, extend-sta
 defmulti emit-arg-bit-extensions (gen:AsmGen, args:Tuple<Local|VMType>) -> False
 defmulti emit-multi-arity-dispatch (emit-arity-code:Int|False -> False, gen:AsmGen, arity-arg:Int, arities:Tuple<Int>) -> False
 defmulti emit-ins (gen:AsmGen, ins:VMIns) -> False
+defmulti emit-dag (gen:AsmGen, dag:BranchDag) -> False
 defenum EnterExit: (Enter, Exit)
 
 ;The information about a function's local frame.
@@ -3116,6 +3117,8 @@ defn AsmGen (code:CodeHolder,
       emit-multi-arity-dispatch(emit-arity-code, arity-arg, arities)
     defmethod emit-ins (this, ins:VMIns) :
       emit-ins(ins)
+    defmethod emit-dag (this, dag:BranchDag) :
+      emit-dag(dag)
 
 ;============================================================
 ;================= Compile Stubs ============================
@@ -3208,3 +3211,16 @@ public defn encode (func:VMFunction,
 
     ;Return the final encoded function
     EncodedFunction(jit-func, trace-entry-table)
+
+;============================================================
+;================== Compile DAG =============================
+;============================================================
+
+;Compile the given dispatch DAG.
+public defn compile-dag (dag:BranchDag,
+                         rt:JitRuntime,
+                         resolver:EncodingResolver,
+                         backend:Backend) -> Func :
+  within (code, assembler) = gen-code(rt) :
+    val gen = AsmGen(code, assembler, resolver, false, false, backend)
+    gen.emit-dag(dag)

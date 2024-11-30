@@ -22,6 +22,8 @@ public defstruct JITCodeTable <: CodeTable :
   stubs: JITStubs
   funcs: Vector<Func|False> with:
     init => Vector<Func|False>()
+  dag-funcs: Vector<Func|False> with:
+    init => Vector<Func|False>()
   dag-tables: PtrBuffer with:
     init => PtrBuffer(8)
 with:
@@ -52,7 +54,7 @@ defmethod load-function (table:JITCodeTable,
                          resolver:EncodingResolver,
                          backend:Backend) -> LoadedFunction :
   ;Encode the function using the JIT encoder.
-  val encoded-function = encode(vmfunc, externfn?, stubs(table), runtime(table), resolver, backend)
+  val encoded-function = encode(vmfunc, externfn?, table.stubs, table.runtime, resolver, backend)
 
   ;If there is already a function at that location, then
   ;delete it.
@@ -61,7 +63,7 @@ defmethod load-function (table:JITCodeTable,
     table.runtime.release(oldf)
   
   ;Add the function into the table so that we can release them later.
-  put<Func>(table.funcs, fid, encoded-function.func)
+  table.funcs.put(fid, encoded-function.func)
 
   ;Return the loaded function
   LoadedFunction(encoded-function.func.value, encoded-function.trace-entries)
@@ -71,8 +73,16 @@ defmethod load-function (table:JITCodeTable,
 ;============================================================
 
 ;Encode and store the DAG  as Trie for performing the given DAG dispatch.
-defmethod encode-branch-dag (t:JITCodeTable, dag:BranchDag) -> False :
+defmethod encode-branch-dag (t:JITCodeTable, dag:BranchDag, resolver:EncodingResolver, backend:Backend) -> False :
   t.dag-tables.add(dag)
+
+  ;Release the old DAG function if being overwritten.
+  val old-func = t.dag-funcs.get?(dag.id)
+  match(old-func:Func) : t.runtime.release(old-func)
+
+  ;Compile the new DAG function and store it in the table.
+  val func = compile-dag(dag, t.runtime, resolver, backend)
+  t.dag-funcs.put(dag.id, func)
 
 ;Returns the address of the DAG table.
 defmethod dag-table (t:JITCodeTable) -> Long :
@@ -111,7 +121,7 @@ defmethod instructions (table:JITCodeTable) : 0L
 ;========================= Utility ==========================
 ;============================================================
 
-defn put<T> (xs:Vector<T|False>, k:Int, v:T) :
+defn put<?T> (xs:Vector<?T|False>, k:Int, v:T) -> False :
   if k >= xs.length :
     xs.lengthen(k + 1, false)
   xs[k] = v

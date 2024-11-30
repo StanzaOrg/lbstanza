@@ -65,7 +65,10 @@ defn add-offset (trace-entries:Seqable<TraceTableEntry>, offset:Long) -> Vector<
 ;============================================================
 
 ;Encode and store the DAG  as Trie for performing the given DAG dispatch.
-lostanza defmethod encode-branch-dag (t:ref<CVMCodeTable>, dag:ref<BranchDag>) -> ref<False> :
+lostanza defmethod encode-branch-dag (t:ref<CVMCodeTable>,
+                                      dag:ref<BranchDag>,
+                                      resolver:ref<EncodingResolver>,
+                                      backend:ref<Backend>) -> ref<False> :
   add(t.dag-tables, dag)
   return false
 
