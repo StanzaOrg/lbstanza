@@ -1,3 +1,4 @@
+#use-added-syntax(dot-operator)
 defpackage stz/vm :
   import core
   import collections
@@ -26,6 +27,7 @@ defpackage stz/vm :
   import stz/absolute-info
   import stz/trace-info
   import core/stack-trace
+  import stz/branch-format
 
 ;<doc>=======================================================
 ;================= Virtual Machine Interface ================
@@ -106,6 +108,7 @@ val LOAD-DATAS = TimerLabel(LOAD-VM-PACKAGES, suffix("Load Datas"))
 val LOAD-CONSTS = TimerLabel(LOAD-VM-PACKAGES, suffix("Load Consts"))
 val LOAD-CALLBACKS = TimerLabel(LOAD-VM-PACKAGES, suffix("Load Callbacks"))
 val UPDATE-BRANCH-TABLE = TimerLabel(LOAD-VM-PACKAGES, suffix("Update Branch Table"))
+val LOAD-BRANCH-DAGS = TimerLabel(LOAD-VM-PACKAGES, suffix("Load Branch DAGS"))
 val UPDATE-VMSTATE = TimerLabel(LOAD-VM-PACKAGES, suffix("Update VMState"))
 val EXECUTE-INIT-CONSTS = TimerLabel(LOAD-VM-PACKAGES, suffix("Executing Init Consts"))
 
@@ -340,7 +343,7 @@ lostanza defn update-vmstate (vm:ref<VirtualMachine>) -> ref<False> :
   vms.data-offsets = vmt.data-positions.data
   vms.data-mem = vmt.data.mem
   vms.code-offsets = vmt.function-addresses.data
-  vms.trie-table = trie-table-data(branch-table(vm))
+  vms.trie-table = dag-table(vmt.code-table).value as ptr<byte> ;trie-table-data(branch-table(vm))
   vms.class-table = packed-class-table(vmt.class-table)
   return false
 
@@ -875,12 +878,12 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
 
       ;Load all packages
       vprintln("VM: Loading packages")
-      for p in packages(load-unit) do :
-        vprintln("VM: Loading package %_" % [name(p)])
+      for p in load-unit.packages :
+        vprintln("VM: Loading package %_" % [p.name])
         within log-time(LOAD-GLOBALS) :
-          load-globals(vmt, globals(p), name(p), keep-existing-globals?)
+          vmt.load-globals(p.globals, p.name, keep-existing-globals?)
         within log-time(LOAD-METHODS) :
-          load-package-methods(branch-table(vm), name(p), methods(p))
+          vm.branch-table.load-package-methods(p.name, p.methods)
 
       ;Load all classes into table
       vprintln("VM: Loading classes")
@@ -892,20 +895,17 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
       ;can be resolved to the right addresses.
       vprintln("VM: Loading callbacks")
       within log-time(LOAD-CALLBACKS) :
-        for c in callbacks(load-unit) do :
-          set-signature(extern-defns(vm), index(c), function-id(c), a1(c), a2(c))
+        for c in load-unit.callbacks :
+          vm.extern-defns.set-signature(c.index, c.function-id, c.a1, c.a2)
 
       ;Load functions
       vprintln("VM: Encoding functions")
       within log-time(LOAD-FUNCTIONS) :
         ;Compute the functions that are exposed externally via callbacks.
-        val callback-set = to-intset(seq(function-id, callbacks(load-unit)))
-        ;Create the encoding resolver for compiling the function.
-        val encoding-resolver = EncodingResolver(class-table(vm), branch-table(vm), live-map-table(linker(vm)),
-                                                 dynamic-libraries(vm), extern-defns(vm))
+        val callback-set = load-unit.callbacks.seq(function-id).to-intset
         ;Load each of the functions.
-        for f in funcs(load-unit) do :
-          load-function(vmt, f, callback-set[id(f)], encoding-resolver, backend(vm))
+        for f in funcs(load-unit) :
+          vmt.load-function(f, callback-set[id(f)], vm.encoding-resolver, vm.backend)
 
       ;Load datas and consts
       vprintln("VM: Loading datas and constants")
@@ -916,8 +916,11 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
 
       ;Update the virtual machine state
       vprintln("VM: Updating branch table")
-      within log-time(UPDATE-BRANCH-TABLE) :
-        update(branch-table(vm))
+      val branch-dags = within log-time(UPDATE-BRANCH-TABLE) :
+        vm.branch-table.update
+      ;Update all branch dags in the code table.
+      within log-time(LOAD-BRANCH-DAGS) :
+        vm.vmtable.load-branch-dags(branch-dags, vm.encoding-resolver, vm.backend)
       vprintln("VM: Updating VMState")
       within log-time(UPDATE-VMSTATE) :
         update-vmstate(vm)
@@ -929,6 +932,11 @@ public defn load (vm:VirtualMachine, vmps:Collection<VMPackage>, keep-existing-g
         within log-time(EXECUTE-INIT-CONSTS) :
           run-bytecode(vm, INIT-CONSTS-FN)
         vprintln("VM: Finished running constant initializer.")
+
+;Create an encoding resolver for use by the instruction compilers.
+defn encoding-resolver (vm:VirtualMachine) -> EncodingResolver :
+  EncodingResolver(vm.class-table, vm.branch-table, vm.linker.live-map-table,
+                   vm.dynamic-libraries, vm.extern-defns)  
 
 public defn unload (vm:VirtualMachine, ps:Collection<Symbol>) :
   val vmps = to-tuple $ for p in ps seq :

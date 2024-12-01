@@ -1,0 +1,115 @@
+#use-added-syntax(dot-operator)
+defpackage stz/dag-encoder :
+  import core
+  import collections
+  import stz/hash
+  import stz/dispatch-dag
+  import stz/timing-log-api
+
+;<doc>=======================================================
+;============================ DAG Encoding ==================
+;============================================================
+
+Here is how a trie is encoded:
+
+  I | N | D0 | DTable ... | Key, Value ... | Default
+
+Where:
+
+  I is the index of the register to perform dispatch on.
+  N is the length of the table.
+  D0 is the d-parameter of the first-level hash table.
+  DTable are the entries of the first-level hash table.
+  Key are the keys for each branch.
+  Value are the values for each branch.
+
+If N is less than or equal to 4, then the DTable is omitted, and we
+perform a linear lookup instead.
+
+If a key is not in the table, then we interpret the action given by Default.
+
+Two cases are encoded into the value and Default :
+
+  (- (Target + 1)) when Value < 0
+  (Table offset)   when Value >= 0
+
+When the Value is negative, it encodes the target to return.
+Otherwise, it encodes the address of the next table.
+
+;============================================================
+;=======================================================<doc>
+
+;============================================================
+;===================== Timers ===============================
+;============================================================
+
+val VM-DAG-ENCODER = TimerLabel("VM Dag Encoder")
+
+;============================================================
+;=================== Main Algorithm =========================
+;============================================================
+
+;Encode Dag into Int Vector
+public defn encode-dag (dag:Dag, soln-id:Soln -> Int) -> Vector<Int> :
+  ;Accumulator for storing encoded trie
+  val accum = Vector<Int|TrieId>()
+  defn emit (x:Int|TrieId) : accum.add(x)
+
+  ;Overall algorithm
+  defn driver () :
+    val addresses = to-tuple $
+      for e in dag.entries seq :
+        val address = accum.length
+        encode(e)
+        address
+    fill-addresses(addresses)
+    accum as Vector<Int>
+
+  ;Convert end of dag into trie-id
+  defn to-trie-id (x:Int|Soln) :
+    match(x) :
+      (x:Int) : TrieId(x)
+      (x:Soln) : (- (soln-id(x) + 1))
+
+  ;Encode a trie for dispatching on given arg-index.
+  defn encode (dag:DagEntry) :
+    ;Spread out entries
+    val entries = Vector<KeyValue<Int,Int|TrieId>>()
+    for e in dag.entries do :
+      val tgt = to-trie-id(e.value)
+      for v in e.key.values do :
+        entries.add(v => tgt)
+
+    ;Compute the table
+    val n = entries.length
+    emit(dag.depth)
+    emit(n)
+    if n <= 4 :
+      for e in entries do :
+        emit(e.key)
+        emit(e.value)
+      emit(to-trie-id(dag.default))
+    else :
+      val table = PerfectHashTable(entries)
+      fatal("Unexpected size difference") when n != table.length
+      emit(table.d0)
+      for i in 0 to n do :
+        emit(table.dentry(i))
+      for i in 0 to n do :
+        val e = table.entry(i)
+        emit(e.key)
+        emit(e.value)
+      emit(to-trie-id(dag.default))
+
+  defn fill-addresses (addresses:Tuple<Int>) :
+    ;Fill in delayed values
+    for v in accum map! :
+      match(v:TrieId) : addresses[v.id]
+      else : v as Int
+          
+  ;Launch
+  within log-time(VM-DAG-ENCODER) :
+    driver()
+
+defstruct TrieId :
+  id: Int

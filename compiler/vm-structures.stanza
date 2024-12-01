@@ -34,7 +34,7 @@ public lostanza deftype VMState :
   var class-table: ptr<?>          ;(Permanent State)
   ;Interpreted Mode Tables
   var instructions: ptr<byte>      ;(Permanent State)
-  var trie-table: ptr<ptr<int>>    ;(Permanent State)
+  var trie-table: ptr<byte>        ;(Permanent State)
 
 ;- code: The integer id of the function. The VM
 ;  will retrieve the address of the code by looking up
@@ -92,6 +92,8 @@ public lostanza val VMSTATE-CURRENT-STACK-OFFSET:ref<Int> =
   new Int{addr(null-vmstate().heap.current-stack) as long as int}
 public lostanza val VMSTATE-SYSTEM-STACK-OFFSET:ref<Int> =
   new Int{addr(null-vmstate().heap.system-stack) as long as int}
+public lostanza val VMSTATE-TRIE-TABLE-OFFSET:ref<Int> =
+  new Int{addr(null-vmstate().trie-table) as long as int}
 
 lostanza defn null-stackframe () -> ptr<StackFrame> :
   return 0L as ptr<StackFrame>

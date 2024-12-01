@@ -1,3 +1,4 @@
+#use-added-syntax(dot-operator)
 defpackage stz/jit-code-table :
   import core
   import collections
@@ -8,6 +9,8 @@ defpackage stz/jit-code-table :
   import stz/asmjit
   import stz/jit-encoder
   import stz/vm-structures
+  import stz/branch-dag
+  import stz/ptr-buffer
 
 ;============================================================
 ;================= Struct Definition ========================
@@ -16,7 +19,12 @@ defpackage stz/jit-code-table :
 public defstruct JITCodeTable <: CodeTable :
   runtime: JitRuntime
   stubs: JITStubs
-  funcs: Vector<Func|False> with: (init => Vector<Func|False>())
+  funcs: Vector<Func|False> with:
+    init => Vector<Func|False>()
+  dag-funcs: Vector<Func|False> with:
+    init => Vector<Func|False>()
+  dag-tables: PtrBuffer with:
+    init => PtrBuffer(8, autofree? = false)
 with:
   constructor => #JITCodeTable
 
@@ -45,19 +53,43 @@ defmethod load-function (table:JITCodeTable,
                          resolver:EncodingResolver,
                          backend:Backend) -> LoadedFunction :
   ;Encode the function using the JIT encoder.
-  val encoded-function = encode(vmfunc, externfn?, stubs(table), runtime(table), resolver, backend)
+  val encoded-function = encode(vmfunc, externfn?, table.stubs, table.runtime, resolver, backend)
 
   ;If there is already a function at that location, then
   ;delete it.
-  val oldf = get?(funcs(table), fid)
+  val oldf = table.funcs.get?(fid)
   match(oldf:Func) :
-    release(runtime(table), oldf)
+    table.runtime.release(oldf)
   
   ;Add the function into the table so that we can release them later.
-  put<Func>(funcs(table), fid, func(encoded-function))
+  table.funcs.put(fid, encoded-function.func)
 
   ;Return the loaded function
-  LoadedFunction(value(func(encoded-function)), trace-entries(encoded-function))
+  LoadedFunction(encoded-function.func.value, encoded-function.trace-entries)
+
+;============================================================
+;================== Branches/Dispatching ====================
+;============================================================
+
+;Encode and store the DAG  as Trie for performing the given DAG dispatch.
+defmethod encode-branch-dag (t:JITCodeTable, dag:BranchDag, resolver:EncodingResolver, backend:Backend) -> False :
+  ;Release the old DAG function if being overwritten.
+  val old-func = t.dag-funcs.get?(dag.id)
+  match(old-func:Func) : t.runtime.release(old-func)
+
+  ;Compile the new DAG function and store it in the table.
+  val func = compile-dag(dag, t.runtime, resolver, backend)
+  t.dag-funcs.put(dag.id, func)
+  t.dag-tables.store-in-table(dag.id, func)
+
+;Store the given Func pointer into the PtrBuffer.
+lostanza defn store-in-table (table:ref<PtrBuffer>, id:ref<Int>, func:ref<Func>) -> ref<False> :
+  set(table, id.value, func.value)
+  return false
+
+;Returns the address of the DAG table.
+defmethod dag-table (t:JITCodeTable) -> Long :
+  t.dag-tables.data-address
 
 ;============================================================
 ;================== Launch ==================================
@@ -75,12 +107,12 @@ lostanza defmethod launch (vmstate-address:ref<Long>, table:ref<JITCodeTable>, f
 ;============================================================
 
 defmethod free (table:JITCodeTable) :
-  val all-funcs = cat([launcher(stubs(table))
-                       extend-stack(stubs(table))]
-                      filter-by<Func>(funcs(table)))
+  val all-funcs = [table.stubs.launcher
+                   table.stubs.extend-stack].cat(
+                   filter-by<Func>(table.funcs))
   for f in all-funcs do :
-    release(runtime(table), f)
-  delete(runtime(table))
+    table.runtime.release(f)
+  table.runtime.delete
 
 ;============================================================
 ;============= Dummy Instructions Pointer ===================
@@ -92,10 +124,10 @@ defmethod instructions (table:JITCodeTable) : 0L
 ;========================= Utility ==========================
 ;============================================================
 
-defn put<T> (xs:Vector<T|False>, k:Int, v:T) :
-  if k >= length(xs) :
-    lengthen(xs, k + 1, false)
+defn put<?T> (xs:Vector<?T|False>, k:Int, v:T) -> False :
+  if k >= xs.length :
+    xs.lengthen(k + 1, false)
   xs[k] = v
   
 defn get?<?T> (xs:Vector<?T>, k:Int) -> T|False :
-  if k < length(xs) : xs[k]
+  if k < xs.length : xs[k]

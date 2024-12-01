@@ -1,3 +1,4 @@
+#use-added-syntax(dot-operator)
 defpackage stz/vm-table :
   import core
   import collections
@@ -18,6 +19,7 @@ defpackage stz/vm-table :
   import stz/backend
   import stz/const-pool
   import stz/trace-info
+  import stz/branch-dag
 
 ;============================================================
 ;================ Definition of all Tables ==================
@@ -65,6 +67,13 @@ public lostanza deftype VMTable :
 
   ;Trace Entries
   trace-table:ref<HashTable<Long,StackTraceInfo>>           
+
+;============================================================
+;===================== Getters ==============================
+;============================================================
+
+lostanza defn code-table (t:ref<VMTable>) -> ref<CodeTable> :
+  return t.code-table
 
 ;============================================================
 ;======================= Initialization =====================
@@ -382,6 +391,18 @@ public lostanza defn load-function (vmt:ref<VMTable>,
   load-trace-entries(vmt, trace-entries(load-result))
 
   return false
+
+;============================================================
+;================= Branch Dag Loading =======================
+;============================================================
+
+public defn load-branch-dags (vmt:VMTable,
+                              dags:Tuple<BranchDag>,
+                              resolver:EncodingResolver,
+                              backend:Backend) -> False :
+  val ct = vmt.code-table
+  for dag in dags :
+    ct.encode-branch-dag(dag, resolver, backend)
 
 ;============================================================
 ;========================= Utility ==========================

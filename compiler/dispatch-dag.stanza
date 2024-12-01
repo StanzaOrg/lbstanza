@@ -101,7 +101,7 @@ public defstruct Dag :
 ;  If it is an Int, then go to the DagEntry at that index. If it
 ;  is a Soln, then that tells us the final branch to dispatch to.
 public defstruct DagEntry :
-  depth: Int
+  depth: Int with: (updater => sub-depth)
   entries: Tuple<KeyValue<Nums,Int|Soln>>
   default: Int|Soln
 
@@ -110,6 +110,12 @@ public defstruct DagEntry :
 defn EmptyDag (s:Soln) -> Dag :
   val e = DagEntry(0, [], s)
   Dag(0, [e])
+
+;Convenience: Add an offset depth to all entries in the Dag.
+public defn add-to-depth (d:Dag, n:Int) -> Dag :
+  val new-entries = for e in entries(d) map:
+    sub-depth(e, n + depth(e))
+  Dag(n + depth(d), new-entries)
 
 ;============================================================
 ;===================== Error Checking =======================

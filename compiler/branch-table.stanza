@@ -1,3 +1,4 @@
+#use-added-syntax(dot-operator)
 defpackage stz/branch-table :
   import core
   import collections
@@ -7,12 +8,15 @@ defpackage stz/branch-table :
   import stz/utils
   import stz/vm-table
   import stz/typeset
-  import stz/trie-table
+  import stz/dag-encoder
   import stz/dispatch-dag with:
     prefix(BranchTable) => Dag
   import stz/set-utils
   import stz/conversion-utils
   import stz/timing-log-api
+  import stz/branch-format
+  import stz/branch-dag
+  import stz/ptr-buffer
 
 ;============================================================
 ;=================== Public Interface =======================
@@ -21,7 +25,7 @@ public deftype BranchTable
 public defmulti add (t:BranchTable, f:BranchFormat) -> Int
 public defmulti get (t:BranchTable, f:Int) -> BranchFormat
 public defmulti load-package-methods (t:BranchTable, package:Symbol, ms:Seqable<VMMethod>) -> False
-public defmulti update (t:BranchTable) -> False
+public defmulti update (t:BranchTable) -> Tuple<BranchDag>
 
 ;============================================================
 ;======================== Timers ============================
@@ -29,67 +33,6 @@ public defmulti update (t:BranchTable) -> False
 
 public val BRANCH-TABLE-DISPATCH-DAG = TimerLabel("Branch Table Dispatch Dag")
 public val MAKE-BRANCH-TABLE = TimerLabel(BRANCH-TABLE-DISPATCH-DAG, suffix("make-branch-table"))
-
-;============================================================
-;==================== Dispatch Formats ======================
-;============================================================
-
-public deftype BranchFormat <: Hashable&Equalable
-
-public defstruct MatchFormat <: BranchFormat :
-  branches: Tuple<Tuple<TypeSet>>
-with: (printer => true)
-
-public defstruct DispatchFormat <: BranchFormat :
-  branches: Tuple<Tuple<TypeSet>>
-with: (printer => true)
-
-public defstruct MultiFormat <: BranchFormat :
-  multi: Int
-  num-header-args: Int
-  num-args: Int
-with: (printer => true)
-
-defstruct ResolvedMultiFormat <: BranchFormat :
-  num-header-args: Int
-  methods: Tuple<LoadedMethod>
-with: (printer => true)
-
-;============================================================
-;================= Dispatch Format Creators  ================
-;============================================================
-
-public defn MatchFormat (branches:Tuple<VMBranch>) -> [MatchFormat, Tuple<Int>] :
-  val types* = map(types, branches)
-  val format = MatchFormat(types*)
-  val targets = map(n,branches)
-  [format, targets]
-
-public defn DispatchFormat (branches:Tuple<VMBranch>) -> [DispatchFormat, Tuple<Int>] :
-  val bs = to-array<VMBranch> $
-    for b in branches seq :
-      VMBranch(types(b), n(b))
-  qsort!(types, bs)
-  val format = DispatchFormat(to-tuple(seq(types,bs)))
-  val targets = to-tuple(seq(n,bs))
-  [format, targets]
-
-;============================================================
-;==================== Hashing and Equality ==================
-;============================================================
-
-defmethod hash (f:DispatchFormat) : hash(branches(f))
-defmethod equal? (a:DispatchFormat, b:DispatchFormat) : branches(a) == branches(b)
-
-defmethod hash (f:MatchFormat) : hash(branches(f))
-defmethod equal? (a:MatchFormat, b:MatchFormat) : branches(a) == branches(b)
-
-defmethod hash (f:MultiFormat) :
-  hash $ [multi(f), num-header-args(f), num-args(f)]
-defmethod equal? (a:MultiFormat, b:MultiFormat) :
-  multi(a) == multi(b) and
-  num-header-args(a) == num-header-args(b) and
-  num-args(a) == num-args(b)
 
 ;============================================================
 ;================= Table Implementation =====================
@@ -126,17 +69,30 @@ public defn BranchTable (ct:ClassTable) :
     do(invalidate-table, multi-formats[multi])
 
   defn update-trie-table () :
-    while not empty?(stale-trie-tables) :
-      val i = pop(stale-trie-tables)
-      compute-trie-table(i) when not key?(trie-table, i)
-    ensure-no-stale-tables!()
+    val updated = IntSet()
+    val dags = Vector<BranchDag>()
+    for id in stale-trie-tables :
+      if updated.add(id) :
+        compute-trie-table(id)
+        dags.add(compute-branch-dag(id))
+    stale-trie-tables.clear
+    dags.to-tuple
 
-  defn ensure-no-stale-tables! () :
-    #if-not-defined(OPTIMIZE) :
-      for i in 0 to length(formats) do :
-        if not key?(trie-table, i) :
-          fatal("Trie table %_ is stale." % [i])
-    false
+  ;Compute the branch dag for format 'i'.
+  defn compute-branch-dag (i:Int) -> BranchDag :
+    within log-time(BRANCH-TABLE-DISPATCH-DAG) :
+      match(resolve-format(formats[i])) :
+        (f:MatchFormat) :
+          val dag = ct.make-branch-table(f.branches).compute-dispatch-dag(false)
+          MatchDag(i, dag)
+        (f:DispatchFormat) :
+          val dag = ct.make-branch-table(f.branches).compute-dispatch-dag(true)
+          DispatchDag(i, dag)
+        (f:ResolvedMultiFormat) :
+          val dag = ct.make-branch-table(f.methods.seq(types))
+                      .compute-dispatch-dag(true)
+                      .add-to-depth(f.num-header-args)
+          MultiDag(i, dag, f.methods.map(fid))
 
   ;==================================================
   ;========== Computing the Trie Table ==============
@@ -145,9 +101,12 @@ public defn BranchTable (ct:ClassTable) :
     val f* = resolve-format(formats[i])
     compute-trie-table-entry(trie-table, ct, i, f*)
 
-  defn resolve-format (f:BranchFormat) :
-    match(f:MultiFormat) : ResolvedMultiFormat(num-header-args(f), methods-of-multi(multi(f)))
-    else : f
+  ;Resolves any MultiFormat to a ResolvedMultiFormat.
+  defn resolve-format (f:BranchFormat) -> BranchFormat :
+    match(f:MultiFormat) :
+      ResolvedMultiFormat(f.num-header-args, methods-of-multi(f.multi))
+    else :
+      f
 
   ;==================================================
   ;================ Adding new Formats ==============
@@ -158,7 +117,7 @@ public defn BranchTable (ct:ClassTable) :
     format-class-dependencies[i] = class-dependencies(bf)
     format-table[bf] = i
     match(bf:MultiFormat) :
-      add(multi-formats, multi(bf), i)
+      multi-formats.add(bf.multi, i)
     invalidate-table(i)
     i
 
@@ -184,10 +143,12 @@ public defn BranchTable (ct:ClassTable) :
     match(m:LoadedMethod) :
       not instance-method?(m) and package(m) == p
 
-  defn methods-of-multi (multi:Int) :
+  ;Retrieve all registered methods for the given multi.
+  defn methods-of-multi (multi:Int) -> Tuple<Method> :
     to-tuple $
       for i in backward(method-multi-table, multi) seq :
-        methods[i] as LoadedMethod
+        val m = methods[i] as LoadedMethod
+        Method(m.fid, m.types)
 
   defn load-package-methods (package-name:Symbol, ms:Seqable<VMMethod>) :
     ;Remove old methods
@@ -277,118 +238,19 @@ defn class-dependencies (ts:Seqable<TypeSet>) -> Tuple<Int> :
   remove-duplicates!(ds)
   to-tuple(ds)
 
-defn class-dependencies (f:BranchFormat) :
+defn class-dependencies (f:BranchFormat) -> Tuple<Int> :
   match(f) :
-    (f:DispatchFormat|MatchFormat) : class-dependencies $ cat-all(branches(f))
+    (f:DispatchFormat|MatchFormat) : f.branches.cat-all.class-dependencies
     (f:MultiFormat) : []
 
-defn class-dependencies (f:VMMethod) :
-  class-dependencies(types(f))
+defn class-dependencies (f:VMMethod) -> Tuple<Int> :
+  f.types.class-dependencies
 
 ;Compute all the multi dependencies of a format
-defn multi-dependencies (f:BranchFormat) :
+defn multi-dependencies (f:BranchFormat) -> Tuple<Int> :
   match(f) :
-    (f:MultiFormat) : [multi(f)]
+    (f:MultiFormat) : [f.multi]
     (f:DispatchFormat|MatchFormat) : []
-
-;<doc>=======================================================
-;================== PtrBuffer Datastructure =================
-;============================================================
-
-# Creation of PtrBuffer #
-
-Input:
-  n:ref<Int>
-Output:
-  buffer:ref<PtrBuffer>
-
-# Store new pointer into PtrBuffer #
-
-Input:
-  b:ref<PtrBuffer>
-  i:int
-  p:ptr<?>
-
-# Retrieve the data pointer of ref<PtrBuffer> #
-
-  p.data
-
-# Check whether key i exists in PtrBuffer #
-
-Input:
-  b:ref<PtrBuffer>
-  i:ref<Int>
-Output:
-  exists?:ref<True|False>
-
-# Remove an entry i from PtrBuffer #
-
-Input:
-  b:ref<PtrBuffer>
-  i:ref<Int>
-Output:
-  removed?:ref<True|False>
-
-;============================================================
-;=======================================================<doc>
-
-public lostanza deftype PtrBuffer :
-  var length: int
-  var data: ptr<ptr<?>>
-
-lostanza defn PtrBuffer (n:ref<Int>) -> ref<PtrBuffer> :
-  val len = n.value
-  val data:ptr<ptr<?>> = call-c clib/stz_malloc(len * sizeof(ptr<?>))
-  for (var i:int = 0, i < len, i = i + 1) :
-    data[i] = null
-  return new PtrBuffer{len, data}
-
-lostanza defn ensure-capacity (p:ref<PtrBuffer>, c:int) -> int :
-  val l0 = p.length
-  if l0 < c :
-    ;Compute new length
-    var l:int = l0
-    while l < c : l = l * 2
-    ;Allocate new data, and copy old stuff over
-    val data:ptr<ptr<?>> = call-c clib/stz_malloc(l * sizeof(ptr<?>))
-    call-c clib/memcpy(data, p.data, l0 * sizeof(ptr<?>))
-    ;Void out left over slots
-    for (var i:int = l0, i < l, i = i + 1) :
-      data[i] = null
-    ;Free old data, and set new data and length
-    call-c clib/stz_free(p.data)
-    p.data = data
-    p.length = l
-  return 0
-
-lostanza defn set (p:ref<PtrBuffer>, i:int, p*:ptr<?>) -> int :
-  ensure-capacity(p, i + 1)
-  ;Free old ptr
-  val p0 = p.data[i]
-  if p0 != null : call-c clib/stz_free(p0)
-  ;Store new ptr
-  p.data[i] = p*
-  return 0
-
-lostanza defn key? (b:ref<PtrBuffer>, i:ref<Int>) -> ref<True|False> :
-  if i.value < b.length :
-    val p = b.data[i.value]
-    if p == null : return false
-    else : return true
-  else :
-    return false
-
-lostanza defn remove (b:ref<PtrBuffer>, i:ref<Int>) -> ref<True|False> :
-  if i.value < b.length :
-    val p = b.data[i.value]
-    if p == null :
-      return false
-    else :
-      call-c clib/stz_free(p)
-      b.data[i.value] = null
-      return true
-  else :
-    return false
 
 ;<doc>=======================================================
 ;================ Encoding of Branch Formats ================
@@ -440,33 +302,32 @@ defn encode-branch-format (ct:ClassTable, f:BranchFormat) -> Vector<Int> :
   match(f) :
     (f:MatchFormat) :
       val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
-        val branch-table = make-branch-table(ct, branches(f))
-        compute-dispatch-dag(branch-table, false)
+        ct.make-branch-table(f.branches).compute-dispatch-dag(false)
       defn soln-id (s:Soln) :
         match(s) :
           (s:NoSoln) : 0
           (s:UniqueSoln) : index(s) + 1
-      encode-dag(dag, 0, soln-id)
+      encode-dag(dag, soln-id)
     (f:DispatchFormat) :
       val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
-        val branch-table = make-branch-table(ct, branches(f))
-        compute-dispatch-dag(branch-table, true)      
+        ct.make-branch-table(f.branches).compute-dispatch-dag(true)
       defn soln-id (s:Soln) :
         match(s) :
           (s:NoSoln) : 0
           (s:AmbSoln) : 1
           (s:UniqueSoln) : index(s) + 2
-      encode-dag(dag, 0, soln-id)
+      encode-dag(dag, soln-id)
     (f:ResolvedMultiFormat) :
       val dag = within log-time(BRANCH-TABLE-DISPATCH-DAG) :
-        val branch-table = make-branch-table(ct, seq(types,methods(f)))
-        compute-dispatch-dag(branch-table, true)
+        ct.make-branch-table(f.methods.seq(types))
+          .compute-dispatch-dag(true)
+          .add-to-depth(f.num-header-args)
       defn soln-id (s:Soln) :
         match(s) :
           (s:NoSoln) : 0
           (s:AmbSoln) : 1
-          (s:UniqueSoln) : fid(methods(f)[index(s)]) + 2
-      encode-dag(dag, num-header-args(f), soln-id)
+          (s:UniqueSoln) : f.methods[s.index].fid + 2
+      encode-dag(dag, soln-id)
 
 ;Conversion of a Vector<int> into a ptr<int>
 lostanza defn to-int-ptr (xs:ref<Vector<Int>>) -> ptr<int> :
