@@ -856,6 +856,18 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
         E $ DefText()
     E $ Comment("End of Data Tables")
 
+  defn emit-heap-statistics-table (code-emitter:CodeEmitter) :
+    defn E (i:Ins) : emit(code-emitter, i)
+    E $ Comment("Heap Statistics Table")
+    E $ DefData()
+    E $ Label(/heap-statistics(stubs))
+    E $ DefLong(to-long(num-concrete-classes))
+    for i in 0 to num-concrete-classes do :
+      E $ DefLong(0L) ; num-uses
+      E $ DefLong(0L) ; num-bytes
+    E $ DefText()
+    E $ Comment("End of Heap Statistics Table")
+
   ;Emit class table
   defn emit-class-table (code-emitter:CodeEmitter) :
     defn E (i:Ins) : emit(code-emitter, i)
@@ -995,6 +1007,7 @@ public defn Stitcher (packages:Collection<VMPackage>, bindings:Bindings|False, s
       ; so they can be dynamically imported by other executables
       if generate-export-directives-table?(backend(stubs)) :
         emit-export-table(code-emitter)
+      emit-heap-statistics-table(code-emitter)
     defmethod stubs (this) :
       stubs
     defmethod core-fn (this, id:FnId) :

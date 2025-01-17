@@ -72,6 +72,7 @@ public defstruct AsmStubs :
   collect-garbage:Int
   saved-regs:Tuple<Int>
   saved-fregs:Tuple<Int>
+  heap-statistics:Int
   class-table:Int
   global-root-table:Int
   stackmap-table:Int
@@ -128,6 +129,7 @@ public defn AsmStubs (backend:Backend) :
     next(id-counter)  ;collect-garbage:Int
     saved-regs        ;saved-regs:Tuple<Int>
     saved-fregs       ;saved-fregs:Tuple<Int>
+    next(id-counter)  ;heap-statistics:Int
     next(id-counter)  ;class-table:Int
     next(id-counter)  ;global-root-table:Int
     next(id-counter)  ;stackmap-table:Int
@@ -334,6 +336,7 @@ public defn compile-entry-function (emitter:CodeEmitter, stubs:AsmStubs) :
                                #label(safepoint-table)        ;safepoint-table:ptr<?>
                                #label(debug-table)            ;debug-table:ptr<?>
                                #label(local-var-table)        ;local-var-table:ptr<?>
+                               #label(heap-statistics)        ;heap-statistics:ptr<?>
                                #label(class-table)            ;class-table:ptr<?>
                                #label(global-root-table)      ;global-root-table:ptr<GlobalRoots>
                                #label(stackmap-table)         ;stackmap-table:ptr<?>

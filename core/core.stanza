@@ -209,36 +209,75 @@ protected lostanza deftype ArrayRecord :
   num-item-roots:int
   roots:int ...
 
+lostanza deftype HeapStatistics :
+  length: long
+  entries: HeapStatistic ...
+
+protected lostanza deftype HeapStatistic :
+  var num-uses:long
+  var num-bytes:long
+
 ;The first fields in VMState are used by the core library
 ;in both compiled and interpreted mode. The last fields
 ;are used only in compiled mode.
 ;Permanent state changes in-between each code load.
 ;Variable state changes in-between each boundary change.
-protected lostanza deftype VMState :
-  ;Compiled and Interpreted Mode
-  global-offsets: ptr<long>   ;(Permanent State)
-  global-mem: ptr<byte>       ;(Permanent State)
-  var sig-handler: long       ;(Permanent State)
-  var current-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
-  var stepping-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
-  const-table: ptr<long>      ;(Permanent State)
-  const-mem: ptr<byte>        ;(Permanent State)
-  data-offsets: ptr<int>      ;(Permanent State)
-  data-mem: ptr<byte>         ;(Permanent State)
-  code-offsets: ptr<int>      ;(Permanent State)
-  registers: ptr<long>        ;(Permanent State)
-  system-registers: ptr<long> ;(Permanent State)
-  var heap: Heap              ;(Variable State)
-  safepoint-table: ptr<?>     ;(Variable State)
-  debug-table: ptr<?>         ;(Variable State)
-  local-var-table: ptr<?>     ;(Variable State)
-  ;Compiled Mode Tables
-  class-table: ptr<ClassDescriptor>
-  global-root-table: ptr<GlobalRoots>
-  stackmap-table: ptr<ptr<StackMap>>
-  stack-trace-table: ptr<StackTraceTable>
-  extern-table: ptr<ExternTable>
-  extern-defn-table: ptr<ExternDefnTable>
+#if-defined(BOOTSTRAP) :
+
+  protected lostanza deftype VMState :
+    ;Compiled and Interpreted Mode
+    global-offsets: ptr<long>   ;(Permanent State)
+    global-mem: ptr<byte>       ;(Permanent State)
+    var sig-handler: long       ;(Permanent State)
+    var current-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
+    var stepping-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
+    const-table: ptr<long>      ;(Permanent State)
+    const-mem: ptr<byte>        ;(Permanent State)
+    data-offsets: ptr<int>      ;(Permanent State)
+    data-mem: ptr<byte>         ;(Permanent State)
+    code-offsets: ptr<int>      ;(Permanent State)
+    registers: ptr<long>        ;(Permanent State)
+    system-registers: ptr<long> ;(Permanent State)
+    var heap: Heap              ;(Variable State)
+    safepoint-table: ptr<?>     ;(Variable State)
+    debug-table: ptr<?>         ;(Variable State)
+    local-var-table: ptr<?>     ;(Variable State)
+    ;Compiled Mode Tables
+    class-table: ptr<ClassDescriptor>
+    global-root-table: ptr<GlobalRoots>
+    stackmap-table: ptr<ptr<StackMap>>
+    stack-trace-table: ptr<StackTraceTable>
+    extern-table: ptr<ExternTable>
+    extern-defn-table: ptr<ExternDefnTable>
+
+#else:
+
+  protected lostanza deftype VMState :
+    ;Compiled and Interpreted Mode
+    global-offsets: ptr<long>   ;(Permanent State)
+    global-mem: ptr<byte>       ;(Permanent State)
+    var sig-handler: long       ;(Permanent State)
+    var current-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
+    var stepping-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
+    const-table: ptr<long>      ;(Permanent State)
+    const-mem: ptr<byte>        ;(Permanent State)
+    data-offsets: ptr<int>      ;(Permanent State)
+    data-mem: ptr<byte>         ;(Permanent State)
+    code-offsets: ptr<int>      ;(Permanent State)
+    registers: ptr<long>        ;(Permanent State)
+    system-registers: ptr<long> ;(Permanent State)
+    var heap: Heap              ;(Variable State)
+    safepoint-table: ptr<?>     ;(Variable State)
+    debug-table: ptr<?>         ;(Variable State)
+    local-var-table: ptr<?>     ;(Variable State)
+    heap-statistics: ptr<HeapStatistics> ;(Variable State) 
+    ;Compiled Mode Tables
+    class-table: ptr<ClassDescriptor>
+    global-root-table: ptr<GlobalRoots>
+    stackmap-table: ptr<ptr<StackMap>>
+    stack-trace-table: ptr<StackTraceTable>
+    extern-table: ptr<ExternTable>
+    extern-defn-table: ptr<ExternDefnTable>
 
 lostanza deftype ExternTable :
   length: long
@@ -2775,6 +2814,89 @@ public lostanza defn max (x:long, y:long) -> long :
 public lostanza defn min (x:long, y:long) -> long :
   if x < y : return x
   else : return y
+
+;============================================================
+;===================== Heap Analyzer ========================
+;============================================================
+
+#if-defined(BOOTSTRAP) :
+
+  public defn analyze-heap () -> Long : 0L
+
+#else :
+
+  public defstruct HeapStat :
+    tag : Int         ; type
+    name : String     ; name of type
+    num-uses : Long   ; num references in heap
+    num-bytes : Long  ; num bytes occupied in heap
+  with:
+    printer => true
+
+  ; run gc, collect heap stats while walking each object in  nursery and heap
+  lostanza defn do-analyze-heap (stats:ref<Vector<HeapStat>>) -> ref<Long> :
+    val vms:ptr<VMState> = call-prim flush-vm()
+    run-garbage-collector()
+    val num-classes = vms.heap-statistics.length
+    clear(addr(vms.heap-statistics.entries), num-classes * sizeof(HeapStatistic))
+    val hsize = do-analyze-heap(vms.heap.start, vms.heap.old-objects-end, vms)
+    val nursery = nursery-start(addr(vms.heap))
+    val nsize = do-analyze-heap(nursery, vms.heap.top, vms)
+    for (var i:int = 0, i < num-classes, i = i + 1) :
+      val heap-stat = addr(vms.heap-statistics.entries[i])
+      val num-uses = heap-stat.num-uses
+      if num-uses > 0L :
+        add(stats, HeapStat(new Int{i as int}, String(class-name(i)), new Long{num-uses}, new Long{heap-stat.num-bytes}))
+    return new Long{ hsize + nsize }
+
+  ; collect heap stats while walking each object in consecutive range of memory
+  lostanza defn do-analyze-heap (pstart:ptr<long>, pend:ptr<long>, vms:ptr<VMState>) -> long :
+    var p:ptr<long> = pstart
+    while p < pend :
+      val tag = [p] as int
+      val class = vms.class-table[tag].record
+      var size:long = 0L
+      if class.item-size == 0 :
+        size = object-size-on-heap(class.size)
+      else :
+        val class = class as ptr<ArrayRecord>
+        val array = p as ptr<ObjectLayout>
+        val len = array.slots[0]
+        val base-size = class.base-size
+        val item-size = class.item-size
+        val my-size = base-size + item-size * len
+        size = object-size-on-heap(my-size)
+      p = p + size
+      val stat = addr(vms.heap-statistics.entries[tag])
+      stat.num-uses  = stat.num-uses + 1L
+      stat.num-bytes = stat.num-bytes + size
+    return (pend as long) - (pstart as long)
+
+  public defstruct HeapStats :
+    total-size : Long
+    entries : Tuple<HeapStat>
+
+  ; public interface to heap analyzer collecting and printing out stats
+  public defn analyze-heap () -> HeapStats :
+    val stats = Vector<HeapStat>()
+    val size = do-analyze-heap(stats)
+    val res = reverse(to-list(lazy-qsort(num-bytes, stats)))
+    HeapStats(size, to-tuple(res))
+
+  public defn dump (stats:HeapStats) :
+    println("Heap size %_" % [total-size(stats)])
+    var max-bytes-size = reduce(max, length("Size"), seq({ length(to-string(num-bytes(_))) }, entries(stats)))
+    var max-perc-size  = 6
+    var max-uses-size  = reduce(max, length("Uses"), seq({ length(to-string(num-uses(_))) }, entries(stats)))
+    defn pad (s:String, n:Int) -> String : append-all(cat(repeatedly({ " " }, (n - length(s))), [s]))
+    defn pad0 (s:String, n:Int) -> String : append-all(cat([s], repeatedly({ "0" }, (n - length(s)))))
+    println("  %_ %_ %_: %_" % [pad("Size", max-bytes-size), pad("Perc", max-perc-size), pad("Use", max-uses-size), "Type"])
+    for hc in entries(stats) do :
+      val pt = to-int(to-double(num-bytes(hc)) * 10000.0 / to-double(total-size(stats)))
+      val p  = string-join $ [pt / 100, ".", pad0(to-string(pt - ((pt / 100) * 100)), 2)]
+      println("  %_ %_%% %_: %_" % [
+        pad(to-string(num-bytes(hc)), max-bytes-size), pad(p, max-perc-size), pad(to-string(num-uses(hc)), max-uses-size), name(hc)])
+  
 
 ;============================================================
 ;===================== Debugging ============================
