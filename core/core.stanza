@@ -214,31 +214,83 @@ protected lostanza deftype ArrayRecord :
 ;are used only in compiled mode.
 ;Permanent state changes in-between each code load.
 ;Variable state changes in-between each boundary change.
-protected lostanza deftype VMState :
-  ;Compiled and Interpreted Mode
-  global-offsets: ptr<long>   ;(Permanent State)
-  global-mem: ptr<byte>       ;(Permanent State)
-  var sig-handler: long       ;(Permanent State)
-  var current-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
-  var stepping-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
-  const-table: ptr<long>      ;(Permanent State)
-  const-mem: ptr<byte>        ;(Permanent State)
-  data-offsets: ptr<int>      ;(Permanent State)
-  data-mem: ptr<byte>         ;(Permanent State)
-  code-offsets: ptr<int>      ;(Permanent State)
-  registers: ptr<long>        ;(Permanent State)
-  system-registers: ptr<long> ;(Permanent State)
-  var heap: Heap              ;(Variable State)
-  safepoint-table: ptr<?>     ;(Variable State)
-  debug-table: ptr<?>         ;(Variable State)
-  local-var-table: ptr<?>     ;(Variable State)
-  ;Compiled Mode Tables
-  class-table: ptr<ClassDescriptor>
-  global-root-table: ptr<GlobalRoots>
-  stackmap-table: ptr<ptr<StackMap>>
-  stack-trace-table: ptr<StackTraceTable>
-  extern-table: ptr<ExternTable>
-  extern-defn-table: ptr<ExternDefnTable>
+#if-defined(BOOTSTRAP) :
+
+  protected lostanza deftype VMState :
+    ;Compiled and Interpreted Mode
+    global-offsets: ptr<long>   ;(Permanent State)
+    global-mem: ptr<byte>       ;(Permanent State)
+    var sig-handler: long       ;(Permanent State)
+    var current-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
+    var stepping-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
+    const-table: ptr<long>      ;(Permanent State)
+    const-mem: ptr<byte>        ;(Permanent State)
+    data-offsets: ptr<int>      ;(Permanent State)
+    data-mem: ptr<byte>         ;(Permanent State)
+    code-offsets: ptr<int>      ;(Permanent State)
+    registers: ptr<long>        ;(Permanent State)
+    system-registers: ptr<long> ;(Permanent State)
+    var heap: Heap              ;(Variable State)
+    safepoint-table: ptr<?>     ;(Variable State)
+    debug-table: ptr<?>         ;(Variable State)
+    local-var-table: ptr<?>     ;(Variable State)
+    ;Compiled Mode Tables
+    class-table: ptr<ClassDescriptor>
+    global-root-table: ptr<GlobalRoots>
+    stackmap-table: ptr<ptr<StackMap>>
+    stack-trace-table: ptr<StackTraceTable>
+    extern-table: ptr<ExternTable>
+    extern-defn-table: ptr<ExternDefnTable>
+
+  lostanza defn initialize-dominator-tree () -> ref<False> :
+    return false
+
+#else:
+
+  protected lostanza deftype HeapDominator :
+    var roots : ptr<LSLongVector>
+    var sizes : ptr<LSLongVector>
+    var addrs : ptr<LSLongVector>
+    var offs  : ptr<LSLongVector>
+    var heap  : ptr<LSLongVector>
+
+  protected lostanza deftype VMState :
+    ;Compiled and Interpreted Mode
+    global-offsets: ptr<long>   ;(Permanent State)
+    global-mem: ptr<byte>       ;(Permanent State)
+    var sig-handler: long       ;(Permanent State)
+    var current-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
+    var stepping-coroutine-ptr: ptr<long> ;[TODO] Change to long to represent reference.
+    const-table: ptr<long>      ;(Permanent State)
+    const-mem: ptr<byte>        ;(Permanent State)
+    data-offsets: ptr<int>      ;(Permanent State)
+    data-mem: ptr<byte>         ;(Permanent State)
+    code-offsets: ptr<int>      ;(Permanent State)
+    registers: ptr<long>        ;(Permanent State)
+    system-registers: ptr<long> ;(Permanent State)
+    var heap: Heap              ;(Variable State)
+    safepoint-table: ptr<?>     ;(Variable State)
+    debug-table: ptr<?>         ;(Variable State)
+    local-var-table: ptr<?>     ;(Variable State)
+    var dom: ptr<HeapDominator> ;(Variable State)
+    ;Compiled Mode Tables
+    class-table: ptr<ClassDescriptor>
+    global-root-table: ptr<GlobalRoots>
+    stackmap-table: ptr<ptr<StackMap>>
+    stack-trace-table: ptr<StackTraceTable>
+    extern-table: ptr<ExternTable>
+    extern-defn-table: ptr<ExternDefnTable>
+
+  lostanza defn initialize-dominator-tree () -> ref<False> :
+    val vms:ptr<core/VMState> = call-prim flush-vm()
+    val dom = (call-c clib/malloc(sizeof(HeapDominator))) as ptr<HeapDominator>
+    dom.roots = LSLongVector()
+    dom.sizes = LSLongVector()
+    dom.addrs = LSLongVector()
+    dom.offs  = LSLongVector()
+    dom.heap  = LSLongVector()
+    vms.dom   = dom
+    return false
 
 lostanza deftype ExternTable :
   length: long
@@ -1614,9 +1666,9 @@ lostanza defn iterate-roots (f:ptr<((ptr<long>, ptr<VMState>) -> ref<False>)>,
   return [vms.heap.iterate-roots](f, vms)
 
 ;Call f on all references stored in the object pointed to by p.
-lostanza defn iterate-references (p:ptr<long>,
-                                  f:ptr<((ptr<long>, ptr<VMState>) -> ref<False>)>,
-                                  vms:ptr<VMState>) -> ref<False> :
+protected lostanza defn iterate-references (p:ptr<long>,
+                                            f:ptr<((ptr<long>, ptr<VMState>) -> ref<False>)>,
+                                            vms:ptr<VMState>) -> ref<False> :
   ;Retrieve the object's tag.
   val tag = get-tag(p)
   ;Fast path using fast descriptor table.
@@ -2632,8 +2684,8 @@ public lostanza defn clear (start:ptr<?>, size:long) -> ptr<?> :
   return call-c clib/memset(start, 0, size)
 
 ;Call f on all root pointers.
-lostanza defn core-iterate-roots (f:ptr<((ptr<long>, ptr<VMState>) -> ref<False>)>,
-                                  vms:ptr<VMState>) -> ref<False> :
+protected lostanza defn core-iterate-roots (f:ptr<((ptr<long>, ptr<VMState>) -> ref<False>)>,
+                                            vms:ptr<VMState>) -> ref<False> :
   ;Scan globals
   val globals = vms.global-mem as ptr<long>
   val roots = vms.global-root-table
@@ -4203,6 +4255,7 @@ initialize-gc-notifiers()
 initialize-gc-statistics()
 initialize-liveness-handlers()
 initialize-symbol-table()
+initialize-dominator-tree()
 
 ;================================================================================
 ;========================== End of Boot Sequence ================================

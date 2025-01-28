@@ -1,6 +1,5 @@
 defpackage core/long-vector :
   import core
-  import collections
 
 public lostanza deftype LSLongVector :
   var capacity: int

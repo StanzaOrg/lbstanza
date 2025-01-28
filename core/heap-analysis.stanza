@@ -1,0 +1,370 @@
+defpackage core/heap-analysis :
+  import core
+  import collections
+  import core/long-vector
+
+;;; UTILITIES
+
+defn scatter<?T> (src:Seqable<?T>, idx:Tuple<Int>) -> Tuple<T> :
+  val dst = Array<T>(length(idx))
+  for (x in src, i in 0 to false) do : dst[idx[i]] = x
+  to-tuple(dst)
+
+defn gather<?T> (src:Tuple<?T>, idx:Seqable<Int>) -> Seq<T> :
+  seq({ src[_] }, idx)
+
+defn gather<?T> (src:IndexedCollection<?T>, idx:Seqable<Int>) -> Seq<T> :
+  seq({ src[_] }, idx)
+
+lostanza defn clear (v:ptr<LSLongVector>) -> ref<False> :
+  v.length = 0
+  return false
+
+lostanza defn class-name (x:ref<Int>) -> ref<String> :
+  var res:ref<String>
+  if x.value == -1 :
+    res = String("root")
+  else :
+    res = String(class-name(x.value))
+  return res
+
+#if-defined(BOOTSTRAP) :
+
+  public defn heap-dominator-tree (filename:String) : false
+
+#else :
+
+  ;;; INTERFACE TO STANZA MEMORY SYSTEM
+
+  lostanza defn addrs (dom:ptr<core/HeapDominator>) -> ptr<LSLongVector> :
+    return dom.addrs as ptr<LSLongVector>
+
+  lostanza defn heap (dom:ptr<core/HeapDominator>) -> ptr<LSLongVector> :
+    return dom.heap as ptr<LSLongVector>
+
+  lostanza defn sizes (dom:ptr<core/HeapDominator>) -> ptr<LSLongVector> :
+    return dom.sizes as ptr<LSLongVector>
+
+  lostanza defn roots (dom:ptr<core/HeapDominator>) -> ptr<LSLongVector> :
+    return dom.roots as ptr<LSLongVector>
+
+  lostanza defn offs (dom:ptr<core/HeapDominator>) -> ptr<LSLongVector> :
+    return dom.offs as ptr<LSLongVector>
+
+  lostanza defn collect-object-address-and-size
+      (p:ptr<long>, tag:int, size:long, vms:ptr<core/VMState>) -> ref<False> :
+    add(addrs(vms.dom), p as long)
+    add(sizes(vms.dom), size as long)
+    return false
+
+  lostanza defn collect-object-contents
+      (p:ptr<long>, tag:int, size:long, vms:ptr<core/VMState>) -> ref<False> :
+    add(offs(vms.dom), heap(vms.dom).length)
+    add(heap(vms.dom), tag as long)
+    val idx = heap(vms.dom).length
+    add(heap(vms.dom), 0L) ; place holder
+    core/iterate-references(p, addr(do-collect-object-contents), vms)
+    heap(vms.dom).items[idx] = heap(vms.dom).length - idx - 1
+    return false
+
+  lostanza defn do-collect-object-contents (ref:ptr<long>, vms:ptr<core/VMState>) -> ref<False> :
+    ;Retrieve the value at the given heap pointer.
+    val v = [ref]
+    ;Is this a reference to a Stanza heap object?
+    val tagbits = v & 7L
+    if tagbits == 1L :
+      ;Remove the tag bits to retrieve the object pointer.
+      val p = (v - 1) as ptr<long>
+      add(heap(vms.dom), addr-to-id(addrs(vms.dom), p as long) + 1)
+    return false
+
+  public lostanza defn register-all-roots (vms:ptr<core/VMState>) -> ref<False> :
+    core/core-iterate-roots(addr(register-root-reference), vms)
+    register-stack-roots(vms)
+    return false
+
+  public lostanza defn register-stack-roots (vms:ptr<core/VMState>) -> ref<False> :
+    var stack:ptr<Stack> = vms.heap.stacks
+    while stack != null :
+      iterate-references-in-stack-frames(stack, addr(register-root-reference), vms)
+      stack = stack.tail
+    return false
+
+  public lostanza defn register-root-reference (ref:ptr<long>, vms:ptr<core/VMState>) -> ref<False> :
+    val v = [ref]
+    val tagbits = v & 7L ; heap object?
+    if tagbits == 1L :
+      val p = (v - 1) as ptr<long> ; remove tag bits to retrieve object pointer
+      add(roots(vms.dom), p as long)
+    return false
+
+  lostanza defn iterate-objects
+      (pstart:ptr<long>, pend:ptr<long>, vms:ptr<core/VMState>,
+       f:ptr<((ptr<long>, int, long, ptr<core/VMState>) -> ref<False>)>) -> ref<False> :
+    var p:ptr<long> = pstart
+    while p < pend :
+      val tag = [p] as int
+      val class = vms.class-table[tag].record
+      var size:long = 0L
+      if class.item-size == 0 :
+        size = object-size-on-heap(class.size)
+      else :
+        val class = class as ptr<core/ArrayRecord>
+        val array = p as ptr<ObjectLayout>
+        val len = array.slots[0]
+        val base-size = class.base-size
+        val item-size = class.item-size
+        val my-size = base-size + item-size * len
+        size = object-size-on-heap(my-size)
+      [f](p, tag, size, vms)
+      p = p + size
+    return false 
+
+  ;; Look up offset into sorted list of object addresses using binary search
+  lostanza defn addr-to-id (xs:ptr<LSLongVector>, x:long) -> long :
+    var res:long = -1L
+    labels :
+      begin: goto loop(0L, xs.length)
+      loop (start:long, end:long) :
+        if end > start :
+          val center = (start + end) >> 1
+          val xc = xs.items[center]
+          if x == xc : res = center
+          else if x < xc : goto loop(start, center)
+          else : goto loop(center + 1L, end)
+    return res
+
+  ;;; LowFlatObject -- create flat and packed version of roots and objects
+  ;;;               -- stores tag, num-refs, refs for each object
+  ;;;               -- also has extra root root object with ref per root
+
+  lostanza deftype LowFlatObjects :
+    var sizes : ptr<LSLongVector> ; static sizes of objects
+    var offs  : ptr<LSLongVector> ; offsets to inlined objects in heap
+    var heap  : ptr<LSLongVector> ; | type | len | ids ... | ...
+
+  lostanza deftype FlatObjects <: IndexedCollection&Lengthable :
+    value : ptr<LowFlatObjects>
+
+  lostanza defn FlatObjects
+      (sizes:ptr<LSLongVector>, offs:ptr<LSLongVector>, heap:ptr<LSLongVector>) -> ref<FlatObjects> :
+    val lfo = call-c clib/stz_malloc(sizeof(LowFlatObjects)) as ptr<LowFlatObjects>
+    lfo.sizes = sizes
+    lfo.offs  = offs
+    lfo.heap  = heap
+    return new FlatObjects{ lfo }
+
+  lostanza defmethod length (xs:ref<FlatObjects>) -> ref<Int> :
+    return new Int{xs.value.offs.length}
+
+  lostanza defn offset (xs:ref<FlatObjects>, id:ref<Int>) -> ref<Int> :
+    return new Int{xs.value.offs.items[id.value] as int}
+
+  lostanza defmethod get (xs:ref<FlatObjects>, idx:ref<Int>) -> ref<Int> :
+    return new Int{xs.value.heap.items[idx.value] as int}
+
+  ; for some reason can't name this method get like in stanza runtime
+  defn get-all (xs:FlatObjects, indices:Range) -> Seq<Int> :
+    seq({ xs[_] }, indices)
+
+  defn tag-of (xs:FlatObjects, id:Int) -> Int :
+    xs[offset(xs, id)]
+
+  lostanza defn size-of (xs:ref<FlatObjects>, id:ref<Int>) -> ref<Int> :
+    return new Int{ xs.value.sizes.items[id.value] as int }
+
+  defn sizes (objs:FlatObjects) -> Seq<Int> :
+    seq(size-of{objs, _}, 0 to length(objs))
+
+  defn refs (objs:FlatObjects, id:Int) -> Seqable<Int> :
+    val off = offset(objs, id) ; base
+    val num-refs = objs[off + 1]
+    val refs-off = off + 2 
+    get-all(objs, refs-off to (refs-off + num-refs))
+
+  ;; Pack roots / heap into FlatObjects 
+  lostanza defn FlatObjects () -> ref<FlatObjects> :
+    call-c clib/printf("GC...\n")
+    run-garbage-collector()
+    val vms:ptr<core/VMState> = call-prim flush-vm()
+    val dom = vms.dom
+    clear(offs(dom))
+    clear(sizes(dom))
+    clear(heap(dom))
+    ;; get all roots
+    register-all-roots(vms)
+    call-c clib/printf("FOUND %d ROOTS...\n", roots(dom).length)
+    ;; get sizes and addresses of objects on heap
+    add(sizes(dom), roots(dom).length as long) ; dummy root object
+    call-c clib/printf("COLLECT HEAP %lx OBJECT ADDRESSES AND SIZES...\n", vms.heap.start)
+    iterate-objects(vms.heap.start, vms.heap.old-objects-end, vms, addr(collect-object-address-and-size))
+    val nursery = core/nursery-start(addr(vms.heap))
+    call-c clib/printf("COLLECT NURSERY %lx OBJECT ADDRESSES AND SIZES...\n", nursery)
+    iterate-objects(nursery, vms.heap.top, vms, addr(collect-object-address-and-size))
+    call-c clib/printf("FOUND %d OBJECTS...\n", addrs(dom).length)
+    ;; build heap data translated to object ids using addresses and binary search
+    add(offs(dom), 0L)  ; first root object
+    add(heap(dom), -1L) ; dummy root object tag
+    add(heap(dom), roots(dom).length as long)
+    call-c clib/printf("CONVERTING ROOT ADDRESSES TO IDS...\n")
+    for (var i:int = 0, i < roots(dom).length, i = i + 1) :
+      add(heap(dom), addr-to-id(addrs(dom), roots(dom).items[i]) + 1) ; point to roots
+    call-c clib/printf("PACKING HEAP DATA...\n")
+    iterate-objects(vms.heap.start, vms.heap.old-objects-end, vms, addr(collect-object-contents))
+    call-c clib/printf("PACKING NURSERY DATA...\n")
+    iterate-objects(nursery, vms.heap.top, vms, addr(collect-object-contents))
+    clear(addrs(dom))
+    clear(roots(dom))
+    call-c clib/printf("DONE...\n")
+    return FlatObjects(sizes(dom), offs(dom), heap(dom))
+
+  ;;; FlatIdObjects
+
+  ;; Permutation wrapper of flat-objects
+  defstruct FlatIdObjects :
+    order   : Tuple<Int>
+    reorder : Tuple<Int>
+    objs    : FlatObjects
+  with:
+    printer => true
+
+  defn sizes (o:FlatIdObjects) -> Seq<Int> :
+    gather(to-tuple(sizes(objs(o))), order(o))
+
+  defn length (ios:FlatIdObjects) -> Int :
+    length(objs(ios))
+
+  defn nexts (fobjs:FlatIdObjects) -> Tuple<List<Int>> :
+    val objs = objs(fobjs)
+    to-tuple $ for id in order(fobjs) seq :
+      to-list $ seq({ reorder(fobjs)[_] }, refs(objs, id))
+
+  defn prevs (nexts:Tuple<List<Int>>) -> Tuple<List<Int>> :
+    val prevs = Array<List<Int>>(length(nexts), List())
+    for (next in nexts, id in 0 to false) do :
+      for r in next do :
+        prevs[r] = cons(id, prevs[r])
+    to-tuple $ prevs
+
+  defn objects-to-id-objects (objs:FlatObjects) -> FlatIdObjects :
+    FlatIdObjects(to-tuple $ (0 to length(objs)), to-tuple $ (0 to length(objs)), objs)
+
+  ;;; DOMINATORS
+
+  ;; find depth first order of objects
+  defn depth-first (ios:FlatIdObjects) -> FlatIdObjects :
+    val nexts = nexts(ios)
+    val visited? = Array<True|False>(length(ios), false)
+    val order0 = Vector<Int>()
+    let loop (idx:Int = 0) :
+      if not visited?[idx] :
+        visited?[idx] = true
+        for nidx in nexts[idx] do : loop(nidx)
+        add(order0, idx)
+    val missing = filter({ not visited?[_] }, 0 to length(visited?))
+    val order = to-tuple $ cat(missing, order0)
+    FlatIdObjects(to-tuple $ order, scatter(0 to length(order), to-tuple(order)), objs(ios))
+
+  ; fast dominators algorithm assuming depth-first order
+  defn idom (num:Int, prevs:Tuple<List<Int>>) -> Tuple<Int> :
+    val doms = Array<Int>(num, -1)
+    val start-id = num - 1
+    doms[start-id] = start-id
+    defn intersect (b1:Int, b2:Int) -> Int :
+      let loop (finger1:Int = b1, finger2:Int = b2) :
+        if finger1 != finger2 :
+          val finger1 = let iter (finger1:Int = finger1) :
+            if finger1 < finger2 : iter(doms[finger1])
+            else : finger1
+          val finger2 = let iter (finger2:Int = finger2) :
+            if finger2 < finger1 : iter(doms[finger2])
+            else : finger2
+          loop(finger1, finger2)
+        else :
+          finger1
+    let loop () :
+      let iter (b : Int = start-id - 1, changed? : True|False = false) :
+        if b >= 0 :
+          val new-idom = let find (idom:Int = -1, ps:List<Int> = prevs[b]) :
+            if empty?(ps) :
+              idom
+            else :
+              val p = head(ps)
+              val nxt-idom =
+                if doms[p] != -1 :
+                  if idom == -1 : p
+                  else : intersect(p, idom)
+                else : idom
+              find(nxt-idom, tail(ps))
+          val changed? = doms[b] != new-idom
+          doms[b] = new-idom
+          iter(b - 1, changed?)          
+        else :
+          loop() when changed?
+    to-tuple $ doms
+
+  defn calc-sizes (ios:FlatIdObjects, doms:Tuple<Int>) -> Array<Int> :
+    val tot-sizes = to-array<Int> $ sizes(ios)
+    val len = length(ios)
+    for i in 0 to (len - 1) do :
+      if doms[i] >= 0 :
+        tot-sizes[doms[i]] = tot-sizes[doms[i]] + tot-sizes[i]
+    tot-sizes
+
+  defn print-xml
+      (s:FileOutputStream, id-objs:FlatIdObjects, sizes:Array<Int>,
+       nexts:Tuple<List<Int>>, doms:Tuple<Int>, threshold:Int = 0) :
+    val objs = objs(id-objs)
+    defn children (doms:Tuple<Int>) -> Tuple<Tuple<Int>> :
+      val children = to-tuple $ repeatedly({ Vector<Int>() }, length(nexts))
+      for (dom in doms, id in 0 to false) do :
+        add(children[dom], id) when (dom >= 0 and dom != id)
+      map(to-tuple, children)
+    defn stringify (s:String) -> String :
+      replace(s, "&", "A")
+    defn P (n:Int, str:Printable) :
+      for i in 0 to (n * 2) do : print(s, " ")
+      println(s, str)
+    val kiddies = children(doms)
+    let walk (idx:Int = length(doms) - 1, depth:Int = 0) :
+      val id = order(id-objs)[idx]
+      val name = stringify(class-name(tag-of(objs, id)))
+      P(depth, "<%_ RETAINED=\"%_\" STATIC=\"%_\">" % [name, sizes[idx], size-of(objs, id)])
+      val childs = reverse $ to-list $ qsort({ sizes[_] }, filter({ sizes[_] > threshold }, kiddies[idx]))
+      for child in childs do :
+        walk(child, depth + 1)
+      P(depth, "</%_>" % [name])
+
+  public defn heap-dominator-tree (filename:String) :
+    val objs = FlatObjects()
+    val id-objs0 = objects-to-id-objects(objs)
+    val id-objs = depth-first(id-objs0)
+    val nxts = nexts(id-objs)
+    val doms = idom(length(id-objs), prevs(nxts))
+    val sizes = calc-sizes(id-objs, doms)
+    ; print-id-object-stats(objs, to-tuple $ gather(sizes, reorder(id-objs)))
+    val s = FileOutputStream(filename)
+    print-xml(s, id-objs, sizes, nxts, doms)
+    close(s)
+
+  ; heap-dominator-tree("sizes.xml")
+
+  ; defn id-print-guts (id:Int, tag:Int, refs:Seqable<Int>) :
+  ;   print("%_ = {%_ %_}" % [id, class-name(tag), to-tuple $ refs])
+  ; 
+  ; defn print-id-object-guts (objs:FlatObjects) -> False :
+  ;   for id in 0 to length(objs) do :
+  ;     id-print-guts(id, tag-of(objs, id), refs(objs, id))
+  ;     println("")
+  ; 
+  ; defn id-print-stat (id:Int, tag:Int, tot-size:Int, size:Int) :
+  ;   print("%_ = {%_ %_ %_}" % [id, class-name(tag), size, tot-size])
+  ; 
+  ; defn print-id-object-stats (objs:FlatObjects, tot-sizes:Tuple<Int>) -> False :
+  ;   val ids = reverse $ to-list $ qsort({ tot-sizes[_] }, 0 to length(objs))
+  ;   for (id in ids, i in 0 to false) do :
+  ;     val tot-size = tot-sizes[id]
+  ;     if tot-size > 0 :
+  ;       id-print-stat(id, tag-of(objs, id), tot-size, size-of(objs, id))
+  ;       println("")
+
